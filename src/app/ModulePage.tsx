@@ -3,6 +3,8 @@ import { Link, Navigate, useLocation, useParams } from "react-router";
 import { ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Circle, Clock3, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { Input } from "./components/ui/input";
+import { Button } from "./components/ui/button";
 
 type MetricItem = { label: string; value: string; helper: string };
 type ActionItem = { label: string; to: string };
@@ -678,8 +680,8 @@ export function ModulePage() {
 
       <section className="material-card p-5">
         <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             className="material-input pl-11"
             value={keyword}
             onChange={(event) => {
@@ -732,7 +734,7 @@ export function ModulePage() {
             {paginatedSection.type === "cards" ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {paginatedSection.items.map((item) => (
-                  <button
+                  <Button variant="unstyled"
                     key={item.title}
                     type="button"
                     onClick={() => setSelectedDetail({ title: item.title, detail: item.subtitle, tag: item.tag })}
@@ -745,7 +747,7 @@ export function ModulePage() {
                       </div>
                       {item.tag ? <span className="material-chip bg-white text-slate-600">{item.tag}</span> : null}
                     </div>
-                  </button>
+                  </Button>
                 ))}
               </div>
             ) : null}
@@ -787,7 +789,7 @@ export function ModulePage() {
                   const stepKey = `${section.title}-${item.title}`;
                   const currentStatus = stepStatuses[stepKey] ?? item.status;
                   return (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     key={item.title}
                     onClick={() => {
@@ -798,14 +800,14 @@ export function ModulePage() {
                     className="flex w-full gap-4 rounded-[20px] border border-slate-100 bg-slate-50/60 p-4 text-left transition hover:-translate-y-0.5"
                   >
                     <div className="pt-0.5">
-                      {currentStatus === "done" ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : currentStatus === "current" ? <Clock3 className="h-5 w-5 text-blue-600" /> : <Circle className="h-5 w-5 text-slate-300" />}
+                      {currentStatus === "done" ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : currentStatus === "current" ? <Clock3 className="h-5 w-5 text-blue-600" /> : <Circle className="h-5 w-5 text-muted-foreground" />}
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                       <div className="mt-1 text-sm text-slate-500">{item.detail}</div>
-                      <div className="mt-2 text-xs text-slate-400">点击可切换该步骤状态</div>
+                      <div className="mt-2 text-xs text-muted-foreground">点击可切换该步骤状态</div>
                     </div>
-                  </button>
+                  </Button>
                 )})}
               </div>
             ) : null}
@@ -817,7 +819,7 @@ export function ModulePage() {
                     <div className={cn("mb-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold", column.tone)}>{column.title}</div>
                     <div className="space-y-3">
                       {column.cards.map((card) => (
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           key={card.title}
                           onClick={() => setSelectedDetail({ title: card.title, detail: `${column.title} / ${card.detail}` })}
@@ -825,7 +827,7 @@ export function ModulePage() {
                         >
                           <div className="text-sm font-semibold text-slate-800">{card.title}</div>
                           <div className="mt-2 text-sm text-slate-500">{card.detail}</div>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </div>
@@ -838,12 +840,12 @@ export function ModulePage() {
                 第 {currentPage} / {totalPages} 页
               </div>
               <div className="flex gap-2">
-                <button className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage - 1)} disabled={currentPage === 1}>
+                <Button variant="unstyled" className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage - 1)} disabled={currentPage === 1}>
                   <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage + 1)} disabled={currentPage === totalPages}>
+                </Button>
+                <Button variant="unstyled" className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage + 1)} disabled={currentPage === totalPages}>
                   <ChevronRight className="h-4 w-4" />
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -856,7 +858,7 @@ export function ModulePage() {
             <h3 className="text-slate-900">点击详情</h3>
             <p className="mt-1 text-sm text-slate-500">上方卡片、表格和列表点击后会在这里展示明细。</p>
           </div>
-          <button
+          <Button variant="unstyled"
             className="material-button-secondary"
             onClick={() => {
               toast.success("当前模块列表已刷新");
@@ -864,7 +866,7 @@ export function ModulePage() {
           >
             <Sparkles className="h-4 w-4" />
             刷新状态
-          </button>
+          </Button>
         </div>
         {selectedDetail ? (
           <div className="rounded-[22px] bg-[linear-gradient(135deg,#edf5ff_0%,#ffffff_58%,#eef9f7_100%)] p-5">

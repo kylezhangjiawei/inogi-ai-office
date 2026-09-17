@@ -36,10 +36,10 @@ export function ProcWorkspaceTaskList({ tasks, materials, selectedId, disabled, 
         const canAdvance = Boolean(meta.next && can(nextPermissionOf(task)));
         return <TableRow key={task.id} data-state={selectedId === task.id ? "selected" : undefined} className="proc-s01-task-row">
           <TableCell className="proc-s01-material">
-            <button type="button" aria-pressed={selectedId === task.id} aria-controls="proc-workspace-current-task" onClick={() => onSelect(task.id)} disabled={disabled} className="flex min-h-11 w-full items-start gap-2.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
+            <Button variant="unstyled" type="button" aria-pressed={selectedId === task.id} aria-controls="proc-workspace-current-task" onClick={() => onSelect(task.id)} disabled={disabled} className="flex min-h-11 w-full items-start gap-2.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
               {image ? <img src={image} alt="" loading="lazy" decoding="async" className="size-10 shrink-0 rounded-lg border border-border bg-card object-contain" /> : <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Package className="size-5 text-muted-foreground" aria-hidden="true" /></span>}
               <span className="min-w-0"><span className="line-clamp-2 break-words text-sm font-semibold text-foreground">{task.materialName}</span><span className="mt-1 block break-words text-xs text-muted-foreground">{task.spec || t("规格待补充")}</span><span className="mt-1 block break-all text-xs tabular-nums text-muted-foreground">{material?.erpCode ? `${material.erpCode} · ` : ""}{task.code}</span></span>
-            </button>
+            </Button>
           </TableCell>
           <TableCell className="proc-s01-supplier"><span className="proc-s01-cell-label">{t("供应商")}</span><span className="line-clamp-2 break-words text-xs">{suppliers.join("、") || t("未确定")}</span></TableCell>
           <TableCell className="proc-s01-quantity"><span className="proc-s01-cell-label">{t("需求数量")}</span><span className="break-words text-xs font-medium tabular-nums">{Number.isFinite(task.quantity) && task.quantity >= 0 ? task.quantity.toLocaleString() : t("待核对")} {task.unit}</span></TableCell>

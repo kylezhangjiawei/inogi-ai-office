@@ -12,6 +12,7 @@ function functionSource(source, name) {
   return tree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(tree).replace(/^export\s+/, '');
 }
 function evaluate(source, names, bindings = {}) {
+  bindings = { Button: 'button', ...bindings };
   const code = ts.transpileModule(`${source}\nreturn {${names.join(',')}};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
   return new Function(...Object.keys(bindings), code)(...Object.values(bindings));
 }

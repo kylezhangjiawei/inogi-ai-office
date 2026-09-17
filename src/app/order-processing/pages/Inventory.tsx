@@ -91,7 +91,7 @@ function purchaseOrderStatusClass(status: PurchaseOrderStatus) {
     case '待确认':
       return 'border-slate-200 bg-slate-50 text-slate-600';
     case '已下单':
-      return 'border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]';
+      return 'border-[#cbd8f6] bg-accent text-primary';
     case '部分到货':
       return 'border-amber-100 bg-amber-50 text-amber-700';
     case '已完成':
@@ -489,7 +489,7 @@ export function Inventory() {
           <form role="search" aria-label={t('库存筛选')} onSubmit={submitSearch} className="flex w-full flex-wrap items-center gap-2">
             <div className="flex w-full min-w-0 flex-1 items-center gap-2 sm:min-w-[320px]">
               <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   name="inventory-query"
                   value={queryDraft}
@@ -585,7 +585,7 @@ export function Inventory() {
                     <TableCell className="px-4 font-mono text-sm text-slate-800">{item.id}</TableCell>
                     <TableCell>
                       <div className="max-w-[260px] truncate font-medium text-slate-900"><AutoTranslatedText text={itemLabel} /></div>
-                      <div className="mt-0.5 text-xs text-slate-400">
+                      <div className="mt-0.5 text-xs text-muted-foreground">
                         <AutoTranslatedText text={item.spec || '-'} /> {item.unit ? `· ${t(item.unit)}` : ''}
                       </div>
                     </TableCell>
@@ -597,7 +597,7 @@ export function Inventory() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="inline-flex items-center justify-end gap-1 text-[#002fa7] tabular-nums">
+                      <span className="inline-flex items-center justify-end gap-1 text-primary tabular-nums">
                         {item.in > 0 ? <Truck className="size-3.5" aria-hidden="true" /> : null}
                         {quantity(item.in)}
                       </span>
@@ -606,7 +606,7 @@ export function Inventory() {
                     <TableCell className="text-slate-600"><AutoTranslatedText text={item.category} /></TableCell>
                     <TableCell className="max-w-[220px] text-slate-600" title={warehouseNames.join('、')}>
                       <div className="truncate">{warehouseNames.length ? warehouseNames.join('、') : '-'}</div>
-                      {warehouseNames.length > 1 ? <div className="text-[11px] text-slate-400">{warehouseNames.length} {t('个仓库')}</div> : null}
+                      {warehouseNames.length > 1 ? <div className="text-[11px] text-muted-foreground">{warehouseNames.length} {t('个仓库')}</div> : null}
                     </TableCell>
                     <TableCell className="order-horizon-sticky-action sticky right-0 bg-white text-right">
                       <Button
@@ -793,7 +793,7 @@ export function Inventory() {
                       ))}
                       {(detail.item.warehouses?.length ?? 0) === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={4} className="h-24 text-center text-sm text-slate-400">
+                          <TableCell colSpan={4} className="h-24 text-center text-sm text-muted-foreground">
                             {t('暂无分仓库存')}
                           </TableCell>
                         </TableRow>
@@ -805,7 +805,7 @@ export function Inventory() {
                 <section className="overflow-hidden rounded-2xl border border-slate-100">
                   <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                     <h3 className="text-sm font-semibold text-slate-900 text-balance">{t('近期采购订单')}</h3>
-                    <span className="text-xs text-slate-400">{detail.relatedPurchaseOrders?.length ?? 0} {t('条')}</span>
+                    <span className="text-xs text-muted-foreground">{detail.relatedPurchaseOrders?.length ?? 0} {t('条')}</span>
                   </div>
                   <Table className="min-w-[760px]">
                     <TableHeader className="bg-slate-50">
@@ -823,16 +823,16 @@ export function Inventory() {
                         <TableRow key={order.id}>
                           <TableCell className="px-4">
                             {canViewPurchaseOrderDetail ? (
-                              <button
+                              <Button variant="unstyled"
                                 type="button"
                                 aria-label={`${t('查看采购订单')}：${order.poNo}`}
                                 onClick={() => {
                                   closeDetail();
                                   navigate(`${routePath("page:purchase-orders", "/purchase-orders")}/${encodeURIComponent(order.id)}`);
                                 }}
-                                className="rounded-sm font-mono text-blue-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+                                className="rounded-sm font-mono text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
                                 {order.poNo}
-                              </button>
+                              </Button>
                             ) : (
                               <span className="font-mono text-slate-700">{order.poNo}</span>
                             )}
@@ -850,7 +850,7 @@ export function Inventory() {
                       ))}
                       {(detail.relatedPurchaseOrders?.length ?? 0) === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-24 text-center text-sm text-slate-400">
+                          <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
                             {t('暂无关联采购订单')}
                           </TableCell>
                         </TableRow>

@@ -8,22 +8,22 @@ const recordFooter = readFileSync(
   "utf8",
 );
 
-test("登录入口保持仓库原有品牌视觉", () => {
+test("登录入口使用共享 Horizon 配色与悬浮卡片，保留原有品牌和运营背景", () => {
   assert.match(
     page,
     /const DEFAULT_LOGIN_BG = "https:\/\/matechat\.gitcode\.com\/png\/home\/bgHome\.png"/,
   );
   assert.match(
     page,
-    /className="flex min-h-\[100dvh\] flex-col items-center bg-center bg-cover bg-no-repeat px-4 py-6"/,
+    /className="horizon-theme flex min-h-\[100dvh\] flex-col items-center bg-background bg-center bg-cover bg-no-repeat px-4 py-6"/,
   );
   assert.match(
     page,
-    /max-w-sm[\s\S]{0,160}bg-white\/80[\s\S]{0,120}backdrop-blur-md/,
+    /max-w-sm[\s\S]{0,160}bg-card shadow-\[var\(--shadow-focal\)\]/,
   );
   assert.match(
     page,
-    /bg-\[linear-gradient\(145deg,#4338ca_0%,#6366f1_55%,#a5b4fc_100%\)\]/,
+    /className="hidden bg-primary p-10 text-white/,
   );
   assert.match(page, /INOGI AI Office System/);
   assert.match(page, /内部管理系统一体化工作台/);
@@ -35,10 +35,10 @@ test("登录入口保持仓库原有品牌视觉", () => {
     /<SiteRecordFooter className="mt-4 w-full max-w-5xl" \/>/,
   );
   assert.match(recordFooter, /tone = "light"/);
-  assert.match(recordFooter, /hover:text-indigo-600 focus-visible:ring-indigo-300/);
+  assert.match(recordFooter, /hover:text-primary-hover focus-visible:ring-primary/);
 
   for (const obsoleteHorizonPattern of [
-    /horizon-theme/,
+    /linear-gradient|backdrop-blur|tracking-\[/,
     /Horizon 工作台/,
     /一个入口，连接跨部门协作/,
     /<SiteRecordFooter tone="dark"/,

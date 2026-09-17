@@ -6,6 +6,9 @@ import { useI18n } from '../../lib/i18n';
 import { getPurchaseDelivery, isDeliveryDay, PURCHASE_DELIVERY_CHANGED, PurchaseDeliveryError, recordSupplierCommitment,
   type PurchaseDeliveryDetail, type RecordSupplierCommitmentInput } from '../../lib/purchaseDeliveryApi';
 import './purchase-delivery.css';
+import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
+import { Checkbox } from "../../components/ui/checkbox";
 
 export interface PurchaseOrderDeliveryPanelProps {
   lineId: string; orderNo: string; onSaved?: () => void;
@@ -89,12 +92,12 @@ function DeliveryPanel({ lineId, orderNo, onSaved, onStateChange }: PurchaseOrde
       {canWrite && data.canRecord && !editing ? <Button onClick={begin} disabled={Boolean(busy) || needsReload}>{t(data.supplier ? '登记改期或撤销承诺' : '登记供应商承诺')}</Button> : null}
       {editing ? <form className="delivery-form" onSubmit={(event) => void save(event)}>
         <fieldset disabled={Boolean(busy)}><legend>{t('登记供应商承诺')}</legend>
-          <label>{t('供应商承诺到货日期')}<input type="date" value={draft.promisedDate} disabled={Boolean(busy) || draft.withdraw} required={!draft.withdraw} onChange={(event) => setDraft((value) => ({ ...value, promisedDate: event.target.value }))} /></label>
-          <label>{t('供应商沟通日期')}<input type="date" value={draft.communicatedOn} required onChange={(event) => setDraft((value) => ({ ...value, communicatedOn: event.target.value }))} /></label>
-          <label className="delivery-wide">{t('承诺凭据或出处')}<textarea value={draft.evidence} maxLength={2000} required placeholder={t('例如邮件主题与日期、聊天记录时间、文件编号')} onChange={(event) => setDraft((value) => ({ ...value, evidence: event.target.value }))} /></label>
-          <label className="delivery-wide">{t('登记或改期原因')}<textarea value={draft.reason} maxLength={2000} required onChange={(event) => setDraft((value) => ({ ...value, reason: event.target.value }))} /></label>
-          {!data.supplier ? <label className="delivery-check delivery-wide"><input type="checkbox" checked={draft.declareOriginal} disabled={Boolean(busy) || draft.withdraw} onChange={(event) => setDraft((value) => ({ ...value, declareOriginal: event.target.checked }))} />{t('凭据证明此日期为供应商最初承诺')}</label> : null}
-          <label className="delivery-check delivery-wide"><input type="checkbox" checked={draft.withdraw} onChange={(event) => setDraft((value) => ({ ...value, withdraw: event.target.checked }))} />{t('撤销当前承诺日期，保留历史')}</label>
+          <label>{t('供应商承诺到货日期')}<Input type="date" value={draft.promisedDate} disabled={Boolean(busy) || draft.withdraw} required={!draft.withdraw} onChange={(event) => setDraft((value) => ({ ...value, promisedDate: event.target.value }))} /></label>
+          <label>{t('供应商沟通日期')}<Input type="date" value={draft.communicatedOn} required onChange={(event) => setDraft((value) => ({ ...value, communicatedOn: event.target.value }))} /></label>
+          <label className="delivery-wide">{t('承诺凭据或出处')}<Textarea value={draft.evidence} maxLength={2000} required placeholder={t('例如邮件主题与日期、聊天记录时间、文件编号')} onChange={(event) => setDraft((value) => ({ ...value, evidence: event.target.value }))} /></label>
+          <label className="delivery-wide">{t('登记或改期原因')}<Textarea value={draft.reason} maxLength={2000} required onChange={(event) => setDraft((value) => ({ ...value, reason: event.target.value }))} /></label>
+          {!data.supplier ? <label className="delivery-check delivery-wide"><Checkbox checked={draft.declareOriginal} disabled={Boolean(busy) || draft.withdraw} onCheckedChange={(checkedValue) => setDraft((value) => ({ ...value, declareOriginal: (checkedValue === true) }))} />{t('凭据证明此日期为供应商最初承诺')}</label> : null}
+          <label className="delivery-check delivery-wide"><Checkbox checked={draft.withdraw} onCheckedChange={(checkedValue) => setDraft((value) => ({ ...value, withdraw: (checkedValue === true) }))} />{t('撤销当前承诺日期，保留历史')}</label>
         </fieldset>
         <p className="delivery-explanation">{t('首次登记不自动视为最初承诺。保存会记录操作者、凭据、原因与版本。')}</p>
         <Button type="submit" disabled={Boolean(busy) || needsReload}>{t(busy === 'save' ? '保存中…' : '保存承诺记录')}</Button>

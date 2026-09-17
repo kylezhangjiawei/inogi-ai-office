@@ -69,6 +69,7 @@ import { exportInventoryReadinessXlsx } from "./inventoryReadinessExport";
 import { Q5PackagingInventory } from "./components/Q5PackagingInventory";
 import { getInventoryDiagnosticCopy, InventoryMatchExplanation } from "./components/InventoryMatchExplanation";
 import { MaterialPurchaseOrderLines } from "./components/MaterialPurchaseOrderLines";
+import { NativeSelect } from "../components/ui/native-select";
 
 const STATUS_META: Record<InventoryReadinessStatus, { label: string; className: string }> = {
   ready: { label: "目标可覆盖", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
@@ -154,7 +155,7 @@ function MetricCard({
     emerald: "bg-emerald-50 text-emerald-700",
   };
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       aria-label={actionLabel}
       onClick={(event) => onClick(event.currentTarget)}
@@ -169,11 +170,11 @@ function MetricCard({
           <span className={cn("flex size-8 items-center justify-center rounded-lg", tones[tone])}>
             <Icon className="size-4" />
           </span>
-          <ChevronRight className="size-3.5 text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none" />
+          <ChevronRight className="size-3.5 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none" />
         </span>
       </div>
       <p className="mt-1 text-pretty text-xs text-slate-500">{note}</p>
-    </button>
+    </Button>
   );
 }
 
@@ -307,10 +308,10 @@ function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved, 
         {editor.lines.length > 1 && <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
           <p className="text-xs leading-5 text-slate-600">{t("此行合并了 {count} 条来源的用量，请选择要维护的具体来源。", { count: editor.lines.length })}</p>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("物料来源")}
-            <select aria-label={t("物料来源")} value={lineId} disabled={saving} onChange={(event) => chooseLine(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+            <NativeSelect aria-label={t("物料来源")} value={lineId} disabled={saving} onChange={(event) => chooseLine(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
               <option value="">{t("请选择具体来源")}</option>
               {editor.lines.map((entry, index) => <option key={entry.id} value={entry.id}>{index + 1}. {entry.bomPosition || t("未指定位置")} · {entry.name} · {t("单机用量")} {entry.qtyPer ?? "—"}</option>)}
-            </select>
+            </NativeSelect>
           </label>
         </div>}
         {ready && (deleting ? <div className="space-y-2 rounded-lg border border-rose-100 bg-rose-50/60 p-4 text-sm">
@@ -326,14 +327,14 @@ function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved, 
             <Input aria-label={t("物料分类")} readOnly value={materialCategory} className="bg-slate-50 text-slate-600" />
           </label>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("BOM 所属位置")}
-            {isQ5 ? <Input aria-label={t("BOM 所属位置")} readOnly value={line?.bomPosition || t("未指定位置")} className="bg-slate-50 text-slate-600" /> : <select aria-label={t("BOM 所属位置")} value={parentId} onChange={(event) => setParentId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+            {isQ5 ? <Input aria-label={t("BOM 所属位置")} readOnly value={line?.bomPosition || t("未指定位置")} className="bg-slate-50 text-slate-600" /> : <NativeSelect aria-label={t("BOM 所属位置")} value={parentId} onChange={(event) => setParentId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
               <option value="">{t("未指定位置")}</option>
               {positions.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-            </select>}
+            </NativeSelect>}
           </label>
           <div className="text-xs leading-5 text-slate-500 sm:col-span-2">
             <p>{t(isQ5 ? "物料分类沿用 Q5 清单中当前装配组，所属位置不可在此调整。请按已确认的装配清单填写编码与单机用量。" : "物料分类按编码从物料库带出，请在物料库统一维护；BOM 所属位置用于区分使用部位。")}</p>
-            {lookupCurrent?.error && <p role="alert" className="mt-1 text-rose-600">{lookupCurrent.error} <button type="button" className="font-semibold underline" onClick={() => { setMaterialLookup(null); setLookupAttempt((value) => value + 1); }}>{t(isQ5 ? "重试读取单位" : "重试读取分类")}</button></p>}
+            {lookupCurrent?.error && <p role="alert" className="mt-1 text-rose-600">{lookupCurrent.error} <Button variant="unstyled" type="button" className="font-semibold underline" onClick={() => { setMaterialLookup(null); setLookupAttempt((value) => value + 1); }}>{t(isQ5 ? "重试读取单位" : "重试读取分类")}</Button></p>}
           </div>
           <p className="text-xs leading-5 text-slate-500 sm:col-span-2">{t(isQ5 ? "编码用于匹配库存，计量单位来自当前编码的物料档案；如单位不符，请先核对编码与物料档案。" : "编码用于匹配库存。数量单位沿用匹配物料的单位，未匹配时按件计算。")}</p>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700 sm:col-span-2">{t("备注")}<Textarea aria-label={t("备注")} maxLength={1000} value={remark} onChange={(event) => setRemark(event.target.value)} /></label>
@@ -355,6 +356,7 @@ export function InventoryReadinessPage() {
   const requestedQuery = searchParams.toString();
   const requestedView = useMemo(() => parseInventoryReadinessViewState(requestedQuery), [requestedQuery]);
   const canViewMaterials = usePermission("page:proc-materials");
+  const canViewKeyMaterials = usePermission("page:proc-key-materials");
   const canViewPurchaseOrders = usePermission("page:purchase-orders");
   const canViewPurchaseOrderDetail = usePermission("page:purchase-order-detail");
   const canViewStockPlans = usePermission("page:proc-cockpit");
@@ -661,6 +663,7 @@ export function InventoryReadinessPage() {
               </div>
             </div>
             <div className="proc-readiness-toolbar-actions ml-auto flex flex-wrap items-center justify-end gap-2">
+              {canViewKeyMaterials && <Button type="button" variant="outline" size="sm" onClick={() => navigate(`${routePath("page:proc-key-materials", "/proc-key-materials")}?productLine=${encodeURIComponent(productLine)}`)}>{t("全部关键物料")}</Button>}
               {canViewMaterials && <Button type="button" variant="outline" size="sm" onClick={() => openMaterialLibrary()} className="h-9 border-slate-200 bg-white text-slate-600"><Boxes className="size-4" aria-hidden="true" />{t("打开物料库")}</Button>}
               <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => { const target = commitTarget(); if (target !== null) void load(undefined, target); }} className="h-9 border-slate-200 bg-white text-slate-600">
                 <RefreshCw className={cn("size-4", loading && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
@@ -734,7 +737,7 @@ export function InventoryReadinessPage() {
                   <p className="mt-0.5 text-xs text-slate-500">{t(data.productLine === "Q5" ? "按 Q5 单台装配清单与单机用量核算，电路板按整板计入；库存与在途来自量产仓库。" : "按风险优先排列，库存与在途均来自量产仓库。")}</p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-3">
-                  <span className="text-xs text-slate-400">{t("显示 {count} 条", { count: filteredItems.length })}</span>
+                  <span className="text-xs text-muted-foreground">{t("显示 {count} 条", { count: filteredItems.length })}</span>
                   <Button type="button" variant="outline" size="sm" disabled={!currentData || exporting} onClick={() => void exportShortages()} aria-describedby="readiness-export-note" className="h-9">
                     {exporting ? <RefreshCw className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="size-4" aria-hidden="true" />}{t(exporting ? "正在导出…" : "导出缺料清单")}
                   </Button>
@@ -745,7 +748,7 @@ export function InventoryReadinessPage() {
               {exportError && <p role="alert" className="px-4 pt-2 text-pretty text-xs text-rose-700">{exportError}</p>}
               <div className="proc-readiness-filters flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/50 px-4 py-3">
                 <div className="relative min-w-0 flex-1 basis-56">
-                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                   <Input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={t("搜索物料编码、名称或规格")} className="h-9 border-slate-200 bg-white pl-9" aria-label={t("搜索物料齐套明细")} />
                 </div>
                 <Select value={category} onValueChange={(value) => { setCategory(value); setPage(1); }}>
@@ -770,7 +773,7 @@ export function InventoryReadinessPage() {
                 </Select>
               </div>
 
-              {hasFilters ? <div className="border-b border-slate-100 px-4 py-2"><button type="button" onClick={clearFilters} className="text-xs font-semibold text-primary hover:underline">{t("清除筛选")}</button></div> : null}
+              {hasFilters ? <div className="border-b border-slate-100 px-4 py-2"><Button variant="unstyled" type="button" onClick={clearFilters} className="text-xs font-semibold text-primary hover:underline">{t("清除筛选")}</Button></div> : null}
               <div ref={tableScrollRef} tabIndex={0} role="region" aria-label={t("物料齐套明细，可横向滚动查看更多列")} className="proc-readiness-table-scroll min-h-0 min-w-0 flex-1 overflow-auto">
                 {filteredItems.length === 0 ? (
                   <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
@@ -780,13 +783,13 @@ export function InventoryReadinessPage() {
                 ) : <>
                   <ul className="proc-readiness-compact-list divide-y divide-slate-200" aria-label={t("物料齐套卡片")}>
                     {pagedItems.map((item) => <li key={item.id} className="space-y-3 p-4">
-                      <button type="button" data-readiness-item-id={item.id} aria-label={t("查看物料 {code}", { code: item.code || item.name })} onClick={(event) => openItem(item, event.currentTarget)} className="flex w-full items-start gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                      <Button variant="unstyled" type="button" data-readiness-item-id={item.id} aria-label={t("查看物料 {code}", { code: item.code || item.name })} onClick={(event) => openItem(item, event.currentTarget)} className="flex w-full items-start gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                         <span className="min-w-0 flex-1">
                           <span className="block break-words text-sm font-semibold text-slate-900"><AutoTranslatedText text={item.name} /></span>
                           <span className="mt-1 block font-mono text-xs text-slate-500">{item.code || t("编码待补")}</span>
                         </span>
-                        <ChevronRight className="mt-1 size-4 shrink-0 text-slate-400" aria-hidden="true" />
-                      </button>
+                        <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      </Button>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <StatusBadge item={item} />
                         <span className="text-xs text-slate-500">{t("单机用量")} {item.qtyPer ? `${quantity(item.qtyPer)} ${item.unit}` : t("待补充")}</span>
@@ -828,7 +831,7 @@ export function InventoryReadinessPage() {
                               <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600">{item.code || "—"}</span>
                               <span className="line-clamp-2 break-words text-sm font-semibold text-slate-900"><AutoTranslatedText text={item.name} /></span>
                             </div>
-                            <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                            <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                               <span>{t("物料分类")}：<AutoTranslatedText text={item.category} /></span>
                               {item.bomPosition && <span>{t("BOM 所属位置")}：<AutoTranslatedText text={item.bomPosition} /></span>}
                               {(item.sourceLines?.length ?? 0) > 1 && <span className="shrink-0 text-primary">{t("{count} 条来源", { count: item.sourceLines!.length })}</span>}
@@ -842,10 +845,10 @@ export function InventoryReadinessPage() {
                         <TableCell className="text-right font-medium text-slate-700 tabular-nums">{item.qtyPer ? quantity(item.qtyPer) : "—"}</TableCell>
                         <TableCell className="text-right text-slate-600 tabular-nums">{inventoryQuantity(item, item.stock)}</TableCell>
                         <TableCell className="text-right font-semibold text-slate-800 tabular-nums">{inventoryQuantity(item, item.available)}</TableCell>
-                        <TableCell className="text-right tabular-nums"><span className={item.inTransit > 0 ? "font-semibold text-primary" : "text-slate-400"}>{inventoryQuantity(item, item.inTransit)}</span></TableCell>
+                        <TableCell className="text-right tabular-nums"><span className={item.inTransit > 0 ? "font-semibold text-primary" : "text-muted-foreground"}>{inventoryQuantity(item, item.inTransit)}</span></TableCell>
                         <TableCell className="text-right font-bold text-slate-900 tabular-nums">{inventoryQuantity(item, item.currentSets, 0)}</TableCell>
                         <TableCell className="text-right font-bold text-emerald-700 tabular-nums">{inventoryQuantity(item, item.withTransitSets, 0)}</TableCell>
-                        <TableCell className="text-right font-bold tabular-nums"><span className={item.gapAfterTransit > 0 ? "text-rose-600" : "text-slate-300"}>{inventoryQuantity(item, item.gapAfterTransit)}</span></TableCell>
+                        <TableCell className="text-right font-bold tabular-nums"><span className={item.gapAfterTransit > 0 ? "text-rose-600" : "text-muted-foreground"}>{inventoryQuantity(item, item.gapAfterTransit)}</span></TableCell>
                         {showBomActions && <TableCell className="sticky right-0 bg-white text-right" onClick={(event) => event.stopPropagation()}>
                           <div className="flex justify-end gap-1">
                             <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-primary" disabled={!currentData || !item.sourceLines?.length} aria-label={t("编辑物料 {code}", { code: item.code || item.name })} onClick={() => setBomEditor({ mode: "edit", lines: item.sourceLines ?? [] })}><Pencil className="size-3.5" aria-hidden="true" />{t("编辑")}</Button>
@@ -866,7 +869,7 @@ export function InventoryReadinessPage() {
                   {t("显示 {start}-{end} / 共 {total} 条", { start: pageStart, end: pageEnd, total: filteredItems.length })}
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="hidden text-slate-400 sm:inline">{t("每页")}</span>
+                  <span className="hidden text-muted-foreground sm:inline">{t("每页")}</span>
                   <Select value={String(pageSize)} onValueChange={(value) => { setPageSize(value === "100" ? 100 : value === "50" ? 50 : 20); setPage(1); }}>
                     <SelectTrigger aria-label={t("每页条数")} className="h-8 w-[74px] border-slate-200 bg-white text-xs">
                       <SelectValue />
@@ -916,7 +919,7 @@ export function InventoryReadinessPage() {
               </div>
               <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-auto">
                 {bottlenecks.map((item, index) => (
-                  <button key={item.id} type="button" onClick={(event) => openItem(item, event.currentTarget)} className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
+                  <Button variant="unstyled" key={item.id} type="button" onClick={(event) => openItem(item, event.currentTarget)} className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
                     <span className={cn("mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums", index < 3 ? "bg-rose-50 text-rose-600" : "bg-slate-100 text-slate-500")}>{index + 1}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-semibold text-slate-800"><AutoTranslatedText text={item.name} /></span>
@@ -926,8 +929,8 @@ export function InventoryReadinessPage() {
                       </span>
                       {!item.issue && affectedSets(item) > 0 ? <span className="mt-1 block text-[11px] font-semibold text-rose-600">{t("影响 {count} 套", { count: quantity(Math.ceil(affectedSets(item)), 0) })}</span> : null}
                     </span>
-                    <ArrowRight className="mt-1 size-3.5 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" aria-hidden="true" />
-                  </button>
+                    <ArrowRight className="mt-1 size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" aria-hidden="true" />
+                  </Button>
                 ))}
                 {bottlenecks.length === 0 ? (
                   <div className="flex h-full min-h-56 flex-col items-center justify-center px-6 text-center">
@@ -944,7 +947,7 @@ export function InventoryReadinessPage() {
             </aside>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 pb-1 text-[11px] text-slate-400">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 pb-1 text-[11px] text-muted-foreground">
             <span>{t("数据来源：畅捷通 T+（只读）")} · {t("最近记录写入")}：{lastSync}</span>
             <span>{data.warehouse.matchedNames.length > 0 ? `${t("已匹配仓库")}：${data.warehouse.matchedNames.join(" / ")}` : t("未匹配到 ERP 量产仓库")}</span>
           </div>
@@ -992,7 +995,7 @@ export function InventoryReadinessPage() {
 
               <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto bg-white">
                 {drilldownItems.map((item) => (
-                  <button
+                  <Button variant="unstyled"
                     key={item.id}
                     type="button"
                     onClick={() => openDrilldownItem(item)}
@@ -1003,7 +1006,7 @@ export function InventoryReadinessPage() {
                         <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600">{item.code || "—"}</span>
                         <span className="line-clamp-2 break-words text-sm font-semibold text-slate-900"><AutoTranslatedText text={item.name} /></span>
                       </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                      <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                         <span>{t("物料分类")}：<AutoTranslatedText text={item.category} /></span>
                         {item.bomPosition && <span>{t("BOM 所属位置")}：<AutoTranslatedText text={item.bomPosition} /></span>}
                         <StatusBadge item={item} />
@@ -1018,8 +1021,8 @@ export function InventoryReadinessPage() {
                             : t(STATUS_META[item.status].label)}
                       </span>
                     </span>
-                    <ChevronRight className="size-4 shrink-0 text-slate-300 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none" aria-hidden="true" />
-                  </button>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary motion-reduce:transition-none" aria-hidden="true" />
+                  </Button>
                 ))}
                 {drilldownItems.length === 0 ? (
                   <div className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
@@ -1072,20 +1075,20 @@ export function InventoryReadinessPage() {
                 <section className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-xs font-bold text-slate-900">{t("齐套贡献")}</h3>
                   <div className="proc-readiness-item-results mt-3 grid grid-cols-3 divide-x divide-slate-100 [&>div]:min-w-0 [&_p]:break-words">
-                    <div className="pr-3"><p className="text-[11px] text-slate-400">{t("当前可齐套")}</p><p className="mt-1 text-xl font-bold text-primary tabular-nums">{inventoryQuantity(selected, selected.currentSets, 0)}</p></div>
-                    <div className="px-3"><p className="text-[11px] text-slate-400">{t("在途到齐后可齐套")}</p><p className="mt-1 text-xl font-bold text-emerald-700 tabular-nums">{inventoryQuantity(selected, selected.withTransitSets, 0)}</p></div>
-                    <div className="pl-3"><p className="text-[11px] text-slate-400">{t("在途到齐后缺口")}</p><p className="mt-1 text-xl font-bold text-rose-600 tabular-nums">{inventoryQuantity(selected, selected.gapAfterTransit)}</p></div>
+                    <div className="pr-3"><p className="text-[11px] text-muted-foreground">{t("当前可齐套")}</p><p className="mt-1 text-xl font-bold text-primary tabular-nums">{inventoryQuantity(selected, selected.currentSets, 0)}</p></div>
+                    <div className="px-3"><p className="text-[11px] text-muted-foreground">{t("在途到齐后可齐套")}</p><p className="mt-1 text-xl font-bold text-emerald-700 tabular-nums">{inventoryQuantity(selected, selected.withTransitSets, 0)}</p></div>
+                    <div className="pl-3"><p className="text-[11px] text-muted-foreground">{t("在途到齐后缺口")}</p><p className="mt-1 text-xl font-bold text-rose-600 tabular-nums">{inventoryQuantity(selected, selected.gapAfterTransit)}</p></div>
                   </div>
                 </section>
                 <section className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-xs font-bold text-slate-900">{t("数量口径")}</h3>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 text-xs [&>div]:min-w-0 [&_dd]:break-words">
-                    <div><dt className="text-slate-400">{t("单机用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.qtyPer ? `${quantity(selected.qtyPer)} ${selected.unit}` : "—"}</dd></div>
-                    <div><dt className="text-slate-400">{t("目标需求量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.status === "data_missing" ? "—" : quantity(selected.targetDemand)} {selected.unit}</dd></div>
-                    <div><dt className="text-slate-400">{t("量产仓库现存量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.stock)} {selected.unit}</dd></div>
-                    <div><dt className="text-slate-400">{t("量产仓库可用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.available)} {selected.unit}</dd></div>
-                    <div><dt className="text-slate-400">{t("确认在途")}</dt><dd className="mt-1 font-semibold text-primary tabular-nums">{inventoryQuantity(selected, selected.inTransit)} {selected.unit}</dd></div>
-                    <div><dt className="text-slate-400">{t("安全库存")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.safeStock)} {selected.unit}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("单机用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.qtyPer ? `${quantity(selected.qtyPer)} ${selected.unit}` : "—"}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("目标需求量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.status === "data_missing" ? "—" : quantity(selected.targetDemand)} {selected.unit}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("量产仓库现存量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.stock)} {selected.unit}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("量产仓库可用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.available)} {selected.unit}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("确认在途")}</dt><dd className="mt-1 font-semibold text-primary tabular-nums">{inventoryQuantity(selected, selected.inTransit)} {selected.unit}</dd></div>
+                    <div><dt className="text-muted-foreground">{t("安全库存")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.safeStock)} {selected.unit}</dd></div>
                   </dl>
                 </section>
                 {selected.issue ? (

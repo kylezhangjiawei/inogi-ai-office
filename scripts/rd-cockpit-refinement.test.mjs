@@ -88,8 +88,8 @@ test("窄屏、键盘焦点和语义交互不退化", () => {
 });
 
 test("工作区、权限、API、镜像只读与沉浸模式契约保持完整", () => {
+  // 工作区身份及人员跳转在 rd-workspace-routing.test.mjs 中按真实行为验证。
   for (const contract of [
-    /const usCollab = location\.pathname\.startsWith\("\/us-collab"\)/,
     /const productionWorkspace = isProductionWorkspace\(\)/,
     /const nativeRdCockpit = !usCollab && !productionWorkspace/,
     /nativeRdCockpit \? handleCockpitSearchKeywordChange : undefined/,

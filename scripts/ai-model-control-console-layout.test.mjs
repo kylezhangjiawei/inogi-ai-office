@@ -13,7 +13,7 @@ test("AI 模型页使用与 INOGI 一致的浅色内嵌控制台，而不是独�
   assert.match(source, /<Tabs value=\{workspaceTab\}/);
   assert.match(source, /<TabsList className="relative flex h-auto w-full/);
   assert.match(source, /bg-slate-50\/80/);
-  assert.match(source, /data-\[state=active\]:border-blue-200/);
+  assert.match(source, /data-\[state=active\]:border-primary\/25/);
   assert.doesNotMatch(source, /bg-\[#090d13\]/);
   assert.doesNotMatch(source, /text-\[2rem\].*AI 模型与路由控制台/);
   assert.doesNotMatch(source, /sm:grid-cols-2 xl:grid-cols-4" aria-label="AI 控制台工作区"/);
@@ -44,7 +44,7 @@ test("运行监控与路由工作区复用浅色材质卡片和 Horizon 蓝色�
   assert.ok((source.match(/border border-slate-200 bg-white/g) ?? []).length >= 8);
   assert.match(source, /Gateway Pulse/);
   assert.match(source, /space-y-3/);
-  assert.match(source, /data-\[state=checked\]:bg-blue-700/);
+  assert.match(source, /data-\[state=checked\]:bg-primary/);
   assert.doesNotMatch(source, /bg-\[#111720\]/);
 });
 

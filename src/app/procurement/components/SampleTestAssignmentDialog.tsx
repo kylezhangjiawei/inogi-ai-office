@@ -7,6 +7,8 @@ import { useI18n } from "../../lib/i18n";
 import { assignProcSampleTest, listProcSampleTesters, type ProcurementTask, type ProcSampleTester } from "../../lib/procurementApi";
 import { sampleInputTimestamp, sampleLocalTime } from "../samples/sampleRecordsModel";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
+import { Input } from "../../components/ui/input";
+import { NativeSelect } from "../../components/ui/native-select";
 
 export function SampleTestAssignmentDialog({ task, onClose, onAssigned }: {
   task: ProcurementTask;
@@ -96,14 +98,14 @@ export function SampleTestAssignmentDialog({ task, onClose, onAssigned }: {
         <p className="text-sm leading-6 text-slate-600">{t("指定人员会在研发个人工作台收到测试待办；由本人填写并确认测试结论后，系统通知该任务的采购负责人。")}</p>
         {task.sampleTest && !task.sampleTest.result && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{t("重新安排会保留原轮次记录并新建分派，原待办将失效，新测试人需独立登记开测与结束。")}</p>}
         <label className="block text-sm font-medium text-slate-700">{t("实际到样时间")}
-          <input id="sample-test-arrival" aria-label={t("实际到样时间")} type="datetime-local" step="1" required={task.status === "pending_sample"} value={arrivedAt} disabled={busy} onChange={(event) => { if (!busyRef.current && scopeRef.current === scope) { setArrivedAt(event.target.value); setTouched(true); } }} className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base" />
+          <Input id="sample-test-arrival" aria-label={t("实际到样时间")} type="datetime-local" step="1" required={task.status === "pending_sample"} value={arrivedAt} disabled={busy} onChange={(event) => { if (!busyRef.current && scopeRef.current === scope) { setArrivedAt(event.target.value); setTouched(true); } }} className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base" />
         </label>
         <div>
           <label htmlFor="sample-test-assignee" className="mb-1.5 block text-sm font-medium text-slate-700">{t("研发测试人员")}</label>
-          <select id="sample-test-assignee" value={testerId} onChange={(event) => { if (!busyRef.current && scopeRef.current === scope) { setTesterId(event.target.value); setTouched(true); } }} disabled={loading || Boolean(loadError) || busy} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 disabled:opacity-60">
+          <NativeSelect id="sample-test-assignee" value={testerId} onChange={(event) => { if (!busyRef.current && scopeRef.current === scope) { setTesterId(event.target.value); setTouched(true); } }} disabled={loading || Boolean(loadError) || busy} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 disabled:opacity-60">
             <option value="">{t(loading ? "正在加载研发人员…" : "请选择研发测试人员")}</option>
             {testers.map((tester) => <option key={tester.id} value={tester.id}>{tester.name}{tester.department ? ` · ${tester.department}` : ""}</option>)}
-          </select>
+          </NativeSelect>
           {!loading && !loadError && testers.length === 0 && <p className="mt-2 text-xs text-amber-700">{t("暂无可接收测试待办的研发人员，请检查账号是否启用且可使用研发个人工作台。")}</p>}
         </div>
         {loadError && <div role="alert" className="text-sm text-rose-700">{loadError}<Button type="button" variant="link" onClick={() => setRetry((value) => value + 1)}>{t("重试")}</Button></div>}

@@ -1,25 +1,20 @@
 /* R01 reference layout, scoped to the default R&D workspace. */
 .rd-horizon-task-detail.rd-reference-detail {
-  --primary: #083cb9;
-  --primary-hover: #062f93;
-  --primary-rgb: 8, 60, 185;
-  --primary-soft-border: #d3dff9;
-  --accent: #eef3ff;
-  --rd-primary: #083cb9;
-  --rd-primary-hover: #062f93;
-  --rd-ink: #1b2559;
-  --rd-body: #334155;
-  --rd-muted: #64748b;
-  --rd-line: #e2e8f0;
-  --rd-line-strong: #cbd5e1;
-  --rd-soft-blue: #eef3ff;
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--muted-foreground);
+  --rd-muted: var(--muted-foreground);
+  --rd-line: var(--border);
+  --rd-line-strong: var(--border);
+  --rd-soft-blue: var(--accent);
 }
 
 .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context,
 .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-properties {
-  border: 1px solid var(--rd-line) !important;
-  border-radius: 16px !important;
-  box-shadow: none !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--m3-shape-card) !important;
+  box-shadow: var(--shadow-card) !important;
 }
 
 .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl {
@@ -50,10 +45,10 @@
 .rd-horizon-task-detail.rd-reference-detail .rd-reference-action-panel,
 .rd-horizon-task-detail.rd-reference-detail .rd-reference-latest {
   width: 100%;
-  border: 1px solid var(--rd-line) !important;
-  border-radius: 16px !important;
-  background: #fff !important;
-  box-shadow: none !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--m3-shape-card) !important;
+  background: var(--card) !important;
+  box-shadow: var(--shadow-card) !important;
 }
 
 .rd-horizon-task-detail.rd-reference-detail .rd-reference-document-workspace {

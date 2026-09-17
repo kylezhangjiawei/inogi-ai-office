@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./ui/utils";
 import { t } from "../lib/i18n";
+import { Button } from "./ui/button";
 
 /**
  * 评论 @ 提及的共享逻辑与候选面板。
@@ -224,17 +225,17 @@ export function MentionSuggestionPanel({
     return (
       <div ref={listRef} className={cn("flex gap-1.5 overflow-x-auto px-1 pb-1.5", className)}>
         {candidates.map((c) => (
-          <button
+          <Button variant="unstyled"
             key={c.user_id ?? c.name}
             type="button"
             // 软键盘不失焦：mousedown/touch 阶段阻止默认，避免键盘收起
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(c)}
-            className="flex shrink-0 items-center gap-1 rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] px-3 py-1.5 text-[13px] font-medium text-[#002fa7] active:bg-[#dfe8ff]"
+            className="flex shrink-0 items-center gap-1 rounded-[4px] border border-[#b8c8ec] bg-accent px-3 py-1.5 text-[13px] font-medium text-primary active:bg-[#dfe8ff]"
           >
             @{c.name}
             {c.hint && <span className="text-[10px] text-[#526da8]">{c.hint}</span>}
-          </button>
+          </Button>
         ))}
       </div>
     );
@@ -255,19 +256,19 @@ export function MentionSuggestionPanel({
       </div>
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
         {candidates.map((c, i) => (
-          <button
+          <Button variant="unstyled"
             key={c.user_id ?? c.name}
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(c)}
             className={cn(
               "flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-sm",
-              i === highlightIndex ? "bg-[#eef3ff] text-[#002fa7]" : "text-slate-700 hover:bg-slate-50",
+              i === highlightIndex ? "bg-accent text-primary" : "text-slate-700 hover:bg-slate-50",
             )}
           >
             <span className="truncate font-medium">@{c.name}</span>
-            {c.hint && <span className="shrink-0 text-[11px] text-slate-400">{c.hint}</span>}
-          </button>
+            {c.hint && <span className="shrink-0 text-[11px] text-muted-foreground">{c.hint}</span>}
+          </Button>
         ))}
       </div>
     </div>
@@ -278,7 +279,7 @@ export function MentionSuggestionPanel({
 export function renderTextWithMentions(
   text: string,
   mentions?: Array<{ user_id?: string | null; name?: string | null }> | null,
-  mentionClassName = "rounded-[3px] bg-[#eef3ff] px-1 font-semibold text-[#002fa7]",
+  mentionClassName = "rounded-[3px] bg-accent px-1 font-semibold text-primary",
 ): React.ReactNode {
   const names = (mentions ?? [])
     .map((m) => (m.name ?? "").trim())

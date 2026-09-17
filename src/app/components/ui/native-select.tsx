@@ -1,121 +1,110 @@
 import * as React from "react";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./select";
 
-const EMPTY_OPTION_VALUE = "__radix_empty_option__";
-
-type NativeSelectProps = Omit<
-  React.SelectHTMLAttributes<HTMLSelectElement>,
-  "children" | "onChange" | "value" | "defaultValue"
-> & {
+type NativeSelectProps = Omit<React.ComponentPropsWithoutRef<typeof SelectTrigger>, "children" | "onChange" | "value" | "defaultValue" | "size" | "onInvalid"> & {
   children: React.ReactNode;
   contentClassName?: string;
   value?: string | number;
   defaultValue?: string | number;
   onChange?: React.ChangeEventHandler<HTMLSelectElement>;
   onValueChange?: (value: string) => void;
+  onInvalid?: React.FormEventHandler<HTMLSelectElement>;
   placeholder?: React.ReactNode;
+  name?: string;
+  form?: string;
+  required?: boolean;
+  autoComplete?: string;
 };
 
-function normalizeValue(value: string | number | readonly string[] | undefined) {
-  if (value === undefined) return undefined;
-  const nextValue = String(value);
-  return nextValue === "" ? EMPTY_OPTION_VALUE : nextValue;
+type Option = { value: string; label: React.ReactNode; disabled: boolean; group?: string };
+
+function optionText(children: React.ReactNode): string {
+  return React.Children.toArray(children).map((child) => {
+    if (React.isValidElement<{ children?: React.ReactNode }>(child)) return optionText(child.props.children);
+    return typeof child === "string" || typeof child === "number" ? String(child) : "";
+  }).join("");
 }
 
-function denormalizeValue(value: string) {
-  return value === EMPTY_OPTION_VALUE ? "" : value;
-}
-
-function getOptionText(children: React.ReactNode) {
-  if (typeof children === "string" || typeof children === "number") {
-    return String(children);
-  }
-  return React.Children.toArray(children).join("");
-}
-
-function NativeSelect({
-  children,
-  className,
-  contentClassName,
-  disabled,
-  value,
-  defaultValue,
-  onChange,
-  onValueChange,
-  placeholder,
-  name,
-  id,
-  required,
-  "aria-label": ariaLabel,
-  "aria-labelledby": ariaLabelledBy,
-  "aria-describedby": ariaDescribedBy,
-}: NativeSelectProps) {
-  const options = React.Children.toArray(children).filter(
-    (child): child is React.ReactElement<React.OptionHTMLAttributes<HTMLOptionElement>> =>
-      React.isValidElement<React.OptionHTMLAttributes<HTMLOptionElement>>(child),
-  );
-  const selectedOption = options.find((option) => {
-    const optionValue = normalizeValue(option.props.value ?? "");
-    return optionValue === normalizeValue(value);
+function collectOptions(children: React.ReactNode, group?: string, disabled = false): Option[] {
+  return React.Children.toArray(children).flatMap((child): Option[] => {
+    if (!React.isValidElement<React.OptionHTMLAttributes<HTMLOptionElement> & { label?: string }>(child)) return [];
+    if (child.type === React.Fragment) return collectOptions(child.props.children, group, disabled);
+    if (child.type === "optgroup") return collectOptions(child.props.children, child.props.label, disabled || !!child.props.disabled);
+    if (child.type !== "option") return [];
+    return [{ value: String(child.props.value ?? optionText(child.props.children)), label: child.props.label ?? child.props.children, disabled: disabled || !!child.props.disabled, group }];
   });
-  const fallbackPlaceholder =
-    selectedOption && React.isValidElement(selectedOption)
-      ? getOptionText(selectedOption.props.children)
-      : placeholder;
+}
+
+// Keep the native form control for FormData, required validation and real change events.
+// The visible interaction is the project's Radix Select.
+function NativeSelect({ children, className, contentClassName, value, defaultValue, onChange,
+  onValueChange, onInvalid, placeholder, name, form, required, autoComplete, disabled, ...triggerProps }: NativeSelectProps) {
+  const options = collectOptions(children);
+  const initialValue = String(defaultValue ?? options.find((option) => !option.disabled)?.value ?? "");
+  const [internalValue, setInternalValue] = React.useState(initialValue);
+  const selectedValue = value === undefined ? internalValue : String(value);
+  const nativeRef = React.useRef<HTMLSelectElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const selectedOption = options.find((option) => option.value === selectedValue);
+
+  React.useEffect(() => {
+    const owner = nativeRef.current?.form;
+    if (!owner || value !== undefined) return;
+    const reset = () => setInternalValue(initialValue);
+    owner.addEventListener("reset", reset);
+    return () => owner.removeEventListener("reset", reset);
+  }, [initialValue, value, form]);
 
   function handleValueChange(nextValue: string) {
-    const rawValue = denormalizeValue(nextValue);
-    onValueChange?.(rawValue);
-    if (onChange) {
-      onChange({
-        target: { value: rawValue },
-        currentTarget: { value: rawValue },
-      } as React.ChangeEvent<HTMLSelectElement>);
-    }
+    const control = nativeRef.current;
+    if (!control) return;
+    control.value = nextValue.slice("option:".length);
+    control.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function renderItem(option: Option, index: number) {
+    return <SelectItem key={option.value + "-" + index} value={"option:" + option.value} disabled={option.disabled}>{option.label}</SelectItem>;
   }
 
   return (
     <>
-      {name ? <input type="hidden" name={name} value={String(value ?? defaultValue ?? "")} /> : null}
-      <Select
-        value={normalizeValue(value)}
-        defaultValue={normalizeValue(defaultValue)}
-        disabled={disabled}
-        onValueChange={handleValueChange}
-      >
-        <SelectTrigger
-          id={id}
-          className={className}
-          aria-label={ariaLabel}
-          aria-labelledby={ariaLabelledBy}
-          aria-describedby={ariaDescribedBy}
-          aria-required={required || undefined}
-        >
-          <SelectValue placeholder={fallbackPlaceholder} />
+      <Select value={"option:" + selectedValue} disabled={disabled} onValueChange={handleValueChange}>
+        <SelectTrigger ref={triggerRef} {...triggerProps} className={className} aria-required={required || undefined}>
+          <SelectValue placeholder={placeholder}>{selectedOption?.label ?? placeholder}</SelectValue>
         </SelectTrigger>
         <SelectContent className={contentClassName}>
           {options.map((option, index) => {
-            if (!React.isValidElement(option)) return null;
-            const optionValue = normalizeValue(option.props.value ?? "");
-            return (
-              <SelectItem
-                key={`${optionValue}-${index}`}
-                value={optionValue ?? EMPTY_OPTION_VALUE}
-                disabled={Boolean(option.props.disabled)}
-              >
-                {option.props.children}
-              </SelectItem>
-            );
+            if (!option.group) return renderItem(option, index);
+            if (options[index - 1]?.group === option.group) return null;
+            const end = options.findIndex((item, itemIndex) => itemIndex > index && item.group !== option.group);
+            return <SelectGroup key={option.group + "-" + index}><SelectLabel>{option.group}</SelectLabel>{options.slice(index, end < 0 ? undefined : end).map(renderItem)}</SelectGroup>;
           })}
         </SelectContent>
       </Select>
+      <select
+        ref={nativeRef}
+        data-slot="select-native"
+        aria-hidden="true"
+        tabIndex={-1}
+        name={name}
+        form={form}
+        required={required}
+        disabled={disabled}
+        autoComplete={autoComplete}
+        value={selectedValue}
+        onChange={(event) => {
+          setInternalValue(event.target.value);
+          onValueChange?.(event.target.value);
+          onChange?.(event);
+        }}
+        onInvalid={onInvalid}
+        onFocus={() => triggerRef.current?.focus()}
+        style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, border: 0, clipPath: "inset(50%)", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: "none" }}
+      >
+        {!options.some((option) => option.value === selectedValue) && <option value={selectedValue} />}
+        {children}
+      </select>
     </>
   );
 }

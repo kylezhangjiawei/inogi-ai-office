@@ -226,15 +226,15 @@ export function OcrConfigManagementPage() {
                 <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="支持的识别动作">
                   <span className="flex items-center gap-1 text-xs text-slate-500"><Info className="size-3.5" aria-hidden="true" />推荐：</span>
                   {config.supported_actions.map((action) => (
-                    <button
+                    <Button variant="unstyled"
                       key={action.key}
                       type="button"
-                      className="cursor-pointer rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                      className="cursor-pointer rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                       onClick={() => setInvoiceAction(action.default_action)}
                       title={action.default_action}
                     >
                       {action.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               ) : null}

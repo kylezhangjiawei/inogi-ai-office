@@ -31,11 +31,11 @@ test("研发 AI 策略提供标准标题、脏状态与可恢复的读写反馈"
   assert.match(rdApi, /JSON\.stringify\(\{ settings: payload, base_updated_at: baseUpdatedAt \}\)/);
 });
 
-test("研发 AI 场景控件具备上下文名称并保持单一 Klein Blue 强调色", () => {
+test("研发 AI 场景控件具备上下文名称并保持单一 Horizon 主题 强调色", () => {
   for (const wording of ["{name}主模型", "{name}兜底模型", "{name} Prompt 版本", "{name}置信度阈值"]) {
     assert.match(aiSettings, new RegExp(wording.replace(/[{}]/g, "\\$&")));
   }
-  assert.match(aiSettings, /border-\[#002fa7\]\/25 bg-\[#eef3ff\] text-\[#002fa7\]/);
+  assert.match(aiSettings, /border-primary\/25 bg-accent text-primary/);
   assert.doesNotMatch(aiSettings, /\b(?:indigo|purple|violet|fuchsia|pink)-/i);
   assert.doesNotMatch(aiSettings, /\btracking-|\buppercase\b|shadow-\[/);
 });

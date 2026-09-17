@@ -11,6 +11,7 @@ import { i18nLocale, useI18n } from '../../lib/i18n';
 import { canOperateDefect, defectToday, getDefectOwners, getDefectProgress, getHandoffAvailable, validateDefectAction } from './defectModel';
 import { defectActionLabels, defectDirectionLabels, type DefectAction, type DefectActionContext, type DefectPhoto, type DefectState } from './defectTypes';
 import './defect-action-form.css';
+import { Checkbox } from "../../components/ui/checkbox";
 
 export interface DefectActionFormProps {
   state: DefectState; actorId: string; context: DefectActionContext; readOnly?: boolean;
@@ -155,7 +156,7 @@ export function DefectActionForm({ state, actorId, context, readOnly, onSubmit, 
   const dateField = (field: 'date' | 'dueDate', label: string) => <div className="daf-short min-w-0 space-y-1.5">{labelFor(field, label)}<Input {...propsFor(field)} type="date" required value={draft[field]} min={field === 'dueDate' ? defectToday() : issue?.date} max={field === 'date' ? defectToday() : undefined} onChange={(event) => change(field, event.target.value)} className="min-w-0 tabular-nums" />{fieldError(field)}</div>;
   const numericField = (label: string) => <div className="daf-short min-w-0 space-y-1.5">{labelFor('quantity', label)}<Input {...propsFor('quantity')} required inputMode="numeric" value={draft.quantity} onChange={(event) => change('quantity', event.target.value)} className="min-w-0 tabular-nums" />{fieldError('quantity')}</div>;
   const paragraphField = (field: 'reason' | 'description' | 'basis' | 'cause' | 'summary', label: string) => <div className="min-w-0 space-y-1.5">{labelFor(field, label)}<Textarea {...propsFor(field)} required maxLength={2000} value={draft[field]} onChange={(event) => change(field, event.target.value)} className="min-h-20 resize-y" />{fieldError(field)}</div>;
-  const reviewedField = (label: string) => <div className="space-y-1.5"><label className="flex cursor-pointer items-start gap-2 text-pretty text-sm leading-6"><input {...propsFor('reviewed')} type="checkbox" required checked={draft.reviewed} onChange={(event) => change('reviewed', event.target.checked)} className="mt-1 size-4 shrink-0 accent-primary" /><span>{t(label)}</span></label>{fieldError('reviewed')}</div>;
+  const reviewedField = (label: string) => <div className="space-y-1.5"><label className="flex cursor-pointer items-start gap-2 text-pretty text-sm leading-6"><Checkbox {...propsFor('reviewed')}  required checked={draft.reviewed} onCheckedChange={(checkedValue) => change('reviewed', (checkedValue === true))} className="mt-1 size-4 shrink-0 accent-primary" /><span>{t(label)}</span></label>{fieldError('reviewed')}</div>;
   const summary: [string, string][] = [['操作人', actor?.name ?? '—'], ['不良单号', issue?.code ?? '—'], ['生产批次', issue?.batchCode ?? '—'], ['原始不良数量', amount(issue?.quantity ?? NaN)], ['来源单号', issue?.sourceCode ?? '—']];
   if (kind === 'assign' || kind === 'route') summary.push(['责任人', ownerName], ['处理期限', draft.dueDate]);
   if (kind === 'assign') summary.push(['优先级', t(draft.priority === 'high' ? '高' : draft.priority === 'low' ? '低' : '中')], ['指派说明', draft.reason.trim()]);

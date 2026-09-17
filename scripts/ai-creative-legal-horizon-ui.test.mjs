@@ -163,7 +163,7 @@ test("合同审查诚实加载示例并保留键盘条款、风险筛选、谈�
   assert.doesNotMatch(contract, /type="file"/);
 
   assert.match(contract, /function ClauseAccordion\(/);
-  assert.match(contract, /<button[\s\S]{0,100}?type="button"[\s\S]{0,180}?aria-expanded=/);
+  assert.match(contract, /<(?:Button|UiButton)[\s\S]{0,100}?type="button"[\s\S]{0,180}?aria-expanded=/);
   assert.match(contract, /aria-controls=\{`contract-clause-\$\{clause\.id\}`\}/);
   assert.match(contract, /const \[riskFilter, setRiskFilter\]/);
   assert.match(contract, /role="group" aria-labelledby="contract-risk-filter-label"/);

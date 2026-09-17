@@ -18,6 +18,7 @@ import { applyFieldAction, buildFieldCsv, canOperateField, createFieldState, get
 import { fieldActionLabels, fieldViewLabels, type FieldAction, type FieldActionContext, type FieldPhoto, type FieldTask, type FieldView } from './fieldTypes';
 import '../../order-processing/horizon.css';
 import './field-preview.css';
+import { Checkbox } from "../../components/ui/checkbox";
 
 type Scenario = 'normal' | 'readonly' | 'empty' | 'error';
 const viewKeys = Object.keys(fieldViewLabels) as FieldView[];
@@ -149,7 +150,7 @@ export function FieldPreviewPage() {
   return <main className="order-horizon field-preview">
     <OrderPageHeader Icon={ClipboardCheck} title={t('现场任务与不良登记')} description={t('核对当前派工，记录现场实际数量，跟进领料与不良。')} eyebrow={t('生产管理 / 现场报工 / P02')} actions={<><Button variant="outline" onClick={() => requestChange(() => setResetOpen(true))}><RotateCcw className="size-4" aria-hidden="true" />{t('重置演示')}</Button><Button variant="outline" disabled={!task || scenario === 'error'} onClick={exportTask}><Download className="size-4" aria-hidden="true" />{t('导出当前任务')}</Button></>} />
     <div className="ft-preview-note"><strong>{t('前端演示')}</strong><span>{t('预置派工快照与 P01 独立；报工、照片及领退料仅在本页保留，刷新恢复。正式接口后续接入。')}</span></div>
-    <details className="ft-scenarios"><summary>{t('预览状态')}</summary><div>{(['normal', 'readonly', 'empty', 'error'] as Scenario[]).map((item) => <Button key={item} size="sm" variant={scenario === item ? 'default' : 'outline'} onClick={() => filter(() => setScenario(item))}>{t(({ normal: '正常', readonly: '只读', empty: '空数据', error: '读取失败' })[item])}</Button>)}<label><input type="checkbox" checked={failNext} onChange={(event) => setFailNext(event.target.checked)} />{t('下次保存失败')}</label></div></details>
+    <details className="ft-scenarios"><summary>{t('预览状态')}</summary><div>{(['normal', 'readonly', 'empty', 'error'] as Scenario[]).map((item) => <Button key={item} size="sm" variant={scenario === item ? 'default' : 'outline'} onClick={() => filter(() => setScenario(item))}>{t(({ normal: '正常', readonly: '只读', empty: '空数据', error: '读取失败' })[item])}</Button>)}<label><Checkbox checked={failNext} onCheckedChange={(checkedValue) => setFailNext((checkedValue === true))} />{t('下次保存失败')}</label></div></details>
     <section className="ft-filters" aria-label={t('现场任务筛选')}>
       <div><Label htmlFor="field-actor">{t('演示操作人')}</Label><Select value={actorId} onValueChange={(value) => filter(() => setActorId(value))}><SelectTrigger id="field-actor"><SelectValue /></SelectTrigger><SelectContent>{state.actors.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {t(item.role === 'supervisor' ? '主管 / 可补录' : item.role === 'viewer' ? '只读' : '仅本线')}</SelectItem>)}</SelectContent></Select></div>
       <div><Label htmlFor="field-status">{t('任务状态')}</Label><Select value={statusFilter} onValueChange={(value) => filter(() => setStatusFilter(value))}><SelectTrigger id="field-status"><SelectValue /></SelectTrigger><SelectContent>{[['all','全部状态'],['pending','待接收'],['active','执行中'],['closed','已结束']].map(([value,label]) => <SelectItem key={value} value={value}>{t(label)}</SelectItem>)}</SelectContent></Select></div>
@@ -162,7 +163,7 @@ export function FieldPreviewPage() {
       <section className="ft-context" aria-label={t('派工带入信息')}>
         <div><span>{t('生产批次 / 产品工序')}</span><strong>{task.batchCode}</strong><p>{task.product} · {task.component} / {task.process}</p></div>
         <div><span>{t('派工日期 / 产线')}</span><strong>{task.date} · {task.lineName}</strong><p>{task.dispatchCode} · {t('第 {version} 版', { version: task.dispatchVersion })}</p></div>
-        <div className="ft-source-links"><span>{t('本任务作业依据')}</span><div>{task.documents.map((doc) => <button key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</button>)}</div>{task.ecnId ? <Link to={`/__preview/ecn?ecn=${encodeURIComponent(task.ecnId)}`}>{t('查看 ECN 与岗位确认')}<ArrowRight className="size-4" aria-hidden="true" /></Link> : null}</div>
+        <div className="ft-source-links"><span>{t('本任务作业依据')}</span><div>{task.documents.map((doc) => <Button variant="unstyled" key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</Button>)}</div>{task.ecnId ? <Link to={`/__preview/ecn?ecn=${encodeURIComponent(task.ecnId)}`}>{t('查看 ECN 与岗位确认')}<ArrowRight className="size-4" aria-hidden="true" /></Link> : null}</div>
       </section>
       <div className="ft-workflow" aria-label={t('现场执行概况')}>
         <span className={cn(task.acceptedAt && 'ft-complete')}>{t('派工')}{' · '}{t(task.acceptedAt ? '已接收' : '待接收')}</span>
@@ -170,7 +171,7 @@ export function FieldPreviewPage() {
         <span>{t('报工')}{' · '}{progress.reported}/{task.planned} {task.unit}</span>
         <span className={cn(progress.unregisteredBad > 0 && 'ft-attention')}>{t('不良')}{' · '}{progress.unregisteredBad} {task.unit}{t('待登记')}</span>
       </div>
-      <div className="ft-mobile-jump"><button onClick={() => scrollToRegion('field-records')}>{t('查看任务记录')}</button><button onClick={() => scrollToRegion('field-actions')}>{t('前往现场操作')}</button></div>
+      <div className="ft-mobile-jump"><Button variant="unstyled" onClick={() => scrollToRegion('field-records')}>{t('查看任务记录')}</Button><Button variant="unstyled" onClick={() => scrollToRegion('field-actions')}>{t('前往现场操作')}</Button></div>
       <div className="ft-workspace">
         <section id="field-records" className="ft-main">
           <div className="ft-progress-card">
@@ -182,7 +183,7 @@ export function FieldPreviewPage() {
           <div className="ft-related"><Link to={`/__preview/production-planning?month=${task.date.slice(0,7)}&batch=${encodeURIComponent(task.batchId)}`}>{t('查看批次计划与日安排')}<ArrowRight className="size-4" aria-hidden="true" /></Link><p>{t('两页演示记录独立；本页报工与领退料暂不回写计划、采购或仓库。')}</p></div>
         </section>
         <aside id="field-actions" className="ft-sidebar" aria-label={t('当前现场操作')}>
-          <button className="ft-back" onClick={() => scrollToRegion('field-records')}>{t('返回任务记录')}</button>
+          <Button variant="unstyled" className="ft-back" onClick={() => scrollToRegion('field-records')}>{t('返回任务记录')}</Button>
           {!actionContext ? <div className="ft-action-card"><div className="ft-heading"><h2>{t('当前现场操作')}</h2><span>{actor?.name}</span></div>
             {readOnly ? <p className="ft-note">{t(task.closed ? '任务已结束，保留原始现场记录。' : '当前为只读范围，可以查看任务、资料与导出。')}</p> : <>
               <div className="ft-action-buttons">{!task.acceptedAt ? buttonFor('accept') : <>{buttonFor('report',progress.unreported <= 0)}{buttonFor('defect',progress.unregisteredBad <= 0)}{buttonFor('sign',!issues.some((item) => !item.signedAt))}{buttonFor('return',!issues.some((item) => getReturnable(state,item.id) > 0))}</>}</div>

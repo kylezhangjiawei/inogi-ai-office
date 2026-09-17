@@ -1,5 +1,5 @@
 .receipt-disposition-preview { max-width: 1480px; margin: 0 auto; padding: 24px; color: var(--foreground); }
-.receipt-disposition-preview .rdp-card { min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.receipt-disposition-preview .rdp-card { min-width: 0; border: 1px solid transparent; border-radius: var(--m3-shape-card); background: var(--card); box-shadow: var(--shadow-card); }
 .receipt-disposition-preview h2 { font-size: 16px; font-weight: 650; }
 .receipt-disposition-preview h3 { font-size: 14px; font-weight: 650; }
 .rdp-preview-note { display: flex; align-items: start; gap: 12px; margin-top: 16px; padding: 12px 16px; border: 1px solid #cad8f2; border-radius: 8px; color: #233d73; background: #eef4ff; font-size: 13px; line-height: 1.6; }
@@ -59,7 +59,7 @@
 .rdp-record-change > span { color: var(--foreground); font-weight: 500; }
 .rdp-record-reason { overflow-wrap: anywhere; }
 .rdp-record-pending { margin: 6px 0; color: #7d4d12; }
-.rdp-record summary { color: #002fa7; cursor: pointer; margin-top: 8px; padding: 4px 0; width: fit-content; }
+.rdp-record summary { color: var(--primary); cursor: pointer; margin-top: 8px; padding: 4px 0; width: fit-content; }
 .rdp-record-detail { display: grid; gap: 8px; margin-top: 10px; padding: 12px; background: var(--muted); border-radius: 6px; }
 .rdp-record-detail > div { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 8px; }
 .rdp-record-detail dt { color: var(--muted-foreground); }

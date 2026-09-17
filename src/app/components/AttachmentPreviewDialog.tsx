@@ -8,6 +8,7 @@ import { parseXlsxForPreview, type XlsxPreviewSheet } from "../lib/xlsxPreview";
 import { MobileZoomableImage } from "./MobileZoomableImage";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { cn } from "./ui/utils";
+import { Button } from "./ui/button";
 
 export type PreviewableAttachment = {
   id?: string;
@@ -160,13 +161,13 @@ export function AttachmentPreviewDialog({
             </a>
             {downloadError ? <span role="alert" className="text-xs text-red-600">{t("下载失败，请重试")}</span> : null}
             <DialogClose asChild>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 className="flex size-10 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 aria-label={t("关闭预览")}
               >
                 <X className="size-4" aria-hidden="true" />
-              </button>
+              </Button>
             </DialogClose>
           </div>
         </div>
@@ -177,20 +178,20 @@ export function AttachmentPreviewDialog({
         {hasGallery ? (
           <div className="min-w-0 shrink-0 border-t border-slate-200 bg-white px-3 pb-3 pt-2 sm:px-5">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="min-w-0 text-xs font-medium text-slate-600">{t("全部附件")} <span className="tabular-nums text-slate-400">{items.length}</span></div>
+              <div className="min-w-0 text-xs font-medium text-slate-600">{t("全部附件")} <span className="tabular-nums text-muted-foreground">{items.length}</span></div>
               <nav aria-label={t("切换预览附件")} className="flex shrink-0 items-center gap-2">
-                <button type="button" disabled={activeIndex === 0} onClick={() => selectAttachment(activeIndex - 1)} aria-label={t("上一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
+                <Button variant="unstyled" type="button" disabled={activeIndex === 0} onClick={() => selectAttachment(activeIndex - 1)} aria-label={t("上一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
                   <ChevronLeft className="size-4" aria-hidden="true" />{t(mime.startsWith("image/") ? "上一张" : "上一项")}
-                </button>
+                </Button>
                 <span aria-live="polite" aria-atomic="true" className="min-w-10 text-center text-xs tabular-nums text-slate-500">{activeIndex + 1} / {items.length}</span>
-                <button type="button" disabled={activeIndex === items.length - 1} onClick={() => selectAttachment(activeIndex + 1)} aria-label={t("下一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
+                <Button variant="unstyled" type="button" disabled={activeIndex === items.length - 1} onClick={() => selectAttachment(activeIndex + 1)} aria-label={t("下一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
                   {t(mime.startsWith("image/") ? "下一张" : "下一项")}<ChevronRight className="size-4" aria-hidden="true" />
-                </button>
+                </Button>
               </nav>
             </div>
             <div className="flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1" role="group" aria-label={t("全部附件缩略图")}>
               {items.map((item, index) => (
-                <button
+                <Button variant="unstyled"
                   key={attachmentKey(item)}
                   ref={index === activeIndex ? selectedThumbnailRef : undefined}
                   type="button"
@@ -202,7 +203,7 @@ export function AttachmentPreviewDialog({
                 >
                   <AttachmentThumbnail attachment={item} />
                   <div className="mt-1 truncate text-xs text-slate-600">{item.name}</div>
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -224,7 +225,7 @@ function AttachmentThumbnail({ attachment }: { attachment: PreviewableAttachment
   });
   const isImage = attachmentMime(attachment).startsWith("image/");
   return (
-    <div className="flex h-14 items-center justify-center overflow-hidden rounded bg-white text-slate-400">
+    <div className="flex h-14 items-center justify-center overflow-hidden rounded bg-white text-muted-foreground">
       {isImage && !image.failed ? <img src={image.src || undefined} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" onLoad={image.onLoad} onError={image.onError} /> : <FileText className="size-6" aria-hidden="true" />}
     </div>
   );
@@ -248,7 +249,7 @@ function AttachmentContent({ attachment, mime }: { attachment: PreviewableAttach
       <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-white" data-attachment-local-keys>
         {imageFailed ? (
           <div role="status" className="flex max-w-md flex-col items-center gap-3 p-6 text-center">
-            <ImageOff className="size-10 text-slate-300" aria-hidden="true" />
+            <ImageOff className="size-10 text-muted-foreground" aria-hidden="true" />
             <div className="text-balance text-sm font-semibold text-[#1b2559]">{t("图片加载失败")}</div>
             <p className="text-pretty text-xs leading-5 text-slate-500">{t("可切换其他附件，或点击右上角下载查看。")}</p>
           </div>
@@ -282,7 +283,7 @@ function UnsupportedPreview() {
   const { t } = useI18n();
   return (
     <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
-      <FileText className="h-10 w-10 text-slate-300" />
+      <FileText className="h-10 w-10 text-muted-foreground" />
       <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("当前格式暂不支持内嵌预览")}</div>
       <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{t("文件已保留在当前任务中，可直接下载查看，不会离开采购驾驶舱页面。")}</p>
     </div>
@@ -317,7 +318,7 @@ function XlsxTablePreview({ url }: { url: string }) {
   if (error) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
-        <FileText className="h-10 w-10 text-slate-300" />
+        <FileText className="h-10 w-10 text-muted-foreground" />
         <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("表格预览失败")}</div>
         <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{error}，{t("可点右上角“下载”打开。")}</p>
       </div>
@@ -334,7 +335,7 @@ function XlsxTablePreview({ url }: { url: string }) {
   if (sheets.length === 0 || sheets.every((sheet) => sheet.rowCount === 0)) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
-        <Table2 className="h-10 w-10 text-slate-300" />
+        <Table2 className="h-10 w-10 text-muted-foreground" />
         <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("这张表是空的")}</div>
         <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{t("未读取到任何单元格内容。")}</p>
       </div>
@@ -347,17 +348,17 @@ function XlsxTablePreview({ url }: { url: string }) {
       {sheets.length > 1 ? (
         <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 py-1.5">
           {sheets.map((item, index) => (
-            <button
+            <Button variant="unstyled"
               key={`${item.name}-${index}`}
               type="button"
               onClick={() => setActive(index)}
               className={cn(
-                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                index === active ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
+                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                index === active ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
               )}
             >
               {item.name}
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}

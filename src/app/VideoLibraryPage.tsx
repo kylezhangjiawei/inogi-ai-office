@@ -58,6 +58,8 @@ import {
   type VideoTask,
   type VideoTaskStatus,
 } from "./lib/videoGenerationApi";
+import { NativeSelect } from "./components/ui/native-select";
+import { Input } from "./components/ui/input";
 
 const PAGE_SIZE = 12;
 const POLL_INTERVAL_MS = 15_000;
@@ -134,7 +136,7 @@ function CostGatePanel() {
 
   return (
     <section className="hz-surface overflow-hidden">
-      <button
+      <Button variant="unstyled"
         type="button"
         className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5"
         onClick={() => setOpen((v) => !v)}
@@ -142,11 +144,11 @@ function CostGatePanel() {
         aria-controls="video-cost-gate-panel"
       >
         <div className="flex items-center gap-2">
-          <Settings2 className="size-5 text-[#002fa7]" />
+          <Settings2 className="size-5 text-primary" />
           <span className="text-balance text-base font-semibold text-slate-900">视频成本闸门</span>
         </div>
         <span className="text-sm font-medium text-slate-500">{open ? "收起" : "展开"}</span>
-      </button>
+      </Button>
 
       {open && (
         <div id="video-cost-gate-panel" className="border-t border-slate-100 px-4 py-4 sm:px-5">
@@ -160,7 +162,7 @@ function CostGatePanel() {
                 <label htmlFor="video-gate-mode" className="mb-2 block text-xs font-semibold text-slate-700">
                   闸门模式
                 </label>
-                <select
+                <NativeSelect
                   id="video-gate-mode"
                   value={config.mode}
                   onChange={(event) => setConfig({ ...config, mode: event.target.value as VideoCostGateConfig["mode"] })}
@@ -169,13 +171,13 @@ function CostGatePanel() {
                   <option value="off">关闭 — 不拦，直接生成</option>
                   <option value="threshold">阈值 — 超过阈值才确认</option>
                   <option value="always">始终 — 每次都确认</option>
-                </select>
+                </NativeSelect>
               </div>
               <div>
                 <label htmlFor="video-gate-threshold" className="mb-2 block text-xs font-semibold text-slate-700">
                   自动放行阈值（元）
                 </label>
-                <input
+                <Input
                   id="video-gate-threshold"
                   type="number"
                   min={0}
@@ -193,7 +195,7 @@ function CostGatePanel() {
                 <label htmlFor="video-gate-budget" className="mb-2 block text-xs font-semibold text-slate-700">
                   预算上限（元）
                 </label>
-                <input
+                <Input
                   id="video-gate-budget"
                   type="number"
                   min={0}
@@ -475,10 +477,10 @@ export function VideoLibraryPage() {
         )}
         actions={(
           <TabsList aria-label="视频创作视图" className="h-auto rounded-full border border-slate-200 bg-white p-1">
-            <TabsTrigger value="generate" className="h-8 rounded-full px-3 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white">
+            <TabsTrigger value="generate" className="h-8 rounded-full px-3 data-[state=active]:bg-primary data-[state=active]:text-white">
               <Sparkles className="size-3.5" />生成视频
             </TabsTrigger>
-            <TabsTrigger value="library" className="h-8 rounded-full px-3 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white">
+            <TabsTrigger value="library" className="h-8 rounded-full px-3 data-[state=active]:bg-primary data-[state=active]:text-white">
               <Film className="size-3.5" />视频作品库
             </TabsTrigger>
           </TabsList>
@@ -498,7 +500,7 @@ export function VideoLibraryPage() {
             Icon={Sparkles}
             title="创建视频任务"
             description="选择生成方式并完善素材、提示词与输出规格，提交前会即时核算预计消耗。"
-            trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-[#002fa7]">预算前置校验</span>}
+            trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-primary">预算前置校验</span>}
           />
           <div className="p-4 sm:p-5">
             <VideoGenerateForm
@@ -570,18 +572,18 @@ export function VideoLibraryPage() {
                     共 <span className="tabular-nums">{total.toLocaleString("zh-CN")}</span> 件
                   </span>
                   {activeCategory || categoryFilter === UNCATEGORIZED_FILTER ? (
-                    <span className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-semibold text-[#002fa7]">
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-semibold text-primary">
                       {activeCategory
                         ? `${activeCategory.path}${(activeCategory.children ?? []).length > 0 ? "（含子分类）" : ""}`
                         : "未分类"}
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => setCategoryFilter("")}
                         aria-label="清除分类筛选"
-                        className="cursor-pointer rounded text-blue-500 transition-colors hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        className="cursor-pointer rounded text-primary transition-colors hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
                         <X className="size-3" />
-                      </button>
+                      </Button>
                     </span>
                   ) : null}
                 </span>
@@ -671,7 +673,7 @@ export function VideoLibraryPage() {
                                   onClick={() => setAssigningItem(item)}
                                   title="设置分类"
                                   aria-label={`设置分类：${item.prompt || "未命名视频"}`}
-                                  className="size-8 text-slate-500 hover:bg-blue-50 hover:text-[#002fa7]"
+                                  className="size-8 text-slate-500 hover:bg-accent hover:text-primary"
                                 >
                                   <FolderCog className="size-4" />
                                 </Button>

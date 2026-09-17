@@ -12,14 +12,14 @@ const files = {
 };
 const management = await read("src/app/RDTaskManagementPage.tsx");
 
-test("任务详情链路保持 Horizon / Klein Blue，并移除旧装饰与手写模态层", () => {
+test("任务详情链路保持 Horizon / Horizon 主题，并移除旧装饰与手写模态层", () => {
   const forbidden = /gradient|backdrop-blur|\b(?:purple|violet|indigo|fuchsia|pink)-|\btracking-|transition-all|hover:-translate|group-hover:translate|createPortal|<[^>]*\srole="dialog"/i;
   for (const [name, source] of Object.entries(files)) {
     assert.doesNotMatch(source, forbidden, `${name} 不应保留旧装饰或手写模态层`);
   }
   assert.match(files.detail, /RD_TASK_DETAIL_HORIZON_SCOPE/);
-  assert.match(files.detail, /bg-\[#002fa7\]/);
-  assert.match(files.conversation, /bg-\[#002fa7\]/);
+  assert.match(files.detail, /bg-primary/);
+  assert.match(files.conversation, /bg-primary/);
   assert.match(files.reports, /data-\[state=active\]:bg-primary/);
 });
 

@@ -19,7 +19,9 @@ class FixedDate extends Date {
 function evaluate(code, dependencies = {}, environment = {}) {
   const exports = {};
   new Function('exports', 'require', 'crypto', 'Date', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'window', 'document', code)(
-    exports, (name) => { assert.ok(Object.hasOwn(dependencies, name), `未审查的页面依赖：${name}`); return dependencies[name]; },
+    exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(Object.hasOwn(dependencies, name), `未审查的页面依赖：${name}`); return dependencies[name]; },
     { randomUUID }, FixedDate, noExternalAccess, noStorage, noStorage, noStorage, environment.window ?? {}, {},
   );
   return exports;
@@ -88,7 +90,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     './warehousePreviewModel': { ...model, createWarehouseState: () => seedTransform(model.createWarehouseState()) }, './warehouseTypes': types,
     '../../order-processing/horizon.css': {}, './warehouse-preview.css': {},
   };
-  for (const component of ['alert-dialog', 'button', 'input', 'label', 'select']) dependencies[`../../components/ui/${component}`] = primitives;
+  for (const component of ['alert-dialog', "button", "input", 'label', "select"]) dependencies[`../../components/ui/${component}`] = primitives;
   const exports = evaluate(pageCode, dependencies, { window: {
     addEventListener: (event, callback) => listeners.set(event, callback),
     removeEventListener: (event, callback) => { if (listeners.get(event) === callback) listeners.delete(event); },
@@ -104,7 +106,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     rowIds() { return view.rows().map((row) => row.key); },
     selectedRow() { return view.rows().find((node) => node.props.className.includes('is-selected'))?.key; },
     params() { return new URLSearchParams(location.search); }, location() { return { ...location }; },
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label); },
     click(label) { const button = view.button(label); assert.ok(button, `${label} exists`); assert.equal(Boolean(button.props.disabled), false, `${label} enabled`); button.props.onClick(); return view.render(); },
     open(id) { const row = view.rows().find((node) => node.key === id); assert.ok(row, `${id} row exists`); nodes(row).find((node) => node.type === 'Button').props.onClick(); return view.render(); },
     tab(value) { return view.click(types.warehouseTabLabels[value]); },
@@ -116,7 +118,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     dirty(value = true) { assert.ok(view.form(), '有表单才产生草稿'); view.form().props.onDirtyChange(value); return view.render(); },
     cancelDiscard() { view.dialog().props.onOpenChange(false); return view.render(); },
     discard() { view.click('放弃并继续'); view.dialog().props.onOpenChange(false); return view.render(); },
-    failNext(value = true) { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: value } }); return view.render(); },
+    failNext(value = true) { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(value); return view.render(); },
     async save(patch = {}) { const form = view.form(); assert.ok(form, '当前有动作表单'); try { await form.props.onSubmit(actionInput(form.props.context, patch)); } finally { view.render(); } },
     navigate(search, pathname = location.pathname) { navigate({ pathname, search }); return view.render(); },
     beforeUnload() { const event = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } }; listeners.get('beforeunload')?.(event); return event; },
@@ -269,7 +271,7 @@ test('路由返回、跨页面导航与刷新受草稿保护，取消保留原�
 test('保存失败不生成记录或丢弃草稿，重试仅保存一次且清除导航保护', async () => {
   const page = issuePage(); page.dirty(); page.failNext(); const before = page.context().state, key = page.form().key;
   await assert.rejects(page.save(), /填写内容已保留/); assert.equal(page.context().state, before); assert.equal(page.form().key, key); assert.equal(page.beforeUnload().prevented, true);
-  assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
+  assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.checked, false);
   await page.save(); assert.equal(page.context().state.issues.length, before.issues.length + 1); assert.equal(page.context().state.version, before.version + 1); assert.equal(page.beforeUnload().prevented, false);
 });
 
@@ -282,7 +284,7 @@ test('旧版本保存回调不能再次扣库或生成第二张领料单', async
 test('只读、空态和读取失败隐藏保存动作，恢复后保留已保存记录', async () => {
   for (const [scenario, message, restore] of [['仅可查看', '当前仅可查看记录', '正常操作'], ['暂无数据', '暂无仓库记录', '返回演示数据'], ['读取失败', '仓库记录读取失败', '重新加载']]) {
     const page = issuePage(); await page.save(); const id = page.context().issueId; page.dirty(); page.click(scenario); assert.equal(page.dialog().props.open, true); page.discard();
-    assert.equal(page.form(), undefined); assert.match(page.text(), new RegExp(message)); assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.disabled, true);
+    assert.equal(page.form(), undefined); assert.match(page.text(), new RegExp(message)); assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.disabled, true);
     page.click(restore); assert.equal(page.context().issueId, id); assert.equal(page.context().kind, 'sign'); assert.match(page.text(), /演示页面 issue 依据/);
   }
 });

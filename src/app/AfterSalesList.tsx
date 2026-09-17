@@ -1,3 +1,4 @@
+import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import React, { useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -40,6 +41,7 @@ import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath, subRoutePath } from "./lib/routePaths";
+import { NativeSelect } from "./components/ui/native-select";
 
 const initialTickets = [
   { id: "CS-2024-0892", customer: "Medline International", product: "OC-5", sn: "20240315001", issue: "不出氧", priority: "P2", status: "处理中", assignee: "王工", date: "2024-04-07", updated: "1小时前" },
@@ -53,7 +55,7 @@ const initialTickets = [
 
 const statusConfig: Record<string, { className: string; icon: LucideIcon }> = {
   待处理: { className: "border-red-100 bg-red-50 text-red-700", icon: AlertCircle },
-  处理中: { className: "border-blue-100 bg-blue-50 text-[#002fa7]", icon: RefreshCw },
+  处理中: { className: "border-blue-100 bg-blue-50 text-primary", icon: RefreshCw },
   待客户: { className: "border-amber-100 bg-amber-50 text-amber-700", icon: Clock },
   已完成: { className: "border-emerald-100 bg-emerald-50 text-emerald-700", icon: CheckCircle2 },
   已关闭: { className: "border-slate-200 bg-slate-50 text-slate-500", icon: CheckCircle2 },
@@ -71,7 +73,7 @@ const pageSize = 5;
 const queueInsights = [
   { title: "高优先级工单", value: "2", helper: "建议今天内完成初步诊断", tone: "text-red-700" },
   { title: "客户待反馈", value: "1", helper: "可补发视频采集指引", tone: "text-amber-700" },
-  { title: "跨部门协同", value: "3", helper: "已同步研发、法规与质量", tone: "text-[#002fa7]" },
+  { title: "跨部门协同", value: "3", helper: "已同步研发、法规与质量", tone: "text-primary" },
 ];
 
 const collaborationFeed = [
@@ -159,19 +161,19 @@ export function AfterSalesList() {
         <HorizonSectionHeader Icon={Headphones} title="Case 处理队列" description="按状态、客户、设备和负责人快速定位当前工单。" trailing={<span className="text-xs text-slate-500 tabular-nums">当前结果 {filtered.length} 条</span>} />
 
         <div className="hz-toolbar flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-2" role="tablist" aria-label="工单状态筛选">
+          <ToggleGroup type="single" value={activeFilter} onValueChange={(value) => { if (value) { setActiveFilter(value); setPage(1); } }} className="min-w-0 flex-wrap gap-2" aria-label="工单状态筛选">
             {filterTabs.map((tab) => (
-              <Button key={tab} type="button" size="sm" variant={activeFilter === tab ? "default" : "ghost"} role="tab" aria-selected={activeFilter === tab} className={cn(activeFilter === tab && "bg-[#002fa7] hover:bg-[#002581]")} onClick={() => { setActiveFilter(tab); setPage(1); }}>
+              <ToggleGroupItem key={tab} value={tab} size="sm" className="flex-none rounded-lg data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
                 {tab}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           <div className="flex w-full min-w-0 items-center gap-2 xl:w-auto">
             <div className="relative min-w-0 flex-1 xl:w-72 xl:flex-none">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input type="search" aria-label="搜索工单" placeholder="搜索工单号、客户、型号或 SN" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} className="h-10 rounded-xl bg-white pl-9" />
             </div>
-            <Button type="button" variant="outline" className={cn("h-10 rounded-xl", hasAdvancedFilters && "border-[#002fa7] text-[#002fa7]")} onClick={() => setShowFilterDialog(true)}>
+            <Button type="button" variant="outline" className={cn("h-10 rounded-xl", hasAdvancedFilters && "border-primary text-primary")} onClick={() => setShowFilterDialog(true)}>
               <Filter className="size-4" />筛选{hasAdvancedFilters ? "（已应用）" : ""}
             </Button>
           </div>
@@ -189,7 +191,7 @@ export function AfterSalesList() {
                 const StatusIcon = statusCfg.icon;
                 return (
                   <tr key={ticket.id} className="bg-white hover:bg-[#f7f9ff]" onMouseEnter={() => setSelectedTicketId(ticket.id)}>
-                    <td className="px-4 py-3.5"><Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} className="font-mono text-sm font-semibold text-[#002fa7] hover:underline">{ticket.id}</Link></td>
+                    <td className="px-4 py-3.5"><Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} className="font-mono text-sm font-semibold text-primary hover:underline">{ticket.id}</Link></td>
                     <td className="max-w-48 px-4 py-3.5 text-sm font-medium text-slate-700"><span className="block truncate" title={ticket.customer}>{ticket.customer}</span></td>
                     <td className="px-4 py-3.5"><p className="text-sm font-semibold text-slate-700">{ticket.product}</p><p className="mt-0.5 font-mono text-xs text-slate-500 tabular-nums">{ticket.sn}</p></td>
                     <td className="px-4 py-3.5 text-sm text-slate-600">{ticket.issue}</td>
@@ -217,7 +219,7 @@ export function AfterSalesList() {
         <div className="hz-surface min-w-0 overflow-hidden">
           <HorizonSectionHeader Icon={Activity} title="当前聚焦工单" description="将鼠标移到列表行即可更新摘要。" trailing={<span className={cn("rounded-full border px-2 py-1 text-xs font-semibold", priorityConfig[selectedTicket.priority])}>{selectedTicket.priority}</span>} />
           <div className="grid gap-4 p-4 sm:grid-cols-2">
-            <div className="min-w-0 border-b border-slate-100 pb-4 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4"><div className="text-xs font-semibold text-slate-500">客户与设备</div><div className="mt-2 font-mono text-base font-semibold text-[#002fa7] tabular-nums">{selectedTicket.id}</div><p className="mt-1 truncate text-sm font-medium text-slate-800">{selectedTicket.customer}</p><p className="mt-2 text-sm text-slate-600">{selectedTicket.product} · <span className="font-mono tabular-nums">{selectedTicket.sn}</span></p></div>
+            <div className="min-w-0 border-b border-slate-100 pb-4 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4"><div className="text-xs font-semibold text-slate-500">客户与设备</div><div className="mt-2 font-mono text-base font-semibold text-primary tabular-nums">{selectedTicket.id}</div><p className="mt-1 truncate text-sm font-medium text-slate-800">{selectedTicket.customer}</p><p className="mt-2 text-sm text-slate-600">{selectedTicket.product} · <span className="font-mono tabular-nums">{selectedTicket.sn}</span></p></div>
             <div className="min-w-0"><div className="text-xs font-semibold text-slate-500">处理状态</div><p className="mt-2 text-sm font-semibold text-slate-800">{selectedTicket.issue} · {selectedTicket.assignee}</p><p className="mt-1 text-sm text-slate-600">最近更新：<span className="tabular-nums">{selectedTicket.updated}</span></p><div className="mt-3 flex flex-wrap gap-2"><span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", statusConfig[selectedTicket.status].className)}>{selectedTicket.status}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">下一步：推进诊断</span></div></div>
           </div>
         </div>
@@ -236,11 +238,11 @@ export function AfterSalesList() {
         <DialogContent className="horizon-portal sm:max-w-xl">
           <DialogHeader><DialogTitle className="text-balance text-slate-900">高级筛选</DialogTitle><DialogDescription className="text-pretty">按优先级和负责人进一步缩小工单范围。</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <div className="space-y-2"><Label htmlFor="after-sales-priority">优先级</Label><select id="after-sales-priority" className="material-input" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>{["全部", "P1", "P2", "P3"].map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
-            <div className="space-y-2"><Label htmlFor="after-sales-assignee">负责人</Label><select id="after-sales-assignee" className="material-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>{["全部", ...Array.from(new Set(initialTickets.map((item) => item.assignee)))].map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+            <div className="space-y-2"><Label htmlFor="after-sales-priority">优先级</Label><NativeSelect id="after-sales-priority" className="material-input" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>{["全部", "P1", "P2", "P3"].map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></div>
+            <div className="space-y-2"><Label htmlFor="after-sales-assignee">负责人</Label><NativeSelect id="after-sales-assignee" className="material-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>{["全部", ...Array.from(new Set(initialTickets.map((item) => item.assignee)))].map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></div>
           </div>
           <div className="text-sm text-slate-500 tabular-nums">当前结果：{filtered.length} 条工单</div>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => { setPriorityFilter("全部"); setAssigneeFilter("全部"); setPage(1); }}>重置</Button><Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => { setPage(1); setShowFilterDialog(false); toast.success("高级筛选已应用"); }}>应用筛选</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => { setPriorityFilter("全部"); setAssigneeFilter("全部"); setPage(1); }}>重置</Button><Button type="button" className="bg-primary hover:bg-primary-hover" onClick={() => { setPage(1); setShowFilterDialog(false); toast.success("高级筛选已应用"); }}>应用筛选</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

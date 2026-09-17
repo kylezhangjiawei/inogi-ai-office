@@ -287,7 +287,7 @@ function ProcPeopleManagementContent() {
       <section className="proc-horizon-surface material-card mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
         <p className="min-w-0 flex-1 basis-80 text-pretty text-xs leading-5 text-slate-500">{t("采购名录保留在办及历史任务；仓管与质量任务按原订单行、收货批次独立分派，处理结果随原业务更新。")}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {canManage && <button type="button" disabled={busy} onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"><UserPlus className="size-4" />{t("成员名录")}</button>}
+          {canManage && <Button variant="unstyled" type="button" disabled={busy} onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"><UserPlus className="size-4" />{t("成员名录")}</Button>}
           <Button type="button" disabled={busy} variant="outline" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="h-9 rounded-lg border-slate-200 px-3 text-sm text-slate-600"><ArrowLeft className="size-4" />{t("返回驾驶舱")}</Button>
         </div>
       </section>
@@ -323,13 +323,13 @@ function ProcPeopleManagementContent() {
             placeholder={t("搜索姓名 / 岗位备注…")}
             className="h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white pl-8 pr-10 text-sm outline-none focus:border-primary/40"
           />
-          {keyword && <button type="button" disabled={busy} aria-label={t("清空搜索")} onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="absolute right-0.5 top-0.5 flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-60"><X className="size-3.5" /></button>}
+          {keyword && <Button variant="unstyled" type="button" disabled={busy} aria-label={t("清空搜索")} onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="absolute right-0.5 top-0.5 flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-60"><X className="size-3.5" /></Button>}
         </div>
         <span role="status" className="text-xs tabular-nums text-slate-500">{dataPending ? t("加载中") : tasksError || rosterError ? "—" : t("显示 {count} / {total} 位负责人", { count: rows.length, total: allRows.length })}</span>
         {canManage && (
           <div className="ml-auto flex items-center gap-2">
             {!dataPending && !tasksError && !rosterError && teamSummary.unassigned > 0 && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 disabled={busy}
                 onClick={() => void autoAssign()}
@@ -337,17 +337,17 @@ function ProcPeopleManagementContent() {
               >
                 {pendingAction === "auto" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
                 {t("智能分派未分配任务")}
-              </button>
+              </Button>
             )}
           </div>
         )}
       </div>
 
-      {tasksError && <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><span className="min-w-0 break-words">{tasksError}</span><button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重试")}</button></div>}
+      {tasksError && <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><span className="min-w-0 break-words">{tasksError}</span><Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重试")}</Button></div>}
       {rosterError && (
         <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
           <span className="min-w-0 break-words text-pretty">{rosterError}</span>
-          <button type="button" onClick={() => void loadRoster()} className="material-button-secondary shrink-0 px-3 py-2 text-xs">{t("重试")}</button>
+          <Button variant="unstyled" type="button" onClick={() => void loadRoster()} className="material-button-secondary shrink-0 px-3 py-2 text-xs">{t("重试")}</Button>
         </div>
       )}
       {actionError?.scope === "auto" && (
@@ -363,7 +363,7 @@ function ProcPeopleManagementContent() {
         {!dataPending && !tasksError && !rosterError && rows.length === 0 && (
           <div className="material-card flex flex-col items-center gap-3 py-12 text-center">
             <p className="text-pretty text-sm text-slate-500">{t(keyword.trim() ? "没有匹配的人员" : "暂无采购成员与在制任务")}</p>
-            {keyword.trim() ? <button type="button" onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="material-button-secondary px-3 py-2 text-xs">{t("清空搜索")}</button> : canManage && <button type="button" onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><UserPlus className="size-4" />{t("维护成员名录")}</button>}
+            {keyword.trim() ? <Button variant="unstyled" type="button" onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="material-button-secondary px-3 py-2 text-xs">{t("清空搜索")}</Button> : canManage && <Button variant="unstyled" type="button" onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><UserPlus className="size-4" />{t("维护成员名录")}</Button>}
           </div>
         )}
         {!dataPending && !tasksError && !rosterError && rows.map((p) => {
@@ -410,9 +410,9 @@ function ProcPeopleManagementContent() {
                 <span className={cn("inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium tabular-nums", load.tone)}><load.Icon className="size-3 shrink-0" />{load.label}</span>
                 <Button type="button" variant="outline" disabled={busy} aria-label={`${t("查看 {name} 的全部任务", { name: p.name })}${p.userId ? t("，账号 {id}", { id: p.userId }) : p.key !== UNASSIGNED ? t("，历史姓名归属待核对") : ""}`} onClick={(event) => { personTriggerRef.current = event.currentTarget; setPersonKey(p.key); setEditingNote(null); setHandover(null); }} className="min-h-10 rounded-lg px-3 text-xs">{t("查看全部任务")} · {p.tasks.length}</Button>
                 {canManage && p.member && (
-                  <button type="button" disabled={busy} aria-label={t("编辑岗位备注")} aria-expanded={editingNote === p.member.id} onClick={(event) => { noteTriggerRef.current = event.currentTarget; setEditingNote((cur) => (cur === p.member!.id ? null : p.member!.id)); setHandover(null); setActionError(null); setNoteDraft(p.member.note ?? ""); }} className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-60" title={t("编辑岗位备注")}>
+                  <Button variant="unstyled" type="button" disabled={busy} aria-label={t("编辑岗位备注")} aria-expanded={editingNote === p.member.id} onClick={(event) => { noteTriggerRef.current = event.currentTarget; setEditingNote((cur) => (cur === p.member!.id ? null : p.member!.id)); setHandover(null); setActionError(null); setNoteDraft(p.member.note ?? ""); }} className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-60" title={t("编辑岗位备注")}>
                     <Pencil className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 )}
                 {canManage && (
                   <CollapsibleTrigger asChild>
@@ -437,7 +437,7 @@ function ProcPeopleManagementContent() {
                   placeholder={t("岗位备注，如「电子料询价」「包材/耗材」")}
                   className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40"
                 />
-                <button type="button" disabled={busy} onClick={() => void saveNote(p.member!)} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-60">{pendingAction === `note:${p.member.id}` ? t("正在保存…") : t("保存岗位备注")}</button>
+                <Button type="button" disabled={busy} onClick={() => void saveNote(p.member!)} className="rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">{pendingAction === `note:${p.member.id}` ? t("正在保存…") : t("保存岗位备注")}</Button>
                 <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancelNote} className="h-8 text-xs">{t("取消")}</Button>
                 </div>
                 {actionError?.scope === `note:${p.member.id}` && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}
@@ -500,10 +500,10 @@ function ProcPeopleManagementContent() {
                   placeholder={t("接收人姓名")}
                   className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40"
                 />
-                <button type="button" disabled={busy || p.active.length === 0} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-60">
+                <Button type="button" disabled={busy || p.active.length === 0} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
                   {pendingAction === `handover:${p.key}` && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {pendingAction === `handover:${p.key}` ? t("正在提交…") : t(p.key === UNASSIGNED ? "指派 {count} 个任务" : "交接 {count} 个任务", { count: p.active.length })}
-                </button>
+                </Button>
                 <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancelHandover} className="h-8 text-xs">{t("取消")}</Button>
                 </div>
                 {actionError?.scope === `handover:${p.key}` && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}

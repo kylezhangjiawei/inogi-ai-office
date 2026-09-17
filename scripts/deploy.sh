@@ -808,25 +808,27 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
     skip_stage typecheck || true
   fi
 
-  if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
     start_stage tests || true
     log "运行受影响的测试 ..."
-    if [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+    if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
       npm run test:dev-scripts || die "开发脚本测试未通过，已中止部署（线上仍是旧版本）。"
     fi
 
-    # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离。
-    if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
-      npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
-      log "质量闸门通过（API 全量测试）。"
-    else
-      npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
-      log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行。"
-      log "质量闸门通过（API ts-node 套件）。"
+    if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+      # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离。
+      if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
+        npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
+        log "质量闸门通过（API 全量测试）。"
+      else
+        npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
+        log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行。"
+        log "质量闸门通过（API ts-node 套件）。"
+      fi
     fi
     finish_stage success || true
   else
-    log "API 与测试输入未变化，跳过测试。"
+    log "前端、API 与测试输入均未变化，跳过测试。"
     skip_stage tests || true
   fi
 else

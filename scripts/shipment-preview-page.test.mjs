@@ -19,7 +19,9 @@ class FixedDate extends Date {
 function evaluate(code, dependencies = {}, environment = {}) {
   const exports = {};
   new Function('exports', 'require', 'crypto', 'Date', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'window', 'document', code)(
-    exports, (name) => { assert.ok(Object.hasOwn(dependencies, name), `未审查的页面依赖：${name}`); return dependencies[name]; },
+    exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(Object.hasOwn(dependencies, name), `未审查的页面依赖：${name}`); return dependencies[name]; },
     { randomUUID }, FixedDate, noExternalAccess, noStorage, noStorage, noStorage, environment.window ?? {}, {},
   );
   return exports;
@@ -80,7 +82,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     './shipmentPreviewModel': { ...model, createShipmentState: () => seedTransform(model.createShipmentState()) }, './shipmentTypes': types,
     '../../order-processing/horizon.css': {}, './shipment-preview.css': {},
   };
-  for (const component of ['alert-dialog', 'button', 'input', 'label', 'select', 'sheet']) dependencies[`../../components/ui/${component}`] = primitives;
+  for (const component of ['alert-dialog', "button", "input", 'label', "select", 'sheet']) dependencies[`../../components/ui/${component}`] = primitives;
   const exports = evaluate(pageCode, dependencies, { window: {
     addEventListener: (event, callback) => listeners.set(event, callback),
     removeEventListener: (event, callback) => { if (listeners.get(event) === callback) listeners.delete(event); },
@@ -97,7 +99,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     rows() { return nodes(view.byType('tbody')).filter((node) => node.type === 'tr'); }, rowIds() { return view.rows().map((row) => row.key); },
     selectedRow() { return view.rows().find((row) => row.props.className.includes('is-selected'))?.key; },
     params() { return new URLSearchParams(location.search); }, location() { return { ...location }; },
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
     click(label) { const button = view.button(label); assert.ok(button, `${label} exists`); assert.equal(Boolean(button.props.disabled), false, `${label} enabled`); button.props.onClick(); return view.render(); },
     open(id) { const row = view.rows().find((node) => node.key === id); assert.ok(row, `${id} row exists`); nodes(row).find((node) => node.type === 'Button').props.onClick(); return view.render(); },
     input(id, value) { assert.ok(view.byId(id), `${id} exists`); view.byId(id).props.onChange({ target: { value } }); return view.render(); },
@@ -106,7 +108,7 @@ function fixture(initialSearch = '', seedTransform = (state) => state) {
     dirty(value = true) { assert.ok(view.form(), '有表单才产生草稿'); view.form().props.onDirtyChange(value); return view.render(); },
     cancelDiscard() { view.dialog().props.onOpenChange(false); return view.render(); },
     discard() { view.click('放弃并继续'); view.dialog().props.onOpenChange(false); return view.render(); },
-    failNext(value = true) { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: value } }); return view.render(); },
+    failNext(value = true) { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(value); return view.render(); },
     async save(patch = {}) { const form = view.form(); assert.ok(form, '当前有动作表单'); try { await form.props.onSubmit(actionInput(form.props.context, patch)); } finally { view.render(); } },
     navigate(search, pathname = location.pathname) { navigate({ pathname, search }); return view.render(); },
     beforeUnload() { const event = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } }; listeners.get('beforeunload')?.(event); return event; },
@@ -145,7 +147,7 @@ test('分批登记选中新草稿且清除筛选，草稿不计入实际出货',
 test('保存失败保留同一表单与草稿保护，状态不变，重试只产生一次记录', async () => {
   const page = fixture(); page.click('登记出货'); page.dirty(); page.failNext(); const before = page.state(), key = page.form().key;
   await assert.rejects(page.save(), /填写内容已保留/); assert.equal(page.state(), before); assert.equal(page.form().key, key); assert.equal(page.beforeUnload().prevented, true);
-  assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
+  assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.checked, false);
   await page.save(); assert.equal(page.state().records.length, before.records.length + 1); assert.equal(page.state().version, before.version + 1); assert.equal(page.beforeUnload().prevented, false);
 });
 
@@ -225,7 +227,7 @@ test('档案引用当前状态中的本批单据、冲销及 SN，点击原单�
 test('只读隐藏动作且禁用登记和失败开关，恢复正常保留已保存记录', async () => {
   const page = draftPage(); page.click('确认实际出库'); await page.save(); const state = page.state(); page.click('只读');
   assert.equal(page.form(), undefined); assert.equal(page.button('登记出货').props.disabled, true); assert.equal(page.button('冲销 / 更正'), undefined); assert.equal(page.button('补充 SN'), undefined);
-  assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.disabled, true); assert.ok(page.button('查看批次档案'));
+  assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.disabled, true); assert.ok(page.button('查看批次档案'));
   page.click('正常'); assert.equal(page.state(), state); assert.equal(page.metric('本月实际出货'), '200 台'); assert.ok(page.button('冲销 / 更正'));
 });
 

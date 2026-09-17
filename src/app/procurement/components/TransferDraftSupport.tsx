@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useBlocker } from 'react-router';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/alert-dialog';
 import { clearTransferDraft, loadTransferDraft, saveTransferDraft, type TransferDraft, type TransferDraftSnapshot } from '../transferDraftStore';
+import { Button } from "../../components/ui/button";
 
 export function TransferDraftSupport({ scope, snapshot, dirty, busy, restoreReady = true, onWritingChange, onRestore, onClose }: {
   scope: string; snapshot: TransferDraftSnapshot; dirty: boolean; busy: boolean;
@@ -61,14 +62,14 @@ export function TransferDraftSupport({ scope, snapshot, dirty, busy, restoreRead
     <p>{saved && !accepted ? `发现本账号在此设备保存的草稿（${new Date(saved.savedAt).toLocaleString('zh-CN')}）。` : dirty && savedSignature === signature ? '已自动保存到此设备，重新打开本任务可恢复。' : '字段和新增附件可保存到此设备；草稿按账号、任务与工作区隔离。'}</p>
     {error && <p role="alert" className="text-rose-700">{error}</p>}
     <div className="flex flex-wrap gap-2">
-      {saved && !accepted && <button type="button" disabled={busy || writing || !restoreReady} className="material-button-secondary px-3 py-2" onClick={() => setReplacing(true)}>恢复已保存草稿</button>}
-      {(saved && !accepted || error) && <button type="button" disabled={busy || writing} className="material-button-secondary px-3 py-2" onClick={async () => {
+      {saved && !accepted && <Button variant="unstyled" type="button" disabled={busy || writing || !restoreReady} className="material-button-secondary px-3 py-2" onClick={() => setReplacing(true)}>恢复已保存草稿</Button>}
+      {(saved && !accepted || error) && <Button variant="unstyled" type="button" disabled={busy || writing} className="material-button-secondary px-3 py-2" onClick={async () => {
         if (busyNow.current || lock.current || onWritingChange?.(true) === false) return;
         lock.current = true; setWriting(true);
         try { await clearTransferDraft(scope); if (alive.current) { setSaved(null); setAccepted(true); setLoadFailed(false); setError(''); } } catch (error) { if (alive.current) setError(error instanceof Error ? error.message : '清除失败'); }
         finally { lock.current = false; onWritingChange?.(false); if (alive.current) setWriting(false); }
-      }}>清除旧草稿</button>}
-      <button type="button" disabled={busy || writing || !loaded} className="material-button-secondary px-3 py-2" onClick={() => void saveAndLeave(false)}>{writing ? '正在保存…' : '保存草稿并关闭'}</button>
+      }}>清除旧草稿</Button>}
+      <Button variant="unstyled" type="button" disabled={busy || writing || !loaded} className="material-button-secondary px-3 py-2" onClick={() => void saveAndLeave(false)}>{writing ? '正在保存…' : '保存草稿并关闭'}</Button>
     </div>
     <AlertDialog open={replacing} onOpenChange={setReplacing}><AlertDialogContent aria-modal="true" className="horizon-theme horizon-portal proc-horizon-overlay">
       <AlertDialogHeader><AlertDialogTitle>恢复已保存的采购草稿？</AlertDialogTitle><AlertDialogDescription>恢复后替换当前填写内容。原研发附件会按当前可见资料重新核对；已移除或无权限的资料需要重新选择。</AlertDialogDescription></AlertDialogHeader>

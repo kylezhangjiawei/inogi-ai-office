@@ -28,6 +28,32 @@ const SENSITIVE_KEYS = new Set([
   'encrypted_secret',
 ]);
 
+// Exact names: substring matching "sig" would also hide ordinary fields such as "design".
+const CAPABILITY_KEYS = new Set(['sig', 'signature', 'auth_key', 'x-oss-signature']);
+const sensitiveLogKey = (key: string) => CAPABILITY_KEYS.has(key.toLowerCase())
+  || [...SENSITIVE_KEYS].some((sensitive) => key.toLowerCase().includes(sensitive));
+
+/** Shared by new log writes and historical log reads; never mutates business payloads. */
+export function redactApiLogCredentials<T>(value: T): T {
+  if (typeof value === 'string') {
+    return value.replace(/(&amp;|[?&])([^=&#\s"'<>]+)=([^&#\s"'<>]*)/gi, (match, prefix: string, key: string) => {
+      let decodedKey = key;
+      try { decodedKey = decodeURIComponent(key); } catch { /* Keep malformed names as-is. */ }
+      return sensitiveLogKey(decodedKey) ? `${prefix}${key}=[redacted]` : match;
+    }) as T;
+  }
+  if (Array.isArray(value)) return value.map((item) => redactApiLogCredentials(item)) as T;
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key, sensitiveLogKey(key) ? '[redacted]' : redactApiLogCredentials(item),
+  ])) as T;
+}
+
+/** Request paths are grouping/diagnostic identifiers, not a store for signed query strings. */
+export function apiLogPath(path: string): string {
+  return path.split(/[?#]/, 1)[0].replace(/^\/api(?=\/|$)/, '');
+}
+
 @Injectable()
 export class ApiRequestLogInterceptor implements NestInterceptor {
   constructor(private readonly prisma: PrismaService) {}
@@ -73,11 +99,11 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
     const errorInfo = applicantPath
       ? { name: error ? 'Error' : null, message: error ? APPLICANT_FORM_LOG_OMITTED : null, stack: null }
       : this.getErrorInfo(error);
-    const path = applicantPath ?? (req.originalUrl?.replace(/^\/api/, '') || req.path || req.url || '');
+    const path = applicantPath ?? apiLogPath(req.originalUrl || req.path || req.url || '');
 
     void this.prisma.apiRequestLog
       .create({
-        data: {
+        data: redactApiLogCredentials({
           requestId,
           userId: req.user?.id ?? null,
           method: req.method,
@@ -102,7 +128,7 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
             durationMs,
             body: applicantPath ? APPLICANT_FORM_LOG_OMITTED : this.sanitizeResponse(responseBody),
           } as Prisma.InputJsonValue,
-        },
+        }),
       })
       .catch(() => {
         // Request logging must never block or break the user request.
@@ -151,10 +177,11 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
     const result: Record<string, unknown> = {};
     for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
       const normalizedKey = key.toLowerCase();
-      if (SENSITIVE_KEYS.has(normalizedKey) || [...SENSITIVE_KEYS].some((sensitive) => normalizedKey.includes(sensitive))) {
+      if (sensitiveLogKey(normalizedKey)) {
         result[key] = '[redacted]';
       } else if (typeof rawValue === 'string' && rawValue.length > 500) {
-        result[key] = `${rawValue.slice(0, 500)}...[truncated ${rawValue.length} chars]`;
+        const redacted = redactApiLogCredentials(rawValue);
+        result[key] = redacted.length > 500 ? `${redacted.slice(0, 500)}...[truncated ${redacted.length} chars]` : redacted;
       } else if (normalizedKey === 'snapshot' && rawValue && typeof rawValue === 'object') {
         // High-fidelity workbook snapshots may contain tens of MB of base64 images.
         // Traversing and copying them into an API audit row delays the response and

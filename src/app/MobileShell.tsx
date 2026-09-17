@@ -24,6 +24,7 @@ import {
   pushMobileOverlayState,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
+import { Button } from "./components/ui/button";
 
 const MENU_OVERLAY = "mobile-shell-menu";
 
@@ -136,7 +137,7 @@ export function MobileLayout() {
               </div>
             </div>
             <SheetTrigger asChild>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 aria-label="打开菜单"
                 aria-haspopup="dialog"
@@ -145,7 +146,7 @@ export function MobileLayout() {
                 className="flex size-11 shrink-0 items-center justify-center rounded-xl text-primary active:bg-accent"
               >
                 <Menu size={22} aria-hidden="true" />
-              </button>
+              </Button>
             </SheetTrigger>
           </header>
 
@@ -183,14 +184,14 @@ export function MobileLayout() {
                 </SheetDescription>
               </SheetHeader>
               <SheetClose asChild>
-                <button type="button" aria-label="关闭菜单" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-primary active:bg-accent">
+                <Button variant="unstyled" type="button" aria-label="关闭菜单" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-primary active:bg-accent">
                   <X size={21} aria-hidden="true" />
-                </button>
+                </Button>
               </SheetClose>
             </header>
 
             <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" aria-label="移动端页面导航">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => goTo(cockpitPath)}
                 aria-current={!isChatAnalytics ? "page" : undefined}
@@ -201,9 +202,9 @@ export function MobileLayout() {
               >
                 <LayoutDashboard size={19} className="shrink-0" aria-hidden="true" />
                 {cockpitLabel}
-              </button>
+              </Button>
               {hasPermission(user.permissions, "page:chat-analytics") && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => goTo(returnsToUsCollab ? `${chatAnalyticsPath}?from=us-collab` : chatAnalyticsPath)}
                   aria-current={isChatAnalytics ? "page" : undefined}
@@ -214,18 +215,18 @@ export function MobileLayout() {
                 >
                   <BarChart3 size={19} className="shrink-0" aria-hidden="true" />
                   AI 使用与反馈
-                </button>
+                </Button>
               )}
             </nav>
             <div className="border-t border-[#e9edf7] px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => void handleLogout()}
                 className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold text-red-600 active:bg-red-50"
               >
                 <LogOut size={19} className="shrink-0" aria-hidden="true" />
                 {t("退出登录")}
-              </button>
+              </Button>
             </div>
           </SheetContent>
         </Sheet>

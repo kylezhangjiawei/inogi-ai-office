@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { MoreVertical, Calendar, User } from 'lucide-react';
+import { Button } from "./ui/button";
 
 interface TodoItem {
   id: string;
@@ -176,9 +177,9 @@ export function TodoTable() {
                   </span>
                 </td>
                 <td className="px-5 py-3.5">
-                  <button className="p-1.5 hover:bg-muted rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button variant="unstyled" className="p-1.5 hover:bg-muted rounded opacity-0 group-hover:opacity-100 transition-opacity">
                     <MoreVertical className="w-4 h-4 text-muted-foreground" />
-                  </button>
+                  </Button>
                 </td>
               </motion.tr>
             ))}

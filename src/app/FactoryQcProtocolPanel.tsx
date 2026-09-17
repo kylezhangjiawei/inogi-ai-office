@@ -11,6 +11,9 @@ import { parseProtocolJson, validateProtocolCatalog } from "../../apps/api/src/m
 import { R5_SOURCE, R5_PROTOCOL_NOTES, type R5ProtocolNote } from "../../apps/api/src/modules/electronic-gate/factory-qc.r5";
 import { protocolPublicationIssues } from "../../apps/api/src/modules/electronic-gate/factory-qc.release";
 import "./factory-qc-panel.css";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
+import { Textarea } from "./components/ui/textarea";
 
 type Pair = { key: string; value: string };
 type FieldForm = {
@@ -161,12 +164,12 @@ function FormField({ label, children, wide = false, hint }: { label: string; chi
   return <label className={`fqc-field${wide ? " fqc-field--wide" : ""}`}><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
 }
 function TextControl({ label, value, onChange, hint, numeric: numberInput = false }: { label: string; value: string; onChange: (value: string) => void; hint?: string; numeric?: boolean }) {
-  return <FormField label={label} hint={hint}><input value={value} onChange={event => onChange(event.target.value)} inputMode={numberInput ? "decimal" : undefined} maxLength={500} /></FormField>;
+  return <FormField label={label} hint={hint}><Input value={value} onChange={event => onChange(event.target.value)} inputMode={numberInput ? "decimal" : undefined} maxLength={500} /></FormField>;
 }
 function PairEditor({ rows, onChange, keyLabel, valueLabel, label }: { rows: Pair[]; onChange: (rows: Pair[]) => void; keyLabel: string; valueLabel: string; label: string }) {
   return <div className="fqc-pairs">{rows.map((row, index) => <div className="fqc-pair" key={index}>
-    <input aria-label={`${label} ${index + 1} ${keyLabel}`} placeholder={keyLabel} value={row.key} onChange={event => onChange(rows.map((item, i) => i === index ? { ...item, key: event.target.value } : item))} />
-    <input aria-label={`${label} ${index + 1} ${valueLabel}`} placeholder={valueLabel} value={row.value} onChange={event => onChange(rows.map((item, i) => i === index ? { ...item, value: event.target.value } : item))} />
+    <Input aria-label={`${label} ${index + 1} ${keyLabel}`} placeholder={keyLabel} value={row.key} onChange={event => onChange(rows.map((item, i) => i === index ? { ...item, key: event.target.value } : item))} />
+    <Input aria-label={`${label} ${index + 1} ${valueLabel}`} placeholder={valueLabel} value={row.value} onChange={event => onChange(rows.map((item, i) => i === index ? { ...item, value: event.target.value } : item))} />
     <Button variant="ghost" size="icon" aria-label={`删除${label} ${index + 1}`} onClick={() => onChange(rows.filter((_, i) => i !== index))}><Trash2 size={14} /></Button>
   </div>)}<Button variant="ghost" size="sm" onClick={() => onChange([...rows, { key: "", value: "" }])}><Plus size={14} />添加{label}</Button></div>;
 }
@@ -189,10 +192,10 @@ function CommandEditor({ form, onChange, disabled }: { form: CommandForm; onChan
       <div className="fqc-nested-body"><div className="fqc-form-grid">
         <TextControl label="字段标识" value={field.id} onChange={id => setField(index, { id })} />
         <TextControl label="字段名称" value={field.name} onChange={name => setField(index, { name })} />
-        <FormField label="解析类型"><select value={field.type} onChange={event => setField(index, { type: event.target.value as FactoryField["type"] })}>{fieldTypes.map(type => <option key={type} value={type}>{type} · {labels[type]}</option>)}</select></FormField>
+        <FormField label="解析类型"><NativeSelect value={field.type} onChange={event => setField(index, { type: event.target.value as FactoryField["type"] })}>{fieldTypes.map(type => <option key={type} value={type}>{type} · {labels[type]}</option>)}</NativeSelect></FormField>
         <TextControl label="偏移（从载荷起，字节）" numeric value={field.offset} onChange={offset => setField(index, { offset })} />
         <TextControl label="长度（字节）" numeric value={field.length} onChange={length => setField(index, { length })} />
-        <FormField label="字节序"><select value={field.endian} onChange={event => setField(index, { endian: event.target.value })}><option value="">客户端缺省</option><option value="big">大端 big</option><option value="little">小端 little</option></select></FormField>
+        <FormField label="字节序"><NativeSelect value={field.endian} onChange={event => setField(index, { endian: event.target.value })}><option value="">客户端缺省</option><option value="big">大端 big</option><option value="little">小端 little</option></NativeSelect></FormField>
         <TextControl label="乘数 scale" numeric value={field.scale} onChange={scale => setField(index, { scale })} />
         <TextControl label="除数 divisor" numeric value={field.divisor} onChange={divisor => setField(index, { divisor })} />
         <TextControl label="偏移量 bias" numeric value={field.bias} onChange={bias => setField(index, { bias })} />
@@ -209,7 +212,7 @@ function CommandEditor({ form, onChange, disabled }: { form: CommandForm; onChan
     <div className="fqc-subheading"><strong>完整帧样本 <span>{form.samples.length}</span></strong><Button variant="outline" size="sm" onClick={() => patch({ samples: [...form.samples, { frameHex: "", expected: form.fields.map(field => ({ key: field.id, value: "" })) }] })}><Plus size={14} />添加样本</Button></div>
     <p className="fqc-help">样本须包含帧头、长度校验、返回码与完整载荷；每个字段都要填写实际显示字符串。只做解析验证，不会向设备发送帧。</p>
     {form.samples.map((sample, index) => <details className="fqc-nested" key={index} open={form.samples.length === 1 ? true : undefined}><summary><FileJson size={15} /><strong>样本 {index + 1}</strong><span>{sample.frameHex.slice(0, 46) || "待填写完整帧"}</span><ChevronDown size={15} /></summary><div className="fqc-nested-body">
-      <FormField label={`样本 ${index + 1} 完整帧 HEX`}><textarea className="fqc-code" rows={2} value={sample.frameHex} maxLength={20000} onChange={event => patch({ samples: form.samples.map((item, i) => i === index ? { ...item, frameHex: event.target.value } : item) })} /></FormField>
+      <FormField label={`样本 ${index + 1} 完整帧 HEX`}><Textarea className="fqc-code" rows={2} value={sample.frameHex} maxLength={20000} onChange={event => patch({ samples: form.samples.map((item, i) => i === index ? { ...item, frameHex: event.target.value } : item) })} /></FormField>
       <div className="fqc-mini-section"><strong>字段期望显示值</strong><PairEditor rows={sample.expected} onChange={expected => patch({ samples: form.samples.map((item, i) => i === index ? { ...item, expected } : item) })} label={`样本 ${index + 1} 期望值`} keyLabel="字段标识" valueLabel="显示字符串（含前缀、不含单位）" /></div>
       <Button variant="ghost" size="sm" className="fqc-danger" onClick={() => patch({ samples: form.samples.filter((_, i) => i !== index) })}><Trash2 size={14} />移除此样本</Button>
     </div></details>)}
@@ -239,7 +242,7 @@ function DownloadAddress({ kind, version }: { kind: FactoryQcKind; version?: str
   }
   return <div className="fqc-download-address" aria-label={`${kind === "serial" ? "连接参数" : "读取协议"}下载地址`}>
     <div className="fqc-download-caption"><strong>生产配置下载</strong><span className={`fqc-badge${version ? " fqc-badge--published" : ""}`}>{version ? "已发布 · 可下载" : "尚未发布 · 暂不可下载"}</span><span className="fqc-muted">无需鉴权 · 返回 JSON</span></div>
-    <div className="fqc-download-control"><input aria-label={`${kind === "serial" ? "连接参数" : "读取协议"} HTTPS 地址`} readOnly value={address} onFocus={event => event.target.select()} /><Button variant="outline" size="sm" onClick={() => void copy()}><Copy size={14} />复制地址</Button></div>
+    <div className="fqc-download-control"><Input aria-label={`${kind === "serial" ? "连接参数" : "读取协议"} HTTPS 地址`} readOnly value={address} onFocus={event => event.target.select()} /><Button variant="outline" size="sm" onClick={() => void copy()}><Copy size={14} />复制地址</Button></div>
     <p className="fqc-help">{version ? <>当前生效版本：<strong>{version}</strong>。客户端下次下载时获取此版本，重新连接设备后应用；此状态不代表工位已完成下载。</> : "当前没有生效版本。默认参考和草稿不会作为客户端下载内容。"}</p>
   </div>;
 }
@@ -393,18 +396,18 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
     <div className="fqc-panel-actions"><span className="fqc-help">协议下载最低客户端版本 {catalog.minAppVersion} · 新电脑建议使用 v0.6.14 或更新版本自动识别串口并使用 0910 默认协议</span><div className="fqc-template-actions"><Button variant="outline" size="sm" disabled={busy} onClick={() => loadImportTemplate("current")}><FileJson size={15} />载入 0910 默认配置</Button><Button variant="outline" size="sm" onClick={startImport}>完整目录导入{state.protocol.draft && <span className="fqc-dot" />}</Button></div></div>
     {importOpen && <div className="fqc-import"><div className="fqc-subheading"><strong>完整目录导入与首版发布</strong><Button variant="ghost" size="sm" disabled={busy} onClick={() => loadImportTemplate("historical")}>载入历史 v2 格式参考</Button></div><p className="fqc-help">先验证完整 JSON 并保存草稿，再逐项审核字段和样本；首版完成审核后发布完整目录。已有单项未保存内容请先处理。</p>
       <p className="fqc-help">当前默认目录为 {FACTORY_PROTOCOL_DEFAULT.version}。历史 v2（{R5_SOURCE.publishedExampleVersion}）、r4 候选（{R5_SOURCE.historicalCandidateVersion}）及 r5 审核说明均仅用于追溯，不能替代当前默认配置。</p>
-      <FormField label="完整目录 JSON"><textarea className="fqc-code fqc-import-json" rows={10} spellCheck={false} value={json} onChange={event => { setJson(event.target.value); setValidated(null); setImportError(""); }} /></FormField>
+      <FormField label="完整目录 JSON"><Textarea className="fqc-code fqc-import-json" rows={10} spellCheck={false} value={json} onChange={event => { setJson(event.target.value); setValidated(null); setImportError(""); }} /></FormField>
       {validated && <div className="fqc-validation"><Check size={16} /><span>结构与样本解析校验通过：{validated.profiles.length} 个固件配置，{validated.profiles.reduce((count, profile) => count + profile.commands.length, 0)} 项读取，目录版本 {validated.version}。这不代表目标固件已修正或质检通过。</span></div>}
       {importError && <div className="fqc-error" role="alert">{importError}<Button variant="ghost" size="sm" disabled={busy} onClick={() => void perform(async () => { try { const next = await api.getState(); setState(next); setImportRevision(next.protocol.revision); setImportError("已刷新版本，输入已保留。请核对最新目录后重新验证保存。"); } catch (error) { setImportError(errorText(error)); } })}>刷新版本并保留输入</Button></div>}
       {!!publicationIssues.length && <div className="fqc-publication-notice"><AlertCircle size={17} /><div><strong>已保存草稿暂不可发布</strong><ul>{publicationIssues.map(issue => <li key={issue}>{issue}</li>)}</ul></div></div>}
       <div className="fqc-editor-actions"><span>{importDirty ? "目录输入未保存" : state.protocol.draft ? "完整目录草稿已保存，未发布" : "模板不会自动生效"}</span><Button variant="ghost" size="sm" disabled={busy || !importDirty} onClick={discardImport}>放弃目录修改</Button><Button variant="outline" size="sm" disabled={busy || !json.trim()} onClick={validateImport}>校验目录</Button><Button variant="outline" size="sm" disabled={busy || !json.trim() || dirtyKeys.length > 0} onClick={() => void saveImport()}>保存目录草稿</Button><Button size="sm" disabled={busy || importDirty || !state.protocol.draft || dirtyKeys.length > 0 || publicationIssues.length > 0} onClick={publishImport}>发布完整目录</Button></div>
     </div>}
-    <div className="fqc-list"><div className="fqc-list-toolbar"><div className="fqc-profiles" aria-label="固件配置">{catalog.profiles.map(profile => <button key={profile.id} aria-pressed={profile.id === selectedProfile?.id} onClick={() => { setProfileId(profile.id); setOpenId(null); setSearch(""); }}><strong>{profile.name}</strong><small>{profile.firmwarePrefix || "默认后备协议"}</small></button>)}</div><label className="fqc-search"><Search size={15} /><input aria-label="搜索读取项" placeholder="搜索名称、标识或查询码" value={search} onChange={event => setSearch(event.target.value)} /></label></div>
+    <div className="fqc-list"><div className="fqc-list-toolbar"><div className="fqc-profiles" aria-label="固件配置">{catalog.profiles.map(profile => <Button variant="unstyled" key={profile.id} aria-pressed={profile.id === selectedProfile?.id} onClick={() => { setProfileId(profile.id); setOpenId(null); setSearch(""); }}><strong>{profile.name}</strong><small>{profile.firmwarePrefix || "默认后备协议"}</small></Button>)}</div><label className="fqc-search"><Search size={15} /><Input aria-label="搜索读取项" placeholder="搜索名称、标识或查询码" value={search} onChange={event => setSearch(event.target.value)} /></label></div>
       {dirty && <p className="fqc-unsaved">{dirtyKeys.length > 0 ? `${dirtyKeys.length} 项读取配置未保存；切换固件或分类会保留输入。` : "目录导入内容未保存。"}</p>}
       {state.protocol.draft && <p className="fqc-help fqc-list-tip">{state.protocol.active ? "另有完整目录草稿；单项发布后，完整目录草稿需重新核对再保存发布。" : "首版草稿已保存，可在下方逐项编辑并独立保存；暂不下发，首版必须发布完整目录。"}</p>}
       <div className="fqc-column-head"><span>读取项</span><span>查询 → 返回</span><span>解析与样本</span><span>状态</span><span>操作</span></div>
       {shown.map(command => { const key = keyOf(selectedProfile.id, command.id), saved = commandStates.get(key), form = edits[key]?.form ?? toForm(currentCommand(command)), itemDirty = dirtyKeys.includes(key), open = openId === command.id; const status = itemDirty ? "未保存" : saved?.draft ? "草稿待发布" : saved?.active ? (saved.active.enabled === false ? "已发布 · 停用" : "已发布") : "默认参考 · 未发布";
-        return <article className={`fqc-command${open ? " fqc-command--open" : ""}`} key={key}><div className="fqc-command-row"><button className="fqc-command-name" onClick={() => setOpenId(open ? null : command.id)} aria-expanded={open}><strong>{form.name}</strong><small>{command.id}</small></button><span className="fqc-code">{form.queryCode} → {form.responseCode}</span><span>{form.fields.length} 字段 · {form.samples.length} 样本</span><span className={`fqc-badge${saved?.active && !saved.draft && !itemDirty ? " fqc-badge--published" : ""}`}>{status}</span><button className="fqc-configure" onClick={() => setOpenId(open ? null : command.id)} aria-label={`${open ? "收起" : "配置"}${command.name}`}>{open ? "收起" : "配置"}{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button></div>
+        return <article className={`fqc-command${open ? " fqc-command--open" : ""}`} key={key}><div className="fqc-command-row"><Button variant="unstyled" className="fqc-command-name" onClick={() => setOpenId(open ? null : command.id)} aria-expanded={open}><strong>{form.name}</strong><small>{command.id}</small></Button><span className="fqc-code">{form.queryCode} → {form.responseCode}</span><span>{form.fields.length} 字段 · {form.samples.length} 样本</span><span className={`fqc-badge${saved?.active && !saved.draft && !itemDirty ? " fqc-badge--published" : ""}`}>{status}</span><Button variant="unstyled" className="fqc-configure" onClick={() => setOpenId(open ? null : command.id)} aria-label={`${open ? "收起" : "配置"}${command.name}`}>{open ? "收起" : "配置"}{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</Button></div>
           {open && <div className="fqc-inline">{selectedProfile.id === HISTORICAL_PROFILE_ID && <ProtocolReviewNotes commandId={command.id} />}
             {state.protocol.active && selectedProfile.id === CURRENT_PROFILE_ID && FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === CURRENT_PROFILE_ID)?.commands.some(item => item.id === command.id) && <div className="fqc-suggestion-action"><span>默认配置会替换本项字段与样本；请核对已有自定义配置。</span><Button variant="outline" size="sm" disabled={busy} onClick={() => loadCommandSuggestion(command)}>载入 0910 本项默认</Button></div>}
             <CommandEditor form={form} onChange={value => edit(command, value)} disabled={busy || (!state.protocol.active && !state.protocol.draft)} />
@@ -413,7 +416,7 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
           </div>}
         </article>;
       })}
-      {!shown.length && <p className="fqc-empty">没有匹配的读取项。<button onClick={() => setSearch("")}>清空搜索</button></p>}
+      {!shown.length && <p className="fqc-empty">没有匹配的读取项。<Button variant="unstyled" onClick={() => setSearch("")}>清空搜索</Button></p>}
     </div>
     <VersionHistory kind="protocol" state={state} api={api} disabled={dirty || busy} onChange={next => { setState(next); setEdits({}); }} />
     <Confirm value={confirm} busy={busy} onClose={() => setConfirm(null)} onConfirm={() => void perform(async () => { if (confirm) { await confirm.action(); setConfirm(null); } })} />

@@ -12,6 +12,8 @@ import { EMPTY_MATERIAL_FILTERS, MaterialTable, type MaterialFilters } from "./c
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
 import { CategoryManageModal, ImportMaterialsModal, MaterialClassifyModal, MaterialFormModal, ReplenishModal, SafeStockModal, TplusConfigModal } from "./components/modals";
 import { countProcurementMaterialShortages } from "./procurementLogic";
+import { Button } from "../components/ui/button";
+import { routePath } from "../lib/routePaths";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
@@ -86,17 +88,18 @@ export function MaterialWorkbenchPage() {
   return (
     <div className="proc-horizon proc-horizon-material-workbench flex h-full min-h-0 min-w-0 w-full flex-col pb-4">
       <div className="proc-horizon-material-toolbar mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        {inventoryReturnPath && <button type="button" onClick={() => inventoryHistoryBack ? navigate(-1) : navigate(inventoryReturnPath, { replace: true })} className="material-button-secondary inline-flex min-h-10 shrink-0 items-center gap-1.5 px-3 py-2 text-sm"><ArrowLeft aria-hidden="true" className="size-4" />{t("返回齐套中心")}</button>}
+        {inventoryReturnPath && <Button variant="unstyled" type="button" onClick={() => inventoryHistoryBack ? navigate(-1) : navigate(inventoryReturnPath, { replace: true })} className="material-button-secondary inline-flex min-h-10 shrink-0 items-center gap-1.5 px-3 py-2 text-sm"><ArrowLeft aria-hidden="true" className="size-4" />{t("返回齐套中心")}</Button>}
         <p className="min-w-0 flex-1 basis-64 text-pretty text-sm leading-6 text-slate-500">{t("按分类查找物料，跟踪库存与供应风险。")}</p>
           <div className="proc-horizon-material-actions flex flex-wrap items-center gap-2">
-            {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</button>}
-            {can("material:import") && <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload aria-hidden="true" className="size-4" />{t("批量导入")}</button>}
+            {can("page:proc-key-materials") && <Button type="button" variant="outline" onClick={() => navigate(routePath("page:proc-key-materials", "/proc-key-materials"))}>{t("全部关键物料")}</Button>}
+            {can("proc-task:create") && <Button variant="unstyled" type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</Button>}
+            {can("material:import") && <Button variant="unstyled" type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload aria-hidden="true" className="size-4" />{t("批量导入")}</Button>}
             {(can("material:import") || can("proc:sync-erp")) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button ref={managementTriggerRef} type="button" className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
+                  <Button variant="unstyled" ref={managementTriggerRef} type="button" className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
                     {t("更多管理")}<ChevronDown aria-hidden="true" className="size-4" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
@@ -153,7 +156,7 @@ export function MaterialWorkbenchPage() {
             <p className="text-balance text-sm font-semibold text-slate-900">{t("物料数据加载失败")}</p>
             <p className="mt-1 max-w-lg break-words text-pretty text-sm text-rose-600">{error}</p>
           </div>
-          <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><RefreshCw aria-hidden="true" className="size-3.5" />{t("重新加载")}</button>
+          <Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><RefreshCw aria-hidden="true" className="size-3.5" />{t("重新加载")}</Button>
         </div>
       ) : loading && materials.length === 0 ? (
         <MaterialWorkbenchSkeleton label={t("正在加载物料主数据")} />
@@ -165,9 +168,9 @@ export function MaterialWorkbenchPage() {
             <p className="mt-1 text-pretty text-xs text-slate-500">{t("可新增单个物料、批量导入现有物料表，或刷新同步状态")}</p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</button>}
-            {can("material:import") && <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><Upload aria-hidden="true" className="size-4" />{t("批量导入")}</button>}
-            <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><RefreshCw aria-hidden="true" className="size-3.5" />{t("刷新数据")}</button>
+            {can("proc-task:create") && <Button variant="unstyled" type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</Button>}
+            {can("material:import") && <Button variant="unstyled" type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><Upload aria-hidden="true" className="size-4" />{t("批量导入")}</Button>}
+            <Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><RefreshCw aria-hidden="true" className="size-3.5" />{t("刷新数据")}</Button>
           </div>
         </div>
       ) : (

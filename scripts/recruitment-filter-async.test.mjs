@@ -298,7 +298,7 @@ test("仅查看权限不自动GET任务、不提交或重试二次筛选", async
   assert.equal(h.scope.filterInstruction, payload.instruction);
   assert.deepEqual(h.errors, []);
   assert.match(pageSource, /usePermission\(PERMISSIONS\.RESUME_SCREEN\)/);
-  assert.match(pageSource, /\{canScreenCandidates \? <button/);
+  assert.match(pageSource, /\{canScreenCandidates \? <(?:Button|UiButton)/);
 });
 
 test("筛选权限撤销会停止查询和提交等待、清理任务提示并丢弃晚到结果", async () => {

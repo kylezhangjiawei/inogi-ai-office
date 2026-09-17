@@ -12,6 +12,7 @@ import { Check, ChevronDown } from "lucide-react";
 
 import { cn } from "../components/ui/utils";
 import { t } from "../lib/i18n";
+import { Button } from "../components/ui/button";
 
 const ALL = "__all__";
 
@@ -114,7 +115,7 @@ export function MenuSelect<T extends string>({
 
   return (
     <div ref={rootRef} className="relative">
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onKeyDown}
@@ -123,16 +124,16 @@ export function MenuSelect<T extends string>({
         data-state={open ? "open" : "closed"}
         className={cn(
           "inline-flex h-9 w-[9.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-xs shadow-sm transition-colors outline-none",
-          "focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=open]:ring-2 data-[state=open]:ring-[#002fa7]/25",
+          "focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:ring-2 data-[state=open]:ring-primary/25",
           active
-            ? "border-[#002fa7]/30 bg-[#eef3ff] font-medium text-[#002fa7]"
-            : "border-slate-300 bg-white text-slate-600 hover:border-[#002fa7]/30 hover:bg-[#eef3ff]",
+            ? "border-primary/30 bg-accent font-medium text-primary"
+            : "border-slate-300 bg-white text-slate-600 hover:border-primary/30 hover:bg-accent",
           triggerClassName,
         )}
       >
         <span className="truncate">{t(display)}</span>
         <ChevronDown className={cn("size-3.5 shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
-      </button>
+      </Button>
       {open ? (
         <div
           ref={listRef}
@@ -146,7 +147,7 @@ export function MenuSelect<T extends string>({
           {items.map((it, idx) => {
             const isSel = it.value === (value ?? ALL);
             return (
-              <button
+              <Button variant="unstyled"
                 key={it.value}
                 type="button"
                 role="option"
@@ -156,15 +157,15 @@ export function MenuSelect<T extends string>({
                 className={cn(
                   "relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-7 pr-3 text-left outline-none transition-colors",
                   idx === activeIdx
-                    ? "bg-[#eef3ff] text-[#002fa7]"
+                    ? "bg-accent text-primary"
                     : "text-slate-700",
                 )}
               >
                 {isSel ? (
-                  <Check className="absolute left-2 size-3.5 text-[#002fa7]" />
+                  <Check className="absolute left-2 size-3.5 text-primary" />
                 ) : null}
                 {t(it.label)}
-              </button>
+              </Button>
             );
           })}
         </div>

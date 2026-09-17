@@ -20,7 +20,9 @@ class FixedDate extends Date {
 function evaluate(code, dependencies = {}, environment = {}) {
   const exports = {};
   new Function('exports', 'require', 'crypto', 'Date', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'window', 'document', code)(
-    exports, (name) => { assert.ok(Object.hasOwn(dependencies, name), `页面不应加载未审查依赖：${name}`); return dependencies[name]; },
+    exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(Object.hasOwn(dependencies, name), `页面不应加载未审查依赖：${name}`); return dependencies[name]; },
     { randomUUID }, FixedDate, noExternalAccess, noStorage, noStorage, noStorage, environment.window ?? {}, environment.document ?? {},
   );
   return exports;
@@ -83,7 +85,7 @@ function fixture(initialSearch = '') {
     './qualityExceptionPreviewModel': model, './qualityExceptionTypes': types,
     '../../order-processing/horizon.css': {}, './quality-exceptions-preview.css': {},
   };
-  for (const component of ['alert-dialog', 'button', 'input', 'label', 'select', 'tabs']) dependencies[`../../components/ui/${component}`] = primitives;
+  for (const component of ['alert-dialog', "button", "input", 'label', "select", 'tabs']) dependencies[`../../components/ui/${component}`] = primitives;
   const exports = evaluate(pageCode, dependencies, {
     window: { addEventListener: (event, callback) => listeners.set(event, callback), removeEventListener: (event, callback) => { if (listeners.get(event) === callback) listeners.delete(event); } },
     document: { getElementById: (id) => nodes(tree).some((node) => node.props.id === id) ? { focus: () => focused.push(id) } : null },
@@ -97,7 +99,7 @@ function fixture(initialSearch = '') {
     dialog() { return view.byType('AlertDialog'); }, rows() { return view.nodes().filter((node) => node.props.className === 'qep-list-row'); },
     rowCodes() { return view.rows().map((node) => normalized(node).match(/DEMO-NC-\d+/)?.[0]); },
     params() { return new URLSearchParams(location.search); }, location() { return { ...location }; }, focused,
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label); },
     click(label) { const button = view.button(label); assert.ok(button, `${label} exists`); assert.equal(Boolean(button.props.disabled), false, `${label} enabled`); button.props.onClick(); return view.render(); },
     open(code) { const row = view.rows().find((node) => normalized(node).includes(code)); assert.ok(row, `${code} row exists`); nodes(row).find((node) => node.type === 'Button').props.onClick(); return view.render(); },
     source(value) { return view.click(value === 'all' ? '全部' : types.qualitySourceLabels[value]); },
@@ -109,7 +111,7 @@ function fixture(initialSearch = '') {
     createDirty(value = true) { view.create().props.onDirtyChange(value); return view.render(); },
     cancelDiscard() { view.dialog().props.onOpenChange(false); return view.render(); },
     discard() { view.click('放弃并继续'); view.dialog().props.onOpenChange(false); return view.render(); },
-    failNext(value = true) { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: value } }); return view.render(); },
+    failNext(value = true) { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(value); return view.render(); },
     async save(patch = {}) { const form = view.form(); assert.ok(form, '当前有动作表单'); try { await form.props.onSubmit(actionInput(form.props.kind, patch)); form.props.onDirtyChange(false); } finally { view.render(); } },
     async saveNew(patch = {}) { const dialog = view.create(); assert.ok(dialog.props.open, '新建弹窗已打开'); try { await dialog.props.onSubmit(newInput(patch)); dialog.props.onOpenChange(false); } finally { view.render(); } },
     navigate(search, pathname = location.pathname) { navigate({ pathname, search }); return view.render(); },
@@ -177,7 +179,7 @@ test('创建失败不丢弹窗且不生成幽灵记录，重试只新增一张�
   const page = fixture(); page.failNext(); page.click('登记演示异常');
   await assert.rejects(page.saveNew(), /填写内容已保留/); assert.equal(page.create().props.open, true); assert.equal(page.params().get('issue'), null);
   assert.deepEqual(page.rowCodes(), ['DEMO-NC-001', 'DEMO-NC-002', 'DEMO-NC-003']);
-  assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
+  assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.checked, false);
   await page.saveNew(); assert.equal(page.form().props.issue.code, 'DEMO-NC-007'); page.click('返回异常列表'); page.source('all'); assert.equal(page.rows().length, 7);
 });
 
@@ -234,7 +236,7 @@ test('只读、空态、读取失败均隐藏动作，恢复后保存状态与�
   for (const [scenario, message, restore] of [['仅可查看', '当前仅可查看', '返回正常操作'], ['暂无异常', '暂无质量异常', '返回演示异常'], ['读取失败', '质量异常读取失败', '重新加载']]) {
     const page = fixture('?issue=demo-quality-001'); await page.save(); page.dirty(); page.click(scenario);
     assert.equal(page.dialog().props.open, true); page.discard(); assert.equal(page.form(), undefined); assert.match(page.text(), new RegExp(message));
-    assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.disabled, true);
+    assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.disabled, true);
     page.click(restore); assert.equal(page.form().props.issue.version, 1); assert.equal(page.form().props.issue.owner, '演示采购员'); assert.match(page.text(), /演示页面分派/);
   }
 });

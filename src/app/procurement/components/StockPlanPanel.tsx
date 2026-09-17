@@ -556,7 +556,7 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
         {canCreate && <Button size="sm" disabled={busy || !complete || !plan.productId || Boolean(plan.tasks?.length)} onClick={() => void generate()}>{busy ? "生成中…" : plan.tasks?.length ? "已关联采购任务" : "按缺口生成采购任务"}</Button>}
       </div>
     </div>
-    {error ? <p role="alert" className="mt-2 text-xs text-rose-600">{error} <Button type="button" variant="link" size="sm" className="h-auto px-0 py-0 text-xs underline" onClick={() => setVersion((v) => v + 1)}>重试</Button></p> : !data ? <p className="mt-2 text-xs text-slate-400">核算库存与在途中…</p> : <>
+    {error ? <p role="alert" className="mt-2 text-xs text-rose-600">{error} <Button type="button" variant="link" size="sm" className="h-auto px-0 py-0 text-xs underline" onClick={() => setVersion((v) => v + 1)}>重试</Button></p> : !data ? <p className="mt-2 text-xs text-muted-foreground">核算库存与在途中…</p> : <>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
         <p>当前可用覆盖 <strong className="block text-lg text-slate-900">{quantity(data.summary.currentBuildableSets)} {plan.unit}</strong></p>
         <p>全部在途到货后 <strong className="block text-lg text-primary">{quantity(data.summary.withTransitBuildableSets)} {plan.unit}</strong></p>
@@ -796,10 +796,10 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
           </div>
           <div className="proc-horizon-actions">
             <div className="proc-horizon-search">
-              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input aria-label={t("搜索备货计划")} value={keyword} onChange={(event) => changeKeyword(event.target.value)} placeholder={t("计划编号 / 物料 / 供应商")} className="pl-8 pr-8 text-xs" />
               {keyword ? (
-                <Button type="button" variant="ghost" size="icon" aria-label={t("清空搜索")} onClick={() => changeKeyword("")} className="absolute right-2 top-1/2 size-7 -translate-y-1/2 rounded-md p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <Button type="button" variant="ghost" size="icon" aria-label={t("清空搜索")} onClick={() => changeKeyword("")} className="absolute right-2 top-1/2 size-7 -translate-y-1/2 rounded-md p-0 text-muted-foreground hover:bg-slate-100 hover:text-slate-700">
                   <X aria-hidden="true" className="size-3.5" />
                 </Button>
               ) : null}
@@ -885,7 +885,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-14 text-center">
-              <PackagePlus aria-hidden="true" className="size-8 text-slate-300" />
+              <PackagePlus aria-hidden="true" className="size-8 text-muted-foreground" />
               <div>
                 <p className="text-balance text-sm font-semibold text-slate-700">{t(plans.length ? "没有符合条件的备货计划" : "当前还没有备货计划")}</p>
                 <p className="mt-1 text-pretty text-xs text-slate-500">{t(plans.length ? "可切换状态或修改搜索条件" : "创建总计划后，再逐批登记供应商和采购数量")}</p>
@@ -970,7 +970,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
 
                       <div className="proc-stock-plan-date min-w-0 break-words text-xs text-slate-600">
                         <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("计划日期")}</span>
-                        <span className="inline-flex flex-wrap items-center gap-1 tabular-nums"><CalendarClock aria-hidden="true" className="size-3.5 text-slate-400" />{plan.targetDate || t("未设置")}</span>
+                        <span className="inline-flex flex-wrap items-center gap-1 tabular-nums"><CalendarClock aria-hidden="true" className="size-3.5 text-muted-foreground" />{plan.targetDate || t("未设置")}</span>
                       </div>
 
                       <div className="proc-stock-plan-creator min-w-0 break-words text-xs text-slate-600">
@@ -1014,8 +1014,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                                   <p title={batch.supplierName} className="break-words text-pretty text-xs font-semibold text-foreground">{t("第 {count} 批", { count: index + 1 })} · {batch.supplierName}</p>
                                   <p className="mt-1 break-words text-xs text-slate-500">{batch.createdByName || t("未知")}，{batch.createdAt.slice(0, 10)}</p>
                                 </div>
-                                <div className="text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购量")}</span><strong className="tabular-nums text-foreground">{quantity(batch.purchaseQty)} {plan.unit}</strong><p className="mt-1 text-[11px]">到货 {quantity(batch.receivedQty)} · 合格 {quantity(batch.qualifiedQty)}</p>{batch.qualityDataIssue && <p className="text-[11px] text-rose-600">原登记合格 {quantity(batch.recordedQualifiedQty ?? batch.qualifiedQty)}，请复核</p>}</div>
-                                <div className="min-w-0 break-words text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购单")}</span>{batch.purchaseOrderNo || t("未填写")}</div>
+                                <div className="text-xs text-slate-600"><span className="mr-1 text-muted-foreground">{t("采购量")}</span><strong className="tabular-nums text-foreground">{quantity(batch.purchaseQty)} {plan.unit}</strong><p className="mt-1 text-[11px]">到货 {quantity(batch.receivedQty)} · 合格 {quantity(batch.qualifiedQty)}</p>{batch.qualityDataIssue && <p className="text-[11px] text-rose-600">原登记合格 {quantity(batch.recordedQualifiedQty ?? batch.qualifiedQty)}，请复核</p>}</div>
+                                <div className="min-w-0 break-words text-xs text-slate-600"><span className="mr-1 text-muted-foreground">{t("采购单")}</span>{batch.purchaseOrderNo || t("未填写")}</div>
                                 <div className="proc-stock-plan-batch-dates min-w-0 break-words text-xs text-slate-600">
                                   <p>{t("下单")}：{dateLabel(batch.orderDate)}</p>
                                   <p className="mt-1">{t("预计到货")}：{dateLabel(batch.expectedArrivalDate)}</p>

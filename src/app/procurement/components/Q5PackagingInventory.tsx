@@ -23,7 +23,7 @@ export function Q5PackagingInventory({ data }: { data: Q5PackagingInventoryData 
     <section id="q5-packaging-inventory" aria-labelledby="q5-packaging-title" className="mt-4 overflow-hidden rounded-[14px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.03)]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-4">
         <div className="min-w-0 flex-1">
-          <h2 id="q5-packaging-title" className="flex items-center gap-2 text-sm font-bold text-slate-900"><PackageCheck className="size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />{t("Q5 包材与随箱配件")}</h2>
+          <h2 id="q5-packaging-title" className="flex items-center gap-2 text-sm font-bold text-slate-900"><PackageCheck className="size-4 shrink-0 text-primary" aria-hidden="true" />{t("Q5 包材与随箱配件")}</h2>
           <p className="mt-1 text-xs leading-5 text-slate-600">{t("包材表未填写配套数量；装配用量按同编码引用，仅供参考。")}</p>
           <p className="text-xs leading-5 text-slate-500">{t("以下清单独立展示，不重复计入装配需求；配套数量确认后才能核算包装齐套。")}</p>
         </div>
@@ -31,7 +31,7 @@ export function Q5PackagingInventory({ data }: { data: Q5PackagingInventoryData 
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-3">
         <div className="relative min-w-[220px] flex-1 sm:max-w-md">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索包材货号或名称")} aria-label={t("搜索包材与随箱配件")} className="h-9 border-slate-200 bg-white pl-9" />
         </div>
         <p className="min-w-0 break-all text-[11px] text-slate-500">{t("来源")}：{data.sourceFile} · {data.sourceSheet}</p>
@@ -55,7 +55,7 @@ export function Q5PackagingInventory({ data }: { data: Q5PackagingInventoryData 
               const conflict = item.issue === "code_conflict";
               const missingInventory = item.stock === null || item.available === null || item.inTransit === null;
               return <TableRow key={item.id} data-source-row={item.sourceRow}>
-                <TableCell className="pl-4 text-xs text-slate-400 tabular-nums" title={t("原表第 {row} 行", { row: item.sourceRow })}>{item.sourceRow - 1}</TableCell>
+                <TableCell className="pl-4 text-xs text-muted-foreground tabular-nums" title={t("原表第 {row} 行", { row: item.sourceRow })}>{item.sourceRow - 1}</TableCell>
                 <TableCell className="py-3">
                   <span className="font-mono text-[11px] text-slate-500">{item.code}</span>
                   <p className="mt-0.5 whitespace-normal text-sm font-medium text-slate-800">{item.name}</p>

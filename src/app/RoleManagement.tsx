@@ -482,12 +482,12 @@ function PermissionMatrix({
             className="overflow-hidden rounded-xl border border-slate-200 bg-white"
           >
             <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-              <span className="h-3.5 w-1 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />
+              <span className="h-3.5 w-1 shrink-0 rounded-full bg-primary" aria-hidden="true" />
               <h3 id={moduleHeadingId} className="text-balance text-sm font-bold text-slate-900">{mod.name}</h3>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 tabular-nums">
                 {mod.groups.filter((group) => group.kind === "page").length} 个页面
               </span>
-              <span className="text-[11px] tabular-nums text-slate-400">
+              <span className="text-[11px] tabular-nums text-muted-foreground">
                 {modSelected}/{modCodes.length}
               </span>
               <span className="h-px flex-1 bg-slate-100" />
@@ -521,20 +521,20 @@ function PermissionMatrix({
                         onCheckedChange={() => toggleGroupAll(groupCodes)}
                         className={cn(
                           "shrink-0",
-                          allSelected && "data-[state=checked]:border-[#002fa7] data-[state=checked]:bg-[#002fa7]",
+                          allSelected && "data-[state=checked]:border-primary data-[state=checked]:bg-primary",
                         )}
                       />
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => toggleGroup(group.key)}
                         aria-expanded={isOpen}
                         aria-controls={panelId}
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
                         <span
                           className={cn(
                             "flex size-7 shrink-0 items-center justify-center rounded-lg",
-                            noneSelected ? "bg-slate-100 text-slate-500" : "bg-blue-50 text-[#002fa7]",
+                            noneSelected ? "bg-slate-100 text-slate-500" : "bg-blue-50 text-primary",
                           )}
                           aria-hidden="true"
                         >
@@ -548,10 +548,10 @@ function PermissionMatrix({
                             </span>
                           ) : null}
                         </span>
-                      </button>
+                      </Button>
 
                       <div className="flex shrink-0 items-center gap-2.5">
-                        <span className={cn("text-xs font-medium tabular-nums", noneSelected ? "text-slate-500" : "text-[#002fa7]")}>
+                        <span className={cn("text-xs font-medium tabular-nums", noneSelected ? "text-slate-500" : "text-primary")}>
                           {selectedCount}/{groupCodes.length}
                         </span>
                         <Progress
@@ -561,19 +561,19 @@ function PermissionMatrix({
                             "hidden h-1.5 w-16 sm:block",
                             noneSelected
                               ? "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400"
-                              : "bg-blue-100 [&>[data-slot=progress-indicator]]:bg-[#002fa7]",
+                              : "bg-blue-100 [&>[data-slot=progress-indicator]]:bg-primary",
                           )}
                         />
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => toggleGroup(group.key)}
                           aria-expanded={isOpen}
                           aria-controls={panelId}
                           aria-label={`${isOpen ? "收起" : "展开"}${group.label}`}
-                          className="rounded-md p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          className="rounded-md p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <ChevronDown className={cn("size-4 text-slate-500", isOpen && "rotate-180")} aria-hidden="true" />
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
@@ -600,7 +600,7 @@ function PermissionMatrix({
                                   className="mt-0.5 shrink-0"
                                 />
                                 <ItemIcon
-                                  className={cn("mt-0.5 size-3.5 shrink-0", checked ? "text-[#002fa7]" : "text-slate-400")}
+                                  className={cn("mt-0.5 size-3.5 shrink-0", checked ? "text-primary" : "text-muted-foreground")}
                                   aria-hidden="true"
                                 />
                                 <div className="min-w-0 flex-1">
@@ -641,7 +641,7 @@ type FormErrors = Partial<Record<"name", string>>;
 
 const ROLE_PAGE_SIZE = 8;
 const ROLE_FILTER_TRIGGER_CLASS =
-  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary";
 
 export function RoleManagement() {
   const [roles, setRoles] = useState<Role[]>([]);
@@ -986,7 +986,7 @@ export function RoleManagement() {
                 </Label>
                 <div className="relative">
                   <Search
-                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                     aria-hidden="true"
                   />
                   <Input
@@ -1088,9 +1088,9 @@ export function RoleManagement() {
                         )}
                       >
                         <div className="flex items-start gap-1 p-2">
-                          <button
+                          <Button variant="unstyled"
                             type="button"
-                            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg p-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg p-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             onClick={() => setActiveRoleId(role.id)}
                             aria-pressed={selected}
                           >
@@ -1100,7 +1100,7 @@ export function RoleManagement() {
                                 superRole
                                   ? "bg-amber-50 text-amber-700"
                                   : selected
-                                    ? "bg-blue-100 text-[#002fa7]"
+                                    ? "bg-blue-100 text-primary"
                                     : "bg-slate-100 text-slate-600",
                               )}
                               aria-hidden="true"
@@ -1125,7 +1125,7 @@ export function RoleManagement() {
                                 <span>{superRole ? "全部权限" : role.permissions.length + " 项权限"}</span>
                               </span>
                             </span>
-                          </button>
+                          </Button>
 
                           {!superRole ? (
                             <div className="flex shrink-0 flex-col gap-1">
@@ -1423,7 +1423,7 @@ export function RoleManagement() {
               <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 id="role-permissions-heading" className="flex items-center gap-2 text-balance text-sm font-semibold text-slate-800">
-                    <Shield className="size-4 text-[#002fa7]" aria-hidden="true" />
+                    <Shield className="size-4 text-primary" aria-hidden="true" />
                     权限配置
                   </h3>
                   <p className="mt-1 text-pretty text-xs text-slate-500">

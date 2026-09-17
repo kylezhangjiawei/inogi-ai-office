@@ -216,28 +216,28 @@ const HEALTH_CONFIG: Record<
     dot: "bg-emerald-500",
     text: "text-emerald-700",
     label: "健康",
-    tint: "bg-gradient-to-br from-white via-white to-emerald-50/60",
+    tint: "bg-emerald-50/60",
   },
   watch: {
     border: "border-slate-200/80",
     dot: "bg-amber-500",
     text: "text-amber-700",
     label: "注意",
-    tint: "bg-gradient-to-br from-white via-white to-amber-50/60",
+    tint: "bg-amber-50/60",
   },
   alert: {
     border: "border-slate-200/80",
     dot: "bg-rose-500",
     text: "text-rose-700",
     label: "警报",
-    tint: "bg-gradient-to-br from-white via-white to-rose-50/65",
+    tint: "bg-rose-50/65",
   },
   idle: {
     border: "border-slate-200/80",
     dot: "bg-slate-300",
     text: "text-slate-500",
     label: "空闲",
-    tint: "bg-gradient-to-br from-white via-white to-slate-50",
+    tint: "bg-slate-50",
   },
 };
 
@@ -251,6 +251,8 @@ import { Label } from "./components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Calendar } from "./components/ui/calendar";
+import { RadioGroupItem } from "./components/ui/radio-group";
+import { RadioGroup } from "./components/ui/radio-group";
 
 const RD_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const RD_FAST_TRANSITION = { duration: 0.18, ease: RD_MOTION_EASE };
@@ -354,7 +356,7 @@ const CATEGORY_THEME: Record<string, CategoryTheme> = {
   "cat-sealing": { iconColor: "text-pink-500", dot: "bg-pink-500", Icon: CircleDot },
 };
 
-const DEFAULT_THEME: CategoryTheme = { iconColor: "text-slate-400", dot: "bg-slate-400", Icon: LayoutGrid };
+const DEFAULT_THEME: CategoryTheme = { iconColor: "text-muted-foreground", dot: "bg-slate-400", Icon: LayoutGrid };
 
 function getTheme(id: string): CategoryTheme {
   return CATEGORY_THEME[id] ?? DEFAULT_THEME;
@@ -446,7 +448,7 @@ const RELATIVE_UPDATE_TONE_CLASS: Record<RelativeUpdateTone, string> = {
   recent: "font-medium text-sky-600",
   aging: "text-slate-600",
   stale: "text-slate-500",
-  cold: "text-slate-400",
+  cold: "text-muted-foreground",
 };
 
 /**
@@ -638,7 +640,7 @@ function ProgressBar({ value, tone = "neutral" }: { value: number; tone?: "neutr
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
       <div
         className={cn(
-          "h-full rounded-full transition-all",
+          "h-full rounded-full transition-colors motion-reduce:transition-none",
           tone === "muted" ? "bg-slate-300" : value === 100 ? "bg-emerald-500" : "bg-indigo-500",
         )}
         style={{ width: `${value}%` }}
@@ -715,7 +717,7 @@ function RiskCard({ risk, onClick }: { risk: Risk; onClick: () => void }) {
   const Icon = RISK_ICON[risk.type];
   const isCritical = risk.severity === "critical";
   return (
-    <button
+    <Button variant="unstyled"
       onClick={onClick}
       className={cn(
         "group relative flex w-[280px] shrink-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/70",
@@ -729,11 +731,11 @@ function RiskCard({ risk, onClick }: { risk: Risk; onClick: () => void }) {
         <AutoTranslatedText as="div" className="truncate text-sm font-semibold text-slate-900" text={risk.task.title} />
         <div className="mt-0.5 flex items-center gap-1.5 text-xs">
           <span className={cn("font-semibold", isCritical ? "text-red-600" : "text-amber-600")}>{t(risk.reason)}</span>
-          <span className="text-slate-400">·</span>
+          <span className="text-muted-foreground">·</span>
           <span className="text-slate-500">{risk.task.primary_owner}</span>
         </div>
       </div>
-    </button>
+    </Button>
   );
 }
 
@@ -953,9 +955,9 @@ function TaskItem({
                 "truncate",
                 "line-clamp-2 break-words", // 长标题最多两行，超过省略
                 task.archived
-                  ? "text-slate-400 line-through"
+                  ? "text-muted-foreground line-through"
                   : task.status === "completed"
-                    ? "text-slate-400"
+                    ? "text-muted-foreground"
                     : depth === 0
                       ? "text-[15px] font-semibold text-slate-950"
                       : "text-sm font-medium text-slate-700",
@@ -1189,7 +1191,7 @@ function SubtaskBlock({
           {stats.done > 0 && <span className="ml-1 text-emerald-600">· {t("{count} 完成", { count: stats.done })}</span>}
           {stats.blocked > 0 && <span className="ml-1 text-orange-600">· {t("{count} 阻塞", { count: stats.blocked })}</span>}
         </span>
-        <span className="tabular-nums text-slate-400">avg {stats.avg}%</span>
+        <span className="tabular-nums text-muted-foreground">avg {stats.avg}%</span>
       </div>
       <div className="space-y-0.5">
         {tasks.map((t) => (
@@ -1255,7 +1257,7 @@ function SubtaskRow({
         </span>
 
         <span className="flex w-3 shrink-0 justify-center">
-          {task.archived ? <Lock className="h-3 w-3 text-slate-400" /> : <StatusDot status={task.status} />}
+          {task.archived ? <Lock className="h-3 w-3 text-muted-foreground" /> : <StatusDot status={task.status} />}
         </span>
 
         <SubtaskBadge task={task} />
@@ -1263,7 +1265,7 @@ function SubtaskRow({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
-            task.archived ? "text-slate-400 line-through" : "font-medium text-slate-700",
+            task.archived ? "text-muted-foreground line-through" : "font-medium text-slate-700",
           )}
         >
           <AutoTranslatedText text={task.title} />
@@ -1299,14 +1301,14 @@ function SubtaskRow({
       {/* Recursive nested children with grid-rows animation */}
       <div
         className={cn(
-          "grid transition-[grid-template-rows] duration-300 ease-out",
+          "grid transition-[grid-template-rows] duration-200 ease-out",
           hasChildren && expanded ? "mt-1 grid-rows-[1fr]" : "mt-0 grid-rows-[0fr]",
         )}
       >
         <div className="overflow-hidden">
           <div
             className={cn(
-              "ml-5 transition-all duration-300 ease-out",
+              "ml-5 transition-colors motion-reduce:transition-none duration-200 ease-out",
               hasChildren && expanded ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-0.5",
             )}
           >
@@ -1342,7 +1344,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
       <div className="flex min-w-0 items-start gap-2.5">
         <span className={cn("rd-board-task-priority-rail mt-1 h-9 w-1 shrink-0 rounded-full", getPriorityBarClass(task))} />
 
-        <button type="button" onClick={() => onOpen(task)} className="rd-board-task-open min-w-0 flex-1 cursor-pointer text-left">
+        <Button variant="unstyled" type="button" onClick={() => onOpen(task)} className="rd-board-task-open min-w-0 flex-1 cursor-pointer text-left">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-mono text-xs font-semibold text-slate-500">{task.task_id}</span>
             <h4
@@ -1391,7 +1393,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               <span className="truncate font-medium text-slate-600">{task.primary_owner}</span>
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <TimerReset className="h-3.5 w-3.5 text-slate-400" />
+              <TimerReset className="h-3.5 w-3.5 text-muted-foreground" />
               {task.due_date ? <DueDateChip task={task} /> : <span className="font-medium text-slate-500">{t("未设截止")}</span>}
             </span>
             {task.attachments > 0 && (
@@ -1436,7 +1438,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               </Tooltip>
             )}
           </div>
-        </button>
+        </Button>
 
         <div className="hidden w-28 shrink-0 items-center gap-2 pt-1.5 xl:flex">
           <ProgressBar value={task.progress} tone={task.archived ? "muted" : "neutral"} />
@@ -1444,9 +1446,9 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
         </div>
 
         {hasSubtasks && (
-          <button
+          <Button variant="unstyled"
             type="button"
-            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-all duration-200 hover:bg-white hover:text-slate-800 active:scale-90"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors motion-reduce:transition-none duration-200 hover:bg-white hover:text-slate-800 active:scale-90"
             onClick={() => setExpanded((value) => !value)}
             aria-label={expanded ? t("收起子任务") : t("展开子任务")}
             aria-expanded={expanded}
@@ -1457,14 +1459,14 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
                 expanded && "rotate-90",
               )}
             />
-          </button>
+          </Button>
         )}
       </div>
 
       {hasSubtasks && !expanded && (() => {
         const stats = rollupSubtaskStats(task.subtasks!);
         return (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={(e) => {
               e.stopPropagation();
@@ -1474,7 +1476,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
           >
             <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
             <span className="font-semibold text-slate-700">{t("{n} 个子任务", { n: task.subtasks!.length })}</span>
-            <span className="text-slate-400">·</span>
+            <span className="text-muted-foreground">·</span>
             <span>{t("共")} <span className="font-semibold tabular-nums text-slate-700">{stats.total}</span> {t("项")}</span>
             {stats.done > 0 && (
               <span className="text-emerald-600">
@@ -1487,21 +1489,21 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               </span>
             )}
             <span className="ml-auto tabular-nums text-slate-500">avg {stats.avg}%</span>
-          </button>
+          </Button>
         );
       })()}
 
       {/* Expanded: nested subtask block with smooth grid-rows animation */}
       <div
         className={cn(
-          "grid transition-[grid-template-rows] duration-300 ease-out",
+          "grid transition-[grid-template-rows] duration-200 ease-out",
           hasSubtasks && expanded ? "mt-2 grid-rows-[1fr]" : "mt-0 grid-rows-[0fr]",
         )}
       >
         <div className="overflow-hidden">
           <div
             className={cn(
-              "ml-5 transition-all duration-300 ease-out",
+              "ml-5 transition-colors motion-reduce:transition-none duration-200 ease-out",
               hasSubtasks && expanded ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1",
             )}
           >
@@ -1554,10 +1556,10 @@ function SubProjectSection({
   return (
     <section className="rd-board-subproject rounded-[8px] bg-slate-100/55 px-3 py-3">
       <div className="flex flex-wrap items-center gap-3 px-1">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-all duration-200 hover:bg-white/80 hover:text-slate-800 active:scale-90"
+          className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors motion-reduce:transition-none duration-200 hover:bg-white/80 hover:text-slate-800 active:scale-90"
                   aria-label={open ? t("收起 {name}", { name: displayLabel }) : t("展开 {name}", { name: displayLabel })}
           aria-expanded={open}
         >
@@ -1567,7 +1569,7 @@ function SubProjectSection({
               open && "rotate-90",
             )}
           />
-        </button>
+        </Button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-base font-semibold text-slate-900">{displayLabel}</h3>
@@ -1598,14 +1600,14 @@ function SubProjectSection({
       {/* Animated content area using grid-rows trick */}
       <div
         className={cn(
-          "grid transition-[grid-template-rows] duration-300 ease-out",
+          "grid transition-[grid-template-rows] duration-200 ease-out",
           open ? "mt-2 grid-rows-[1fr]" : "mt-0 grid-rows-[0fr]",
         )}
       >
         <div className="overflow-hidden">
           <div
             className={cn(
-              "rd-board-subproject-body overflow-hidden rounded-[8px] bg-white/35 transition-all duration-300 ease-out",
+              "rd-board-subproject-body overflow-hidden rounded-[8px] bg-white/35 transition-colors motion-reduce:transition-none duration-200 ease-out",
               open ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1",
             )}
           >
@@ -1811,15 +1813,15 @@ function CategorySidebar({
               <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{t("{count} 个风险", { count: totalRisks })}</span>
             )}
             {canManageTree && onRequestEditor && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onRequestEditor({ mode: "add-system" })}
-                className="rd-board-brand-control inline-flex h-7 items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                className="rd-board-brand-control inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-accent px-2 text-xs font-semibold text-primary transition-colors hover:bg-accent"
                 title={t("新增一级系统")}
               >
                 <Plus className="h-3 w-3" />
                 {t("新增")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -1828,7 +1830,7 @@ function CategorySidebar({
       <nav className="rd-board-tree flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-3">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => {
                 setExpandedId(null);
@@ -1837,8 +1839,8 @@ function CategorySidebar({
               data-active={selectedId === null}
               className={cn(
                 "rd-board-tree-root",
-                "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
-                selectedId === null ? "bg-white text-indigo-700 shadow-[0_8px_20px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
+                "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.99]",
+                selectedId === null ? "bg-white text-primary shadow-[0_8px_20px_rgba(79,70,229,0.08)] ring-1 ring-primary/25" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
               )}
               aria-label={t("全部系统")}
             >
@@ -1849,7 +1851,7 @@ function CategorySidebar({
                   {totalRisks}
                 </span>
               )}
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent side="right" align="start">
             <RiskListTooltip title={t("全部系统 · {count} 个风险任务", { count: totalRisks })} risks={allRisks} />
@@ -1872,15 +1874,15 @@ function CategorySidebar({
               data-active={activeWithin}
               className={cn(
                 "rd-board-tree-group",
-                "group/cat rounded-[8px] transition-all",
+                "group/cat rounded-[8px] transition-colors motion-reduce:transition-none",
                 activeWithin ? "bg-white shadow-[0_10px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/80" : "hover:bg-white/65 hover:shadow-[0_8px_18px_rgba(15,23,42,0.035)]",
               )}
             >
               <div className="flex items-center gap-1 px-1 py-1">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => toggleExpanded(cat.id)}
-                  className="flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-200 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-95"
+                  className="flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none duration-200 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-95"
                   aria-label={expanded ? t("收起 {name}", { name: cat.label }) : t("展开 {name}", { name: cat.label })}
                   aria-expanded={expanded}
                 >
@@ -1890,48 +1892,48 @@ function CategorySidebar({
                       expanded && "rotate-90",
                     )}
                   />
-                </button>
+                </Button>
 
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => {
                     setExpandedId(cat.id);
                     onSelect(cat.id);
                   }}
-                  className="rd-board-tree-node flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left transition-all duration-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
+                  className="rd-board-tree-node flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left transition-colors motion-reduce:transition-none duration-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
                 >
                   <span
                     className={cn(
-                      "rd-board-tree-indicator h-5 w-1 shrink-0 rounded-full bg-indigo-600 transition-all duration-300 ease-out",
+                      "rd-board-tree-indicator h-5 w-1 shrink-0 rounded-full bg-indigo-600 transition-colors motion-reduce:transition-none duration-200 ease-out",
                       activeWithin ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0",
                     )}
                   />
                   <theme.Icon className={cn("h-4 w-4 shrink-0 transition-colors", theme.iconColor)} />
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{cat.label}</span>
-                </button>
+                </Button>
 
                 {canManageTree && onRequestEditor && (
                   <div className="mr-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/cat:opacity-100 focus-within:opacity-100">
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "add-sub", category: cat }); }}
-                      className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-primary-hover"
                       title={t("新增子项")}
                       aria-label={t("为 {name} 新增子项", { name: cat.label })}
                     >
                       <FolderPlus className="h-3.5 w-3.5" />
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="unstyled"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-system", category: cat }); }}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-slate-700"
                       title={t("重命名")}
                       aria-label={t("重命名 {name}", { name: cat.label })}
                     >
                       <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                     {!isReserved && (
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         aria-disabled={subTaskCount > 0}
                         aria-label={subTaskCount > 0 ? t("不能删除：含 {count} 个任务，请先移空", { count: subTaskCount }) : t("删除 {name}", { name: cat.label })}
@@ -1939,13 +1941,13 @@ function CategorySidebar({
                         className={cn(
                           "rounded p-1 transition-colors",
                           subTaskCount > 0
-                            ? "cursor-not-allowed text-slate-300"
-                            : "text-slate-400 hover:bg-red-50 hover:text-red-600",
+                            ? "cursor-not-allowed text-muted-foreground"
+                            : "text-muted-foreground hover:bg-red-50 hover:text-red-600",
                         )}
                         title={subTaskCount > 0 ? t("含 {count} 个任务，请先移空后再删除", { count: subTaskCount }) : t("删除")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -1967,14 +1969,14 @@ function CategorySidebar({
               {/* Animated expand using CSS grid-rows trick */}
               <div
                 className={cn(
-                  "grid transition-[grid-template-rows] duration-300 ease-out",
+                  "grid transition-[grid-template-rows] duration-200 ease-out",
                   expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
                 )}
               >
                 <div className="overflow-hidden">
                   <div
                     className={cn(
-                      "ml-[34px] mr-2 space-y-1 border-l border-slate-300/70 pl-3 transition-all duration-300 ease-out",
+                      "ml-[34px] mr-2 space-y-1 border-l border-slate-300/70 pl-3 transition-colors motion-reduce:transition-none duration-200 ease-out",
                       expanded ? "translate-y-0 pb-2 pt-1 opacity-100" : "-translate-y-1 py-0 opacity-0",
                     )}
                   >
@@ -1992,21 +1994,21 @@ function CategorySidebar({
                           data-active={selected}
                           className={cn(
                             "rd-board-tree-sub",
-                            "group/sub flex h-8 w-full items-center gap-1 rounded-md pr-1 transition-all duration-200",
+                            "group/sub flex h-8 w-full items-center gap-1 rounded-md pr-1 transition-colors motion-reduce:transition-none duration-200",
                             selected
                               ? "bg-indigo-50 shadow-[0_6px_14px_rgba(79,70,229,0.08)]"
                               : "hover:bg-slate-50",
                           )}
                         >
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => {
                               setExpandedId(cat.id);
                               onSelect(sub.id);
                             }}
                             className={cn(
-                              "flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
-                              selected ? "text-indigo-800" : "text-slate-600 hover:translate-x-0.5 hover:text-slate-900",
+                              "flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left transition-colors motion-reduce:transition-none duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
+                              selected ? "text-primary" : "text-slate-600 hover:translate-x-0.5 hover:text-slate-900",
                             )}
                           >
                             <span
@@ -2016,33 +2018,33 @@ function CategorySidebar({
                               )}
                             />
                             <span className="min-w-0 flex-1 truncate text-xs font-semibold">{sub.label}</span>
-                          </button>
+                          </Button>
                           {(canManageTree || (canMoveTasks && subTaskTotal > 0)) && onRequestEditor && (
                             <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/sub:opacity-100 focus-within:opacity-100">
                               {canManageTree && (
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
-                                  className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
                                   title={t("重命名")}
                                   aria-label={t("重命名 {name}", { name: sub.label })}
                                 >
                                   <Pencil className="h-3 w-3" />
-                                </button>
+                                </Button>
                               )}
                               {canMoveTasks && subTaskTotal > 0 && (
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
-                                  className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-primary-hover"
                                   title={t("移动任务")}
                                   aria-label={t("移动 {name} 中的任务", { name: sub.label })}
                                 >
                                   <ArrowRight className="h-3 w-3" />
-                                </button>
+                                </Button>
                               )}
                               {canManageTree && (
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   aria-disabled={subTaskTotal > 0}
                                   aria-label={subTaskTotal > 0 ? t("不能删除：含 {count} 个任务，请先移空", { count: subTaskTotal }) : t("删除 {name}", { name: sub.label })}
@@ -2050,13 +2052,13 @@ function CategorySidebar({
                                   className={cn(
                                     "rounded p-1 transition-colors",
                                     subTaskTotal > 0
-                                      ? "cursor-not-allowed text-slate-300"
-                                      : "text-slate-400 hover:bg-red-50 hover:text-red-600",
+                                      ? "cursor-not-allowed text-muted-foreground"
+                                      : "text-muted-foreground hover:bg-red-50 hover:text-red-600",
                                   )}
                                   title={subTaskTotal > 0 ? t("含 {count} 个任务，请先移空后再删除", { count: subTaskTotal }) : t("删除")}
                                 >
                                   <Trash2 className="h-3 w-3" />
-                                </button>
+                                </Button>
                               )}
                             </div>
                           )}
@@ -2162,14 +2164,14 @@ function SystemTreeEditorDialog({
             </div>
             <h3 className="text-base font-semibold text-slate-900">{title}</h3>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={onClose}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-4 px-6 py-5">
@@ -2198,10 +2200,10 @@ function SystemTreeEditorDialog({
                 onKeyDown={(e) => { if (e.key === "Enter") handleConfirm(); }}
                 placeholder={isAdd ? (request.mode === "add-system" ? t("例：新型动力系统") : t("例：主控板")) : t("新名称")}
                 disabled={saving}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25 disabled:bg-slate-50"
               />
               {request.mode === "add-system" && (
-                <p className="mt-1.5 text-pretty text-[11px] text-slate-400">
+                <p className="mt-1.5 text-pretty text-[11px] text-muted-foreground">
                   {productionWorkspace
                     ? t("将作为生产系统树的一级节点；可在保存后添加子项。")
                     : t("将作为研发系统树的一级节点；可在保存后添加子项。")}
@@ -2212,26 +2214,26 @@ function SystemTreeEditorDialog({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={handleConfirm}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-60",
-              isDelete ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700",
+              isDelete ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-primary-hover",
             )}
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {isDelete ? t("确认删除") : isEdit ? t("保存") : t("新增")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -2252,7 +2254,7 @@ function ExecutiveSignal({
   Icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="min-w-0 rounded-[8px] bg-slate-50 px-3 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.035)] ring-1 ring-slate-200/75 transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(15,23,42,0.07)]">
+    <div className="min-w-0 rounded-[8px] bg-slate-50 px-3 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.035)] ring-1 ring-slate-200/75 transition-colors motion-reduce:transition-none  hover:bg-white hover:shadow-[0_14px_28px_rgba(15,23,42,0.07)]">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-slate-500">{label}</span>
         <Icon className={cn("h-4 w-4 shrink-0", tone)} />
@@ -2284,11 +2286,11 @@ function ExecutiveRiskList({ risks, onOpen }: { risks: Risk[]; onOpen: (task: Ta
           {shown.map((risk, index) => {
             const isCritical = risk.severity === "critical";
             return (
-              <button
+              <Button variant="unstyled"
                 key={risk.task.task_id + risk.type}
                 type="button"
                 onClick={() => onOpen(risk.task)}
-                className="flex w-full cursor-pointer items-center gap-3 rounded-md py-3 pl-2 pr-1 text-left transition-all hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.995]"
+                className="flex w-full cursor-pointer items-center gap-3 rounded-md py-3 pl-2 pr-1 text-left transition-colors motion-reduce:transition-none hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.995]"
               >
                 <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold", isCritical ? "bg-red-600 text-white" : "bg-amber-100 text-amber-700")}>
                   {index + 1}
@@ -2301,8 +2303,8 @@ function ExecutiveRiskList({ risks, onOpen }: { risks: Risk[]; onOpen: (task: Ta
                     <span>{risk.task.primary_owner}</span>
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-              </button>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </Button>
             );
           })}
         </div>
@@ -2332,13 +2334,13 @@ function SystemHealthGrid({
           <h2 className="text-base font-semibold text-slate-950">{t("系统健康")}</h2>
           <p className="sr-only">{t("按风险和进度自动排序")}</p>
         </div>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => onSelect(null)}
           className="cursor-pointer rounded-md px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
         >
           {t("全局")}
-        </button>
+        </Button>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -2346,13 +2348,13 @@ function SystemHealthGrid({
           const theme = getTheme(cat.id);
           const selected = selectedId === cat.id;
           return (
-            <button
+            <Button variant="unstyled"
               key={cat.id}
               type="button"
               onClick={() => onSelect(cat.id)}
               className={cn(
-                "cursor-pointer rounded-[8px] px-3 py-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
-                selected ? "bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200" : "bg-slate-50 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_12px_24px_rgba(15,23,42,0.06)]",
+                "cursor-pointer rounded-[8px] px-3 py-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
+                selected ? "bg-accent shadow-[0_8px_18px_rgba(79,70,229,0.08)] ring-1 ring-primary/25" : "bg-slate-50  hover:bg-white hover:shadow-[0_12px_24px_rgba(15,23,42,0.06)]",
               )}
             >
               <div className="flex items-center gap-2">
@@ -2366,7 +2368,7 @@ function SystemHealthGrid({
                 </div>
                 <span className="w-9 text-right text-xs font-semibold tabular-nums text-slate-600">{progress}%</span>
               </div>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -2410,15 +2412,15 @@ function SelectedScopePanel({
       {highlighted.length > 0 ? (
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {highlighted.map((risk) => (
-            <button
+            <Button variant="unstyled"
               key={risk.task.task_id + risk.type}
               type="button"
               onClick={() => onOpen(risk.task)}
-              className="cursor-pointer rounded-[8px] bg-slate-50 px-3 py-2 text-left transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_10px_22px_rgba(15,23,42,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
+              className="cursor-pointer rounded-[8px] bg-slate-50 px-3 py-2 text-left transition-colors motion-reduce:transition-none  hover:bg-white hover:shadow-[0_10px_22px_rgba(15,23,42,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
             >
               <div className="truncate text-sm font-semibold text-slate-950">{risk.task.title}</div>
               <div className="mt-1 text-xs font-semibold text-red-600">{risk.reason}</div>
-            </button>
+            </Button>
           ))}
         </div>
       ) : (
@@ -2718,9 +2720,9 @@ function AiCreatePanel({
             <Sparkles className="h-4 w-4 text-indigo-500" />
             <span className="font-semibold text-slate-800">{t("AI 任务解析 · 新建任务")}</span>
           </div>
-          <button type="button" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
+          <Button variant="unstyled" type="button" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
 
         <div className="p-6">
@@ -2748,7 +2750,7 @@ function AiCreatePanel({
               </div>
               <label className="text-sm font-medium text-slate-700">{t("粘贴会议纪要、邮件正文或需求描述")}</label>
               <Textarea
-                className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                 rows={5}
                 placeholder={t("例：电磁阀耐压测试需要在本月底前完成，由王磊负责，陈静配合质检……")}
                 value={text}
@@ -2760,7 +2762,7 @@ function AiCreatePanel({
                     "flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors",
                     fileDropActive
                       ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                      : "border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-500",
+                      : "border-slate-200 text-slate-500 hover:border-primary/25 hover:text-primary-hover",
                   )}
                   onDragEnter={handleFileDrag}
                   onDragOver={handleFileDrag}
@@ -2784,11 +2786,11 @@ function AiCreatePanel({
                     }}
                   />
                 </label>
-                <button
+                <Button
                   type="button"
                   onClick={handleProcess}
                   disabled={(!text.trim() && selectedFiles.length === 0) || aiState === "processing"}
-                  className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {aiState === "processing" ? (
                     <>
@@ -2801,14 +2803,14 @@ function AiCreatePanel({
                       {t("AI 解析")}
                     </>
                   )}
-                </button>
+                </Button>
               </div>
               {selectedFiles.length > 0 && (
                 <div className="space-y-2 rounded-[8px] border border-slate-200 bg-white px-4 py-3">
                   {selectedFiles.map((file) => (
                     <div key={`${file.name}-${file.size}`} className="flex items-center justify-between gap-3 text-xs">
                       <span className="truncate font-medium text-slate-700">{file.name}</span>
-                      <span className="shrink-0 text-slate-400">{describeFileRule(aiSettings, file.name)}</span>
+                      <span className="shrink-0 text-muted-foreground">{describeFileRule(aiSettings, file.name)}</span>
                     </div>
                   ))}
                 </div>
@@ -2838,15 +2840,15 @@ function AiCreatePanel({
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
                     {t("任务标题")}
                     {modifiedFields.has("title") && (
-                      <button type="button" onClick={() => resetField("title")} className="ml-1 inline-flex cursor-pointer items-center gap-1 text-amber-500 hover:underline">
+                      <Button variant="unstyled" type="button" onClick={() => resetField("title")} className="ml-1 inline-flex cursor-pointer items-center gap-1 text-amber-500 hover:underline">
                         <RotateCcw className="h-3 w-3" />
                         {t("还原")}
-                      </button>
+                      </Button>
                     )}
                   </label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25",
                       modifiedFields.has("title") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.title}
@@ -2858,7 +2860,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">{t("主责人")}</label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25",
                       modifiedFields.has("primary_owner") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.primary_owner}
@@ -2869,11 +2871,11 @@ function AiCreatePanel({
                 <div className="space-y-1">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
                     {t("最终优先级")}
-                    <span className="ml-auto text-slate-400">{t("AI 建议:")} {t(PRIORITY_CONFIG[draft.ai_priority].label)}</span>
+                    <span className="ml-auto text-muted-foreground">{t("AI 建议:")} {t(PRIORITY_CONFIG[draft.ai_priority].label)}</span>
                   </label>
                   <NativeSelect
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25",
                       modifiedFields.has("final_priority") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.final_priority}
@@ -2889,7 +2891,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">{t("分类路径")}</label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25",
                       modifiedFields.has("category_path") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.category_path}
@@ -2901,7 +2903,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">{t("预估工期（天）")}</label>
                   <Input
                     type="number"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25"
                     value={draft.final_duration ?? ""}
                     onChange={(e) => patchDraft("final_duration", Number(e.target.value))}
                   />
@@ -2911,7 +2913,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">{t("起始日期")}</label>
                   <Input
                     type="date"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25"
                     value={draft.start_date ?? ""}
                     onChange={(e) => patchDraft("start_date", e.target.value)}
                   />
@@ -2921,7 +2923,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">{t("截止日期")}</label>
                   <Input
                     type="date"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25"
                     value={draft.due_date ?? ""}
                     onChange={(e) => patchDraft("due_date", e.target.value)}
                   />
@@ -2930,7 +2932,7 @@ function AiCreatePanel({
                 <div className="col-span-2 space-y-1">
                   <label className="text-xs font-medium text-slate-500">{t("任务描述")}</label>
                   <Textarea
-                    className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/25"
                     rows={3}
                     value={draft.description ?? ""}
                     onChange={(e) => patchDraft("description", e.target.value)}
@@ -2939,7 +2941,7 @@ function AiCreatePanel({
               </div>
 
               <div className="flex items-center justify-between pt-2">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => {
                     setAiState("idle");
@@ -2952,15 +2954,15 @@ function AiCreatePanel({
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新解析")}
-                </button>
+                </Button>
                 <div className="flex gap-2">
-                  <button type="button" onClick={onClose} className="cursor-pointer rounded-[8px] border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                  <Button variant="unstyled" type="button" onClick={onClose} className="cursor-pointer rounded-[8px] border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
                     {t("取消")}
-                  </button>
-                  <button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+                  </Button>
+                  <Button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] px-4 py-2 text-sm font-medium">
                     {t("确认创建")}
                     <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -3065,7 +3067,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
                   state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
                   state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
                   state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
-                  state === "todo" && "border-slate-200 text-slate-300",
+                  state === "todo" && "border-slate-200 text-muted-foreground",
                 )}
               >
                 <step.Icon className="h-4 w-4" />
@@ -3077,12 +3079,12 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
                     state === "done" && "text-emerald-700",
                     state === "current" && "text-indigo-800",
                     state === "attention" && "text-amber-800",
-                    state === "todo" && "text-slate-400",
+                    state === "todo" && "text-muted-foreground",
                   )}
                 >
                   {step.label}
                 </div>
-                <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-slate-400" : "text-slate-500")}>
+                <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-muted-foreground" : "text-slate-500")}>
                   {step.helper}
                 </div>
               </div>
@@ -3146,23 +3148,23 @@ export function SubmitConfirmDialog({
           <p className="text-xs text-slate-500">{t("提交将任务进入待审核状态，请确认成果已准备好。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={submitting}
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={submitting}
             onClick={onConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
             {t("确认提交")}
-          </button>
+          </Button>
         </div>
     </TaskActionDialogFrame>
   );
@@ -3195,15 +3197,15 @@ export function CompleteConfirmDialog({
           <p className="text-xs text-slate-500">{t("管理员/主管操作会跳过提交审核，任务进度将设为 100%。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={submitting}
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             disabled={submitting}
             onClick={onConfirm}
@@ -3211,7 +3213,7 @@ export function CompleteConfirmDialog({
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
             {t("确认完成")}
-          </button>
+          </Button>
         </div>
     </TaskActionDialogFrame>
   );
@@ -3273,7 +3275,7 @@ export function HandoverDialog({
               </SelectTrigger>
               <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                 {options.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-xs text-slate-400">{t("暂无可选人员")}</div>
+                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">{t("暂无可选人员")}</div>
                 ) : (
                   options.map((p) => (
                     <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
@@ -3284,15 +3286,15 @@ export function HandoverDialog({
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             disabled={saving || !newOwner}
             onClick={handleConfirm}
@@ -3300,7 +3302,7 @@ export function HandoverDialog({
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {t("确认移交")}
-          </button>
+          </Button>
         </div>
     </TaskActionDialogFrame>
   );
@@ -3381,19 +3383,19 @@ export function AddCollaboratorsDialog({
           </DialogDescription>
           <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200">
             {candidates.length === 0 ? (
-              <div className="px-3 py-6 text-center text-xs text-slate-400">{t("无可添加的人员（其他人都已在协作或主责）")}</div>
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">{t("无可添加的人员（其他人都已在协作或主责）")}</div>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {candidates.map((p) => {
                   const isSelected = selected.has(p.id);
                   return (
                     <li key={p.id}>
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => toggle(p.id)}
                         className={cn(
                           "flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors",
-                          isSelected ? "bg-indigo-50 text-indigo-800" : "hover:bg-slate-50 text-slate-700",
+                          isSelected ? "bg-accent text-primary" : "hover:bg-slate-50 text-slate-700",
                         )}
                       >
                         <span
@@ -3406,8 +3408,8 @@ export function AddCollaboratorsDialog({
                         </span>
                         <OwnerAvatar name={p.name} userId={p.user_id} size="xs" />
                         <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
-                        {p.position && <span className="shrink-0 text-[11px] text-slate-400">{p.position}</span>}
-                      </button>
+                        {p.position && <span className="shrink-0 text-[11px] text-muted-foreground">{p.position}</span>}
+                      </Button>
                     </li>
                   );
                 })}
@@ -3416,23 +3418,23 @@ export function AddCollaboratorsDialog({
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={saving || selected.size === 0}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
             {t("确认添加")} {selected.size > 0 ? `(${selected.size})` : ""}
-          </button>
+          </Button>
         </div>
     </TaskActionDialogFrame>
   );
@@ -3504,7 +3506,7 @@ export function ApprovalActionDialog({
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
                   placeholder={t("请说明需要修改的原因…")}
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                   autoFocus
                 />
               </div>
@@ -3518,21 +3520,21 @@ export function ApprovalActionDialog({
                   onChange={(e) => setRollbackProgress(Math.min(99, Math.max(0, Number(e.target.value))))}
                   className="w-24"
                 />
-                <span className="ml-2 text-xs text-slate-400">{t("当前进度")} {task.progress}%</span>
+                <span className="ml-2 text-xs text-muted-foreground">{t("当前进度")} {task.progress}%</span>
               </div>
             </>
           )}
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={submitting}
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             disabled={submitting || (!isApprove && !reason.trim())}
             onClick={handleConfirm}
@@ -3543,7 +3545,7 @@ export function ApprovalActionDialog({
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : isApprove ? <CheckCircle2 className="h-3 w-3" /> : <RotateCcw className="h-3 w-3" />}
             {isApprove ? t("确认通过") : t("确认打回")}
-          </button>
+          </Button>
         </div>
     </TaskActionDialogFrame>
   );
@@ -3604,7 +3606,7 @@ export function TaskCompletionScoreCard({
 
   if (!canView) {
     return (
-      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
+      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-muted-foreground">
         {t("完成质量评分仅对该任务关联人员和管理员可见")}
       </div>
     );
@@ -3612,7 +3614,7 @@ export function TaskCompletionScoreCard({
 
   if (loading || aiLoading || !aiFetched) {
     return (
-      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
+      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-muted-foreground">
         {t("正在读取 AI 完成质量评分…")}
       </div>
     );
@@ -3677,7 +3679,7 @@ export function TaskCompletionScoreCard({
         <div className="shrink-0 text-right">
           <div className="flex items-baseline justify-end gap-1">
             <span className={cn("text-2xl font-bold tabular-nums", tone.text)}>{total}</span>
-            <span className="text-xs text-slate-400">/ 100</span>
+            <span className="text-xs text-muted-foreground">/ 100</span>
           </div>
           <span
             className={cn(
@@ -3713,7 +3715,7 @@ export function TaskCompletionScoreCard({
                 <span className="font-medium text-slate-700">{t(d.label)}</span>
                 <span className="tabular-nums text-slate-500">
                   <span className="font-semibold text-slate-700">{d.score}</span>
-                  <span className="text-slate-400"> / {d.max}</span>
+                  <span className="text-muted-foreground"> / {d.max}</span>
                 </span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -3775,28 +3777,28 @@ export function TaskCompletionScoreCard({
           )}
         </p>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => {
               const ok = openTaskCompletionReport(task, aiScore, notes);
               if (!ok) toast.error(t("报告窗口被浏览器拦截，请允许本站弹出窗口后重试"));
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+            className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-primary transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
             title={t("生成正式的完成质量评估报告，在弹出的打印对话框中选择「另存为 PDF」即可下载")}
           >
             <FileText className="h-3 w-3" />
             {t("生成报告")}
-          </button>
+          </Button>
           {isSuper && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={openDebug}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
               title={t("超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）")}
             >
               <Settings2 className="h-3 w-3" />
               {t("调试")}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -3853,26 +3855,26 @@ function CompletionScoreDebugDialog({
               {t("仅超管可见")}
             </span>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
             aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-slate-400">
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {t("正在拉取调试数据…")}
             </div>
           ) : !data || !debug ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-400">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
               <p>{t("该任务尚无 AI 评分数据，或调试信息未保存（仅新评分会带 _debug 字段）")}</p>
-              <p className="text-[11px] text-slate-400">{t("让管理员重新触发一次 AI 评分即可。")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("让管理员重新触发一次 AI 评分即可。")}</p>
             </div>
           ) : (
             <div className="space-y-4 text-xs">
@@ -3882,21 +3884,21 @@ function CompletionScoreDebugDialog({
                   <span>
                     {t("模型：")}<span className="font-mono font-semibold text-slate-900">{data.provider}/{data.model}</span>
                   </span>
-                  <span className="text-slate-300">|</span>
+                  <span className="text-muted-foreground">|</span>
                   <span>
                     {t("耗时：")}<span className="font-semibold tabular-nums">{debug.duration_ms} ms</span>
                   </span>
-                  <span className="text-slate-300">|</span>
+                  <span className="text-muted-foreground">|</span>
                   <span>
                     {t("开始：")}<span className="tabular-nums">{new Date(debug.request_started_at).toLocaleString(i18nLocale())}</span>
                   </span>
-                  <span className="text-slate-300">|</span>
+                  <span className="text-muted-foreground">|</span>
                   <span>
                     {t("结束：")}<span className="tabular-nums">{new Date(debug.request_finished_at).toLocaleString(i18nLocale())}</span>
                   </span>
                   {data.fallback_reason && (
                     <>
-                      <span className="text-slate-300">|</span>
+                      <span className="text-muted-foreground">|</span>
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
                         {t("兜底：")}{data.fallback_reason}
                       </span>
@@ -3983,24 +3985,24 @@ function DebugSection({
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <header className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-1.5">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => setCollapsed((v) => !v)}
-          className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-slate-700 hover:text-indigo-700"
+          className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-slate-700 hover:text-primary-hover"
         >
           <ChevronRight className={cn("h-3 w-3 transition-transform", !collapsed && "rotate-90")} />
           <span className="truncate">{title}</span>
-          <span className="shrink-0 text-[10px] font-normal text-slate-400">
+          <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
             ({t("{count} 字符", { count: content.length.toLocaleString() })}{highlightLength && content.length > 12000 ? ` ${t("· ⚠️ 较长")}` : ""})
           </span>
-        </button>
-        <button
+        </Button>
+        <Button variant="unstyled"
           type="button"
           onClick={onCopy}
-          className="shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+          className="shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
         >
           {t("复制")}
-        </button>
+        </Button>
       </header>
       {!collapsed && (
         <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-100">
@@ -4206,14 +4208,14 @@ export function WorkItemsSection({
           {t("工作项")}{items.length > 0 ? ` ${doneCount}/${items.length}` : ""}
         </span>
         {canEdit && !adding && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => setAdding(true)}
-            className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-slate-200 hover:text-slate-700"
           >
             <Plus className="h-2.5 w-2.5" />
             {t("添加工作项")}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -4236,20 +4238,20 @@ export function WorkItemsSection({
                   onCheckedChange={() => void toggleDone(it.id)}
                   className="border-slate-300"
                 />
-                <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
-                {it.owner_name && <span className="shrink-0 text-[11px] text-slate-400">{it.owner_name}</span>}
+                <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-muted-foreground line-through" : "text-slate-700")}>{it.title}</span>
+                {it.owner_name && <span className="shrink-0 text-[11px] text-muted-foreground">{it.owner_name}</span>}
                 {noteCount > 0 && (
                   <span className="rd-work-item-note-count shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{t("{n} 条留痕", { n: noteCount })}</span>
                 )}
                 {canEdit && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => void removeItem(it.id)}
-                    className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
+                    className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
                     title={t("删除工作项（已关联的留痕保留在主任务）")}
                   >
                     <X className="h-3 w-3" />
-                  </button>
+                  </Button>
                 )}
               </li>
             );
@@ -4264,31 +4266,31 @@ export function WorkItemsSection({
             onChange={(e) => setDraft(e.target.value)}
             rows={4}
             placeholder={t("每行一个工作项，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档")}
-            className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             autoFocus
           />
           <div className="mt-2 flex items-center justify-end gap-1.5">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => { setAdding(false); setDraft(""); }}
               className="cursor-pointer rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-200"
             >
               {t("取消")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={handleCreate}
               disabled={saving}
-              className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold disabled:opacity-60"
             >
               {saving ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Plus className="h-2.5 w-2.5" />}
               {t("批量添加")}
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         items.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
+          <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-muted-foreground">
             {t("暂无工作项，可把任务拆成几个小块（如不同类型文档各一项），进度留痕可关联到工作项分组查看")}
           </div>
         )
@@ -4352,14 +4354,14 @@ function CommandCenter({
         <CommandMetric label={t("待指派")} value={String(pendingAssign)} helper={t("等待确认负责人")} tone="text-violet-500" Icon={Users} />
       </div>
       {onCreate && (
-        <button
+        <Button
           type="button"
           onClick={onCreate}
-          className="rd-board-primary-control inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+          className="rd-board-primary-control inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
         >
           <Plus className="h-3.5 w-3.5" />
           {t("新建任务")}
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -4392,22 +4394,22 @@ function KpiStrip({
     iconTone: string;
     Icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   }[] = [
-    { label: "活跃任务", value: totalActive, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Target },
-    { label: "完成率", value: `${rate}%`, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Gauge },
+    { label: "活跃任务", value: totalActive, tone: "text-slate-900", iconTone: "text-muted-foreground", Icon: Target },
+    { label: "完成率", value: `${rate}%`, tone: "text-slate-900", iconTone: "text-muted-foreground", Icon: Gauge },
     { label: "进行中", value: inProgress, tone: "text-indigo-600", iconTone: "text-indigo-400", Icon: CircleDot },
     { label: "已完成", value: done, tone: "text-emerald-600", iconTone: "text-emerald-400", Icon: CheckCircle2 },
     {
       label: "阻塞/待派",
       value: blocked,
-      tone: blocked > 0 ? "text-orange-600" : "text-slate-300",
-      iconTone: blocked > 0 ? "text-orange-400" : "text-slate-300",
+      tone: blocked > 0 ? "text-orange-600" : "text-muted-foreground",
+      iconTone: blocked > 0 ? "text-orange-400" : "text-muted-foreground",
       Icon: Users,
     },
     {
       label: "风险任务",
       value: totalRisks,
-      tone: totalRisks > 0 ? "text-red-600" : "text-slate-300",
-      iconTone: totalRisks > 0 ? "text-red-400" : "text-slate-300",
+      tone: totalRisks > 0 ? "text-red-600" : "text-muted-foreground",
+      iconTone: totalRisks > 0 ? "text-red-400" : "text-muted-foreground",
       Icon: AlertTriangle,
     },
   ];
@@ -4445,9 +4447,9 @@ function KpiStrip({
               transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: idx * 0.025 }}
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
-              className="rd-board-kpi group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(79,70,229,0.045)] transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(79,70,229,0.08)]"
+              className="rd-board-kpi group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(79,70,229,0.045)] transition-colors motion-reduce:transition-none duration-200 hover:border-primary/25 hover:bg-white hover:shadow-[0_10px_20px_rgba(79,70,229,0.08)]"
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-50 to-indigo-50 ring-1 ring-slate-100 transition-all duration-200 group-hover:ring-indigo-100">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent ring-1 ring-slate-100 transition-colors motion-reduce:transition-none duration-200 group-hover:ring-primary/25">
                 <it.Icon
                   className={cn(
                     "h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110",
@@ -4528,7 +4530,7 @@ function RiskHotspot({
       )}
       data-surface="risk"
     >
-      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-card px-5 py-4 sm:px-6">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
             <AlertTriangle className="h-[18px] w-[18px]" />
@@ -4543,7 +4545,7 @@ function RiskHotspot({
             {riskFilter === "all" ? risks.length : `${filteredRisks.length}/${risks.length}`}
           </div>
           {typeof totalTasks === "number" && (
-            <div className="mt-0.5 text-[11px] font-medium text-slate-400">
+            <div className="mt-0.5 text-[11px] font-medium text-muted-foreground">
               {t("共 {count} 个任务", { count: totalTasks })}
             </div>
           )}
@@ -4564,18 +4566,18 @@ function RiskHotspot({
               whileHover={!disabled && !shouldReduceMotion ? { y: -1 } : undefined}
               whileTap={!disabled && !shouldReduceMotion ? { scale: 0.97 } : undefined}
               className={cn(
-                "rd-board-filter-chip flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
+                "rd-board-filter-chip flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
                 active
-                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)] ring-1 ring-indigo-100"
+                  ? "border-primary/25 bg-accent text-primary shadow-[0_8px_18px_rgba(79,70,229,0.10)] ring-1 ring-primary/25"
                   : disabled
-                    ? "cursor-not-allowed border-slate-100 text-slate-400"
+                    ? "cursor-not-allowed border-slate-100 text-muted-foreground"
                     : "cursor-pointer border-slate-200 bg-slate-50 shadow-[0_4px_10px_rgba(15,23,42,0.025)] hover:bg-white hover:shadow-[0_8px_16px_rgba(15,23,42,0.05)]",
               )}
             >
               {b.type !== "all" && <span className={cn("h-1.5 w-1.5 rounded-full", RISK_DOT_COLOR[b.type])} />}
               {b.type === "all" && <span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-indigo-500" : "bg-slate-400")} />}
-              <span className={cn("font-medium", active ? "text-indigo-700" : disabled ? "text-slate-400" : "text-slate-700")}>{t(b.label)}</span>
-              <span className={cn("tabular-nums", active ? "font-semibold text-indigo-700" : disabled ? "text-slate-400" : "font-semibold text-slate-900")}>
+              <span className={cn("font-medium", active ? "text-indigo-700" : disabled ? "text-muted-foreground" : "text-slate-700")}>{t(b.label)}</span>
+              <span className={cn("tabular-nums", active ? "font-semibold text-indigo-700" : disabled ? "text-muted-foreground" : "font-semibold text-slate-900")}>
                 {b.count}
               </span>
             </motion.button>
@@ -4585,7 +4587,7 @@ function RiskHotspot({
 
       <ul className="flex-1 divide-y divide-slate-100 overflow-hidden">
         {shownRisks.length === 0 ? (
-          <li className="px-6 py-10 text-center text-sm text-slate-400">
+          <li className="px-6 py-10 text-center text-sm text-muted-foreground">
             {totalTasks ? t("暂无风险任务，全部任务请查看任务清单") : t("暂无风险任务")}
           </li>
         ) : (
@@ -4601,7 +4603,7 @@ function RiskHotspot({
               }}
               role="button"
               tabIndex={0}
-              className="rd-board-data-row group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 transition-all hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+              className="rd-board-data-row group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 transition-colors motion-reduce:transition-none hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", RISK_DOT_COLOR[r.type])} />
               <div className="min-w-0 flex-1">
@@ -4614,16 +4616,16 @@ function RiskHotspot({
                   >
                     {t(RISK_LABEL[r.type])} · {t(r.reason)}
                   </span>
-                  <span className="text-slate-300">·</span>
+                  <span className="text-muted-foreground">·</span>
                   <span>{r.task.primary_owner}</span>
-                  <span className="text-slate-300">·</span>
-                  <span className="font-mono text-[11px] text-slate-400">{r.task.task_id}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">{r.task.task_id}</span>
                 </div>
               </div>
               <div className="hidden sm:block">
                 <OwnerAvatar name={r.task.primary_owner} userId={r.task.primary_owner_user_id} size="xs" />
               </div>
-              <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-colors motion-reduce:transition-none group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </li>
           ))
         )}
@@ -4631,53 +4633,53 @@ function RiskHotspot({
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-slate-100 px-6 py-2.5">
-          <span className="text-[11px] tabular-nums text-slate-400">
+          <span className="text-[11px] tabular-nums text-muted-foreground">
             {shownRisks.length === 0 ? 0 : (safePage - 1) * pageSize + 1}
             {" - "}
             {Math.min(safePage * pageSize, filteredRisks.length)}
-            <span className="mx-1 text-slate-300">/</span>
+            <span className="mx-1 text-muted-foreground">/</span>
             {filteredRisks.length}
           </span>
           <div className="flex items-center gap-1">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage <= 1}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label={t("上一页")}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
+            </Button>
             {/* Numeric page indicators (max 5) */}
             {Array.from({ length: totalPages }).map((_, i) => {
               const page = i + 1;
               const active = page === safePage;
               return (
-                <button
+                <Button variant="unstyled"
                   key={page}
                   type="button"
                   onClick={() => setPage(page)}
                   className={cn(
-                    "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
+                    "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-colors motion-reduce:transition-none duration-150 active:scale-90",
                     active
-                      ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
+                      ? "bg-accent text-primary shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-primary/25"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                   aria-current={active ? "page" : undefined}
                 >
                   {page}
-                </button>
+                </Button>
               );
             })}
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage >= totalPages}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label={t("下一页")}
             >
               <ChevronRight className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -4716,7 +4718,7 @@ function PersonLoadPanel({
       )}
       data-surface="people"
     >
-      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-card px-5 py-4 sm:px-6">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">{t("人员负载")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">{t("活跃任务分布")}</p>
@@ -4735,23 +4737,23 @@ function PersonLoadPanel({
             )}
           </div>
           {onManage && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={onManage}
-              className="rd-board-secondary-control group inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-[0_6px_14px_rgba(15,23,42,0.06)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              className="rd-board-secondary-control group inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors motion-reduce:transition-none duration-150  hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-[0_6px_14px_rgba(15,23,42,0.06)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               title={t("进入人员管理")}
             >
               <UserPlus className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-slate-700" />
               <span>{t("人员管理")}</span>
-              <ChevronRight className="h-3 w-3 text-slate-400 transition-transform duration-200 group-hover:translate-x-0.5" />
-            </button>
+              <ChevronRight className="h-3 w-3 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+            </Button>
           )}
         </div>
       </header>
 
       <ul className="flex-1 space-y-1.5 overflow-hidden px-5 py-3 sm:px-6">
         {shownLoads.length === 0 ? (
-          <li className="py-6 text-center text-sm text-slate-400">{t("暂无负载数据")}</li>
+          <li className="py-6 text-center text-sm text-muted-foreground">{t("暂无负载数据")}</li>
         ) : (
           shownLoads.map((p) => {
             const ratio = p.count / p.max;
@@ -4775,7 +4777,7 @@ function PersonLoadPanel({
                 }}
                 role="button"
                 tabIndex={0}
-                className="rd-board-data-row flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-all hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                className="rd-board-data-row flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-colors motion-reduce:transition-none hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
                 <OwnerAvatar name={p.name} userId={p.user_id} size="xs" />
                 <div className="min-w-0 flex-1">
@@ -4788,17 +4790,17 @@ function PersonLoadPanel({
                     )}
                     <span className="text-xs tabular-nums text-slate-500">
                       {p.count}
-                      <span className="text-slate-300"> / {p.max}</span>
+                      <span className="text-muted-foreground"> / {p.max}</span>
                     </span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className={cn("h-full rounded-full transition-all", tone, p.onLeave && "opacity-50")}
+                      className={cn("h-full rounded-full transition-colors motion-reduce:transition-none", tone, p.onLeave && "opacity-50")}
                       style={{ width: `${Math.min(100, ratio * 100)}%` }}
                     />
                   </div>
                 </div>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               </li>
             );
           })
@@ -4807,52 +4809,52 @@ function PersonLoadPanel({
 
       {loads.length > pageSize && (
         <div className="flex items-center justify-between border-t border-slate-100 px-6 py-2.5">
-          <span className="text-[11px] tabular-nums text-slate-400">
+          <span className="text-[11px] tabular-nums text-muted-foreground">
             {(safePage - 1) * pageSize + 1}
             {" - "}
             {Math.min(safePage * pageSize, loads.length)}
-            <span className="mx-1 text-slate-300">/</span>
+            <span className="mx-1 text-muted-foreground">/</span>
             {loads.length}
           </span>
           <div className="flex items-center gap-1">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage <= 1}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label={t("上一页")}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
+            </Button>
             {Array.from({ length: totalPages }).map((_, i) => {
               const page = i + 1;
               const active = page === safePage;
               return (
-                <button
+                <Button variant="unstyled"
                   key={page}
                   type="button"
                   onClick={() => setPage(page)}
                   className={cn(
-                    "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
+                    "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-colors motion-reduce:transition-none duration-150 active:scale-90",
                     active
-                      ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
+                      ? "bg-accent text-primary shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-primary/25"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                   aria-current={active ? "page" : undefined}
                 >
                   {page}
-                </button>
+                </Button>
               );
             })}
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage >= totalPages}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label={t("下一页")}
             >
               <ChevronRight className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -4928,9 +4930,9 @@ function PersonDetailDrawer({
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label={t("关闭人员任务详情")} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <Button variant="unstyled" type="button" onClick={onClose} aria-label={t("关闭人员任务详情")} className="rounded-lg p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-700">
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </header>
 
         <div className="flex-1 space-y-5 overflow-auto px-6 py-5">
@@ -4959,11 +4961,11 @@ function PersonDetailDrawer({
 
           <section className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-slate-100 bg-white p-3">
-              <div className="text-[11px] text-slate-400">{t("邮箱")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("邮箱")}</div>
               <div className="mt-1 truncate font-medium text-slate-700">{profile?.email ?? "-"}</div>
             </div>
             <div className="rounded-lg border border-slate-100 bg-white p-3">
-              <div className="text-[11px] text-slate-400">{t("电话")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("电话")}</div>
               <div className="mt-1 font-medium text-slate-700">{profile?.phone ?? "-"}</div>
             </div>
           </section>
@@ -4980,23 +4982,23 @@ function PersonDetailDrawer({
               </div>
             )}
             {tasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">{t("暂无主责任务")}</div>
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-muted-foreground">{t("暂无主责任务")}</div>
             ) : (
               <ul className="space-y-2">
                 {tasks.slice(0, 12).map((task) => (
                   <li key={task.task_id}>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => onOpenTask(task)}
-                      className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/40"
+                      className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-colors motion-reduce:transition-none hover:border-primary/25 hover:bg-accent/40"
                     >
                       <span className={cn("h-2 w-2 shrink-0 rounded-full", taskAccentClass(task))} />
                       <div className="min-w-0 flex-1">
                         <AutoTranslatedText as="div" text={task.title} className="truncate text-sm font-medium text-slate-800" />
-                        <div className="mt-0.5 text-[11px] text-slate-400">{task.task_id} · {task.progress}%</div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">{task.task_id} · {task.progress}%</div>
                       </div>
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-                    </button>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -5034,7 +5036,7 @@ function SystemHealthCard({
       transition={RD_PANEL_TRANSITION}
       whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
       className={cn(
-        "rd-horizon-system-card group relative flex min-h-11 flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-[border-color,box-shadow,opacity] duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2",
+        "rd-horizon-system-card group relative flex min-h-11 flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-[border-color,box-shadow,opacity] duration-200 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2",
         !horizonVariant && "hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)]",
         hConfig.border,
         isIdle && "opacity-55 hover:opacity-100",
@@ -5043,7 +5045,7 @@ function SystemHealthCard({
       {/* Top accent stripe — colored by health */}
       <span
         className={cn(
-          "rd-horizon-system-accent absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100",
+          "rd-horizon-system-accent absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-200 group-hover:scale-x-100",
           hConfig.dot,
         )}
       />
@@ -5093,11 +5095,11 @@ function SystemHealthCard({
         <span
           className={cn(
             "text-3xl font-semibold tabular-nums",
-            isIdle ? "text-slate-400" : "text-slate-900",
+            isIdle ? "text-muted-foreground" : "text-slate-900",
           )}
         >
           {stat.progress}
-          <span className="text-base font-medium text-slate-400">%</span>
+          <span className="text-base font-medium text-muted-foreground">%</span>
         </span>
         {stat.risks > 0 && (
           <Tooltip>
@@ -5120,7 +5122,7 @@ function SystemHealthCard({
       <div className="h-1 overflow-hidden rounded-full bg-slate-100">
         <motion.div
           className={cn(
-            "h-full rounded-full transition-[width] duration-500 ease-out",
+            "h-full rounded-full transition-[width] duration-200 ease-out",
             isIdle ? "bg-slate-200" : hConfig.dot,
           )}
           initial={shouldReduceMotion ? false : { width: 0 }}
@@ -5134,14 +5136,14 @@ function SystemHealthCard({
           <span
             className={cn(
               "font-semibold tabular-nums",
-              isIdle ? "text-slate-400" : "text-slate-800",
+              isIdle ? "text-muted-foreground" : "text-slate-800",
             )}
           >
             {stat.total}
           </span>{" "}
           {t("任务")}
         </span>
-        <span className="text-slate-400">
+        <span className="text-muted-foreground">
           <span className="font-semibold tabular-nums text-slate-500">{stat.cat.children.length}</span> {t("部件")}
         </span>
         {stat.inProgress > 0 && (
@@ -5149,11 +5151,11 @@ function SystemHealthCard({
             <span className="rd-horizon-brand-text font-semibold tabular-nums text-primary">{stat.inProgress}</span> {t("进行中")}
           </span>
         )}
-        {stat.total === 0 && <span className="text-slate-400">{t("无活跃")}</span>}
+        {stat.total === 0 && <span className="text-muted-foreground">{t("无活跃")}</span>}
       </div>
 
       {/* Hover hint */}
-      <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-slate-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+      <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-muted-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         {t("进入详情")}
         <ChevronRight className="rd-horizon-system-arrow ml-0.5 h-3 w-3" />
       </div>
@@ -5172,14 +5174,14 @@ const PRODUCT_STATUS_LABEL: Record<RdProductStatus, string> = {
 
 const PRODUCT_STATUS_STYLE: Record<RdProductStatus, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  developing: "bg-blue-50 text-[#002fa7] border-blue-100",
+  developing: "bg-blue-50 text-primary border-blue-100",
   paused: "bg-amber-50 text-amber-700 border-amber-100",
   archived: "bg-slate-100 text-slate-500 border-slate-200",
 };
 
 const PRODUCT_STATUS_DOT: Record<RdProductStatus, string> = {
   active: "bg-emerald-500",
-  developing: "bg-[#002fa7]",
+  developing: "bg-primary",
   paused: "bg-amber-500",
   archived: "bg-slate-400",
 };
@@ -5315,14 +5317,14 @@ function SystemPanorama({
           )}
           {/* Manage button */}
           {canManage && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={onManageProducts}
               className="rd-horizon-secondary-control flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
             >
               <Settings2 className="h-3.5 w-3.5" />
               {t("管理产品")}
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -5330,9 +5332,9 @@ function SystemPanorama({
       {/* Product tabs */}
       {products.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
-          <Settings2 className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+          <Settings2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium text-slate-500">{t("暂无产品线")}</p>
-          <p className="mt-1 text-xs text-slate-400">{t("请点击“管理产品”添加产品线和子系统")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("请点击“管理产品”添加产品线和子系统")}</p>
         </div>
       ) : (
         <>
@@ -5343,7 +5345,7 @@ function SystemPanorama({
               const pStatus: RdProductStatus = prod.status ?? "developing";
               const dot = PRODUCT_STATUS_DOT[pStatus];
               return (
-                <button
+                <Button variant="unstyled"
                   key={prod.id}
                   type="button"
                   onClick={() => setActiveProdId(prod.id)}
@@ -5358,7 +5360,7 @@ function SystemPanorama({
                 >
                   <span className={cn("rd-horizon-product-status-dot h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
                   <AutoTranslatedText text={t(prod.name.trim())} />
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -5382,7 +5384,7 @@ function SystemPanorama({
             </div>
           ) : activeProd ? (
             <div className="flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center" role={activeProductLoadFailed ? "alert" : "status"}>
-              <Settings2 className="h-7 w-7 text-slate-300" aria-hidden="true" />
+              <Settings2 className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
               <h4 className="mt-3 text-balance text-sm font-semibold text-slate-800">
                 {activeProductLoadFailed ? t("子系统数据加载失败") : t("当前产品暂无子系统")}
               </h4>
@@ -5392,7 +5394,7 @@ function SystemPanorama({
                   : t("可通过产品管理补充子系统，或切换到其他产品继续查看。")}
               </p>
               {activeProductLoadFailed && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => {
                     delete loadedTokenRef.current[activeProdId];
@@ -5402,7 +5404,7 @@ function SystemPanorama({
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新读取")}
-                </button>
+                </Button>
               )}
             </div>
           ) : null}
@@ -5492,7 +5494,7 @@ function SystemDetailHero({
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0">
           {breadcrumbAbove && (
-            <div className="mb-1 text-xs font-medium text-slate-400">{breadcrumbAbove}</div>
+            <div className="mb-1 text-xs font-medium text-muted-foreground">{breadcrumbAbove}</div>
           )}
           <div className="flex items-center gap-2.5">
             <theme.Icon className={cn("rd-board-system-icon h-5 w-5", theme.iconColor)} />
@@ -5517,7 +5519,7 @@ function SystemDetailHero({
         <div className="mt-5 border-t border-slate-100 pt-4">
           <div className="mb-2 flex items-center justify-between text-xs">
             <span className="font-medium text-slate-600">{t("状态分布")}</span>
-            <span className="text-slate-400">{t("共 {count} 项", { count: total })}</span>
+            <span className="text-muted-foreground">{t("共 {count} 项", { count: total })}</span>
           </div>
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
             {statusBreakdown.map(
@@ -5639,19 +5641,19 @@ function UpcomingMilestonesSection({
       <div className="grid gap-0 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-slate-400" />
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{t("时间窗口")}</span>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setWindowFilter("all")}
               data-active={windowFilter === "all"}
               className={cn(
-                "rd-board-filter-chip flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
+                "rd-board-filter-chip flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.99]",
                 windowFilter === "all"
-                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
-                  : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
+                  ? "border-primary/25 bg-accent text-primary shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
+                  : "border-slate-200 bg-white hover:border-primary/25 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
               )}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -5659,12 +5661,12 @@ function UpcomingMilestonesSection({
                 <span className="truncate text-xs font-semibold">{t("全部窗口")}</span>
               </span>
               <span className="text-xs font-semibold tabular-nums">{upcoming.length}</span>
-            </button>
+            </Button>
             {grouped.map((b) => {
               const active = b.items.length > 0;
               const selected = windowFilter === b.key;
               return (
-                <button
+                <Button variant="unstyled"
                   key={b.key}
                   type="button"
                   onClick={() => {
@@ -5673,22 +5675,22 @@ function UpcomingMilestonesSection({
                   disabled={!active}
                   data-active={selected}
                   className={cn(
-                    "rd-board-filter-chip flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
+                    "rd-board-filter-chip flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.99]",
                     selected
-                      ? "border-indigo-200 bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
+                      ? "border-primary/25 bg-accent shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
                       : active
-                        ? "cursor-pointer border-slate-200 bg-white hover:border-indigo-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]"
+                        ? "cursor-pointer border-slate-200 bg-white hover:border-primary/25 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]"
                         : "cursor-not-allowed border-slate-100 bg-white/55",
                   )}
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", b.dot, !active && "opacity-30")} />
-                    <span className={cn("truncate text-xs font-medium", selected ? "text-indigo-700" : active ? b.tone : "text-slate-400")}>{t(b.label)}</span>
+                    <span className={cn("truncate text-xs font-medium", selected ? "text-indigo-700" : active ? b.tone : "text-muted-foreground")}>{t(b.label)}</span>
                   </span>
-                  <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-indigo-700" : active ? "text-slate-900" : "text-slate-300")}>
+                  <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-indigo-700" : active ? "text-slate-900" : "text-muted-foreground")}>
                     {b.items.length}
                   </span>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -5698,10 +5700,10 @@ function UpcomingMilestonesSection({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs text-slate-500">
               {t("当前筛选：")}<span className="font-semibold text-slate-800">{activeWindowLabel}</span>
-              <span className="mx-1 text-slate-300">·</span>
+              <span className="mx-1 text-muted-foreground">·</span>
               <span className="font-semibold tabular-nums text-slate-800">{filteredItems.length}</span> {t("项")}
             </div>
-            <div className="text-xs tabular-nums text-slate-400">
+            <div className="text-xs tabular-nums text-muted-foreground">
               {filteredItems.length === 0 ? "0 / 0" : `${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, filteredItems.length)} / ${filteredItems.length}`}
             </div>
           </div>
@@ -5715,11 +5717,11 @@ function UpcomingMilestonesSection({
               const progressTone =
                 task.progress >= 80 ? "bg-emerald-500" : task.progress >= 50 ? "bg-indigo-500" : task.progress > 0 ? "bg-amber-500" : "bg-slate-300";
               return (
-                <button
+                <Button variant="unstyled"
                   key={task.task_id}
                   type="button"
                   onClick={() => onOpen(task)}
-                  className="rd-board-milestone-row group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.995]"
+                  className="rd-board-milestone-row group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-colors motion-reduce:transition-none hover:border-primary/25 hover:bg-accent/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.995]"
                 >
                   <span className={cn("mt-0.5 w-14 shrink-0 text-xs font-semibold tabular-nums", bucket?.tone ?? "text-slate-500")}>
                     {dayLabel}
@@ -5729,16 +5731,16 @@ function UpcomingMilestonesSection({
                     <span className="line-clamp-2 text-sm font-semibold leading-5 text-slate-800 group-hover:text-slate-950">
                       <AutoTranslatedText text={task.title} />
                     </span>
-                    <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                    <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
                       {/* 协同池无分类概念，不显示路径段 */}
                       {!isUsCollabWorkspace() && (
                         <>
                           <span className="max-w-[180px] truncate text-slate-500">{path || t("未分类")}</span>
-                          <span className="text-slate-300">·</span>
+                          <span className="text-muted-foreground">·</span>
                         </>
                       )}
                       <span>{task.primary_owner}</span>
-                      <span className="text-slate-300">·</span>
+                      <span className="text-muted-foreground">·</span>
                       <span className="font-mono">{task.task_id}</span>
                     </span>
                     <span className="mt-2 flex items-center gap-2">
@@ -5748,8 +5750,8 @@ function UpcomingMilestonesSection({
                       <span className="w-8 text-right text-[11px] font-semibold tabular-nums text-slate-500">{task.progress}%</span>
                     </span>
                   </span>
-                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
-                </button>
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-colors motion-reduce:transition-none group-hover:translate-x-0.5 group-hover:opacity-100" />
+                </Button>
               );
             })}
           </div>
@@ -5760,42 +5762,42 @@ function UpcomingMilestonesSection({
                 {t("每页 10 条 · 第")} <span className="font-semibold tabular-nums text-slate-800">{safePage}</span> / {totalPages} {t("页")}
               </span>
               <div className="flex items-center gap-1">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={safePage <= 1}
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
                   aria-label={t("上一页")}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
+                </Button>
                 {Array.from({ length: totalPages }).map((_, index) => {
                   const nextPage = index + 1;
                   const current = nextPage === safePage;
                   return (
-                    <button
+                    <Button variant="unstyled"
                       key={nextPage}
                       type="button"
                       onClick={() => setPage(nextPage)}
                       className={cn(
-                        "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all active:scale-90",
-                        current ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-white hover:text-slate-700",
+                        "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-colors motion-reduce:transition-none active:scale-90",
+                        current ? "bg-accent text-primary ring-1 ring-primary/25" : "text-slate-500 hover:bg-white hover:text-slate-700",
                       )}
                       aria-current={current ? "page" : undefined}
                     >
                       {nextPage}
-                    </button>
+                    </Button>
                   );
                 })}
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={safePage >= totalPages}
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
                   aria-label={t("下一页")}
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -5843,21 +5845,21 @@ function TasksByPartSection({
             {filtersActive ? `${filteredTotal} / ${totalCount}` : totalCount} {t("个活跃任务")}
           </p>
         </div>
-        <span className="text-xs text-slate-400">{t("点击展开部件 / 卡片查看子任务")}</span>
+        <span className="text-xs text-muted-foreground">{t("点击展开部件 / 卡片查看子任务")}</span>
       </header>
 
       <div className="rd-board-task-filters grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto_auto]">
         <label className="relative block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
+            className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25"
             placeholder={t("搜索任务、编号、负责人、路径")}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
         </label>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
         >
@@ -5867,7 +5869,7 @@ function TasksByPartSection({
           ))}
         </NativeSelect>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
           value={priorityFilter}
           onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
         >
@@ -5877,7 +5879,7 @@ function TasksByPartSection({
           <option value="low">{t("低")}</option>
         </NativeSelect>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
         >
@@ -5888,7 +5890,7 @@ function TasksByPartSection({
           <option value="7d">{t("7 天内")}</option>
           <option value="no_due">{t("无截止日")}</option>
         </NativeSelect>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => {
             setKeyword("");
@@ -5897,10 +5899,10 @@ function TasksByPartSection({
             setDueFilter("all");
           }}
           disabled={!filtersActive}
-          className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {t("清空")}
-        </button>
+        </Button>
       </div>
 
       <div className="space-y-3">
@@ -5967,7 +5969,7 @@ function PartHealthGrid({
             {category.label} · {t("{count} 个部件", { count: parts.length })} · {t("点击切换聚焦范围")}
           </p>
         </div>
-        <span className="text-xs text-slate-400">{t("按风险数排序")}</span>
+        <span className="text-xs text-muted-foreground">{t("按风险数排序")}</span>
       </header>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
@@ -5985,13 +5987,13 @@ function PartHealthGrid({
                   : "healthy";
             const config = HEALTH_CONFIG[tone];
             return (
-              <button
+              <Button variant="unstyled"
                 key={sub.id}
                 type="button"
                 onClick={() => onSelectSub(sub.id)}
                 data-active={isSelected}
                 className={cn(
-                  "rd-board-part-card group flex flex-col gap-2 rounded-lg border bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgba(15,23,42,0.06)]",
+                  "rd-board-part-card group flex flex-col gap-2 rounded-lg border bg-white p-3 text-left transition-colors motion-reduce:transition-none  hover:shadow-[0_8px_20px_rgba(15,23,42,0.06)]",
                   config.border,
                   isSelected && "ring-2 ring-slate-900 ring-offset-1",
                 )}
@@ -6009,7 +6011,7 @@ function PartHealthGrid({
                 <div className="flex items-baseline justify-between">
                   <span className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
                     {progress}
-                    <span className="text-sm font-medium text-slate-400">%</span>
+                    <span className="text-sm font-medium text-muted-foreground">%</span>
                   </span>
                   {risks > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-red-600">
@@ -6030,14 +6032,14 @@ function PartHealthGrid({
                   <span>
                     <span className="font-semibold tabular-nums text-slate-700">{active}</span> {t("活跃")}
                   </span>
-                  {isIdle && <span className="text-slate-400">{t("空闲")}</span>}
+                  {isIdle && <span className="text-muted-foreground">{t("空闲")}</span>}
                   {blocked > 0 && (
                     <span className="text-orange-600">
                       <span className="font-semibold tabular-nums">{blocked}</span> {t("阻塞")}
                     </span>
                   )}
                 </div>
-              </button>
+              </Button>
             );
           })}
       </div>
@@ -6135,14 +6137,14 @@ function PersonFormModal({
               {isEdit ? t("修改 {name} 的信息", { name: person!.name }) : t("创建一个新的团队成员")}
             </p>
           </div>
-          <button
+          <Button variant="unstyled"
             onClick={onClose}
             type="button"
-            className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
             aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
@@ -6152,7 +6154,7 @@ function PersonFormModal({
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25",
                   errors.name ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder={t("例: 王磊")}
@@ -6164,7 +6166,7 @@ function PersonFormModal({
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25",
                   errors.position ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder={t("硬件测试工程师")}
@@ -6177,7 +6179,7 @@ function PersonFormModal({
               <NativeSelect
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               >
                 {DEPARTMENTS.map((d) => (
                   <option key={d} value={d}>
@@ -6190,7 +6192,7 @@ function PersonFormModal({
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               >
                 <option value="active">{t("在岗")}</option>
                 <option value="on_leave">{t("请假中")}</option>
@@ -6204,7 +6206,7 @@ function PersonFormModal({
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               placeholder="user@inogi.com"
             />
           </Field>
@@ -6214,7 +6216,7 @@ function PersonFormModal({
               <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                 placeholder="13800000000"
               />
             </Field>
@@ -6225,26 +6227,26 @@ function PersonFormModal({
                 max={20}
                 value={form.max_tasks}
                 onChange={(e) => setForm((f) => ({ ...f, max_tasks: Math.max(1, Number(e.target.value) || 1) }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               />
             </Field>
           </div>
 
           <footer className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={onClose}
-              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
+              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
               {t("取消")}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="submit"
-              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all duration-150 hover:bg-slate-800 active:scale-[0.98]"
+              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-800 active:scale-[0.98]"
             >
               {isEdit ? t("保存修改") : t("创建成员")}
               <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </footer>
         </form>
       </div>
@@ -6302,21 +6304,21 @@ function ConfirmDeleteDialog({
           </p>
         </div>
         <footer className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
+            className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors motion-reduce:transition-none duration-150 hover:bg-slate-50 active:scale-[0.98]"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             onClick={onConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.25)] transition-all duration-150 hover:bg-red-700 active:scale-[0.98]"
+            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.25)] transition-colors motion-reduce:transition-none duration-150 hover:bg-red-700 active:scale-[0.98]"
           >
             <Trash2 className="h-3.5 w-3.5" />
             {t("确认删除")}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>
@@ -6387,27 +6389,27 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
       {/* Breadcrumb top bar */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
         <div className="flex items-center gap-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onBack}
-            className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
+            className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-colors motion-reduce:transition-none duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
-            <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
+            <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out " />
             {t("返回总览")}
-          </button>
-          <span className="text-xs text-slate-300">·</span>
+          </Button>
+          <span className="text-xs text-muted-foreground">·</span>
           <span className="text-sm text-slate-500">{t("详情视图")}</span>
-          <span className="text-xs text-slate-300">›</span>
+          <span className="text-xs text-muted-foreground">›</span>
           <span className="text-sm font-medium text-slate-800">{t("人员管理")}</span>
         </div>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-[0_12px_24px_rgba(15,23,42,0.22)] active:scale-[0.98]"
+          className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-colors motion-reduce:transition-none duration-150  hover:bg-slate-800 hover:shadow-[0_12px_24px_rgba(15,23,42,0.22)] active:scale-[0.98]"
         >
           <Plus className="h-3.5 w-3.5" />
           {t("新增成员")}
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-auto bg-slate-50/40 px-6 py-6">
@@ -6431,7 +6433,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                 <div
                   className={cn(
                     "text-3xl font-semibold tabular-nums tracking-tight",
-                    stats.onLeave > 0 ? "text-amber-600" : "text-slate-300",
+                    stats.onLeave > 0 ? "text-amber-600" : "text-muted-foreground",
                   )}
                 >
                   {stats.onLeave}
@@ -6449,48 +6451,48 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
 
           {/* Filters */}
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
-            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
-              <Search className="h-3.5 w-3.5 text-slate-400" />
+            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-colors motion-reduce:transition-none focus-within:border-primary focus-within:ring-2 focus-within:ring-primary">
+              <Search className="h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 placeholder={t("搜索姓名 / 职位 / 部门 / 邮箱…")}
-                className="flex-1 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="flex-1 text-sm text-slate-900 outline-none placeholder:text-muted-foreground"
               />
               {keyword && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setKeyword("")}
-                  className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-700"
                   aria-label={t("清除搜索")}
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </Button>
               )}
             </div>
 
             <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5">
               {(["all", "active", "on_leave", "resigned"] as const).map((s) => (
-                <button
+                <Button variant="unstyled"
                   key={s}
                   type="button"
                   onClick={() => setStatusFilter(s)}
                   className={cn(
-                    "rounded px-2.5 py-1 text-xs font-medium transition-all duration-150 active:scale-95",
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors motion-reduce:transition-none duration-150 active:scale-95",
                     statusFilter === s
                       ? "bg-slate-900 text-white"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                 >
                   {s === "all" ? t("全部") : t(PERSON_STATUS_CONFIG[s].label)}
-                </button>
+                </Button>
               ))}
             </div>
 
             <NativeSelect
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
-              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-colors motion-reduce:transition-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             >
               <option value="all">{t("全部部门")}</option>
               {DEPARTMENTS.map((d) => (
@@ -6500,7 +6502,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
               ))}
             </NativeSelect>
 
-            <span className="ml-auto text-xs tabular-nums text-slate-400">
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
               {t("共 {filtered} / {total} 人", { filtered: filtered.length, total: people.length })}
             </span>
           </section>
@@ -6522,18 +6524,18 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-16 text-center">
-                      <div className="text-sm font-medium text-slate-400">{t("没有匹配的成员")}</div>
-                      <button
+                      <div className="text-sm font-medium text-muted-foreground">{t("没有匹配的成员")}</div>
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => {
                           setKeyword("");
                           setStatusFilter("all");
                           setDeptFilter("all");
                         }}
-                        className="mt-3 text-xs font-medium text-indigo-600 hover:underline"
+                        className="mt-3 text-xs font-medium text-primary hover:underline"
                       >
                         {t("重置筛选")}
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ) : (
@@ -6550,7 +6552,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-slate-900">{p.name}</div>
                               {p.email && (
-                                <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                                   {p.email}
                                 </div>
                               )}
@@ -6580,24 +6582,24 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => setEditing(p)}
-                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
+                              className="rounded-md p-1.5 text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-accent hover:text-primary-hover active:scale-90"
                               aria-label={t("编辑 {name}", { name: p.name })}
                               title={t("编辑")}
                             >
                               <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => setDeleteTarget(p)}
-                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
+                              className="rounded-md p-1.5 text-muted-foreground transition-colors motion-reduce:transition-none duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
                               aria-label={t("删除 {name}", { name: p.name })}
                               title={t("删除")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -6728,14 +6730,14 @@ function ImageGallery({
       aria-label={t("任务附件预览")}
     >
       {/* Close */}
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onClose}
-        className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20"
+        className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors motion-reduce:transition-none hover:bg-white/20"
         aria-label={t("关闭附件预览")}
       >
         <X className="h-5 w-5" />
-      </button>
+      </Button>
 
       {/* Counter */}
       <div className="absolute top-5 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 backdrop-blur-sm">
@@ -6773,22 +6775,22 @@ function ImageGallery({
       {/* Prev / Next */}
       {images.length > 1 && (
         <>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={(e) => { e.stopPropagation(); prev(); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+            className="absolute left-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors motion-reduce:transition-none hover:bg-white/25 active:scale-95"
             aria-label={t("上一张附件")}
           >
             <ChevronLeft className="h-6 w-6" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             onClick={(e) => { e.stopPropagation(); next(); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+            className="absolute right-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors motion-reduce:transition-none hover:bg-white/25 active:scale-95"
             aria-label={t("下一张附件")}
           >
             <ChevronRight className="h-6 w-6" />
-          </button>
+          </Button>
         </>
       )}
 
@@ -6801,7 +6803,7 @@ function ImageGallery({
           onClick={(event) => event.stopPropagation()}
         >
           {images.map((img, i) => (
-            <button
+            <Button variant="unstyled"
               key={img.id}
               type="button"
               onClick={(e) => { e.stopPropagation(); setIdx(i); }}
@@ -6819,7 +6821,7 @@ function ImageGallery({
                 src={getAttachmentThumbUrl(img)} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async"
               />
               <span className="absolute bottom-0 right-0 rounded-tl bg-black/70 px-1 text-[10px] leading-4 tabular-nums text-white">{i + 1}</span>
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -6853,11 +6855,11 @@ function TaskAttachmentStrip({
   return (
     <div className="rd-attachment-scroll flex min-w-0 max-w-full gap-1.5 overflow-x-auto overscroll-x-contain px-1 pt-1 pb-2" aria-label={t("附件预览")}>
         {visibleImages.map((img, imageIndex) => (
-          <button
+          <Button variant="unstyled"
             key={img.id}
             type="button"
             disabled={loadingFull}
-            className="group/att relative h-12 w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-all hover:border-indigo-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-60"
+            className="group/att relative h-12 w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-colors motion-reduce:transition-none hover:border-primary/25 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-wait disabled:opacity-60"
             onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
             title={img.name}
           >
@@ -6866,20 +6868,20 @@ function TaskAttachmentStrip({
               refresh={img.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(img)) : undefined}
               src={getAttachmentThumbUrl(img)}
               alt={img.name}
-              className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
+              className="h-full w-full object-cover transition-transform duration-200 group-hover/att:scale-[1.04]"
               loading={priority && imageIndex === 0 ? "eager" : "lazy"}
               decoding="async"
             />
-          </button>
+          </Button>
         ))}
 
         {visibleFiles.map((file) => (
-          <button
+          <Button variant="unstyled"
             key={file.id}
             type="button"
             disabled={loadingFull}
             onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
-            className="flex h-12 w-[86px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
+            className="flex h-12 w-[86px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-left transition-colors hover:border-primary/25 hover:bg-accent disabled:cursor-wait disabled:opacity-60"
             title={file.name}
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-indigo-600 ring-1 ring-slate-200">
@@ -6888,19 +6890,19 @@ function TaskAttachmentStrip({
             <span className="line-clamp-2 min-w-0 text-[9px] font-medium leading-snug text-slate-600">
               {file.name}
             </span>
-          </button>
+          </Button>
         ))}
 
         {extraCount > 0 && (
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={loadingFull}
             onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
             aria-label={t("查看其余 {count} 个附件", { count: extraCount })}
-            className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-2 text-xs font-bold tabular-nums text-indigo-600 transition-colors hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+            className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-primary/25 bg-accent/70 px-2 text-xs font-bold tabular-nums text-primary transition-colors hover:border-primary hover:bg-accent disabled:cursor-wait disabled:opacity-60"
           >
             +{extraCount}
-          </button>
+          </Button>
         )}
     </div>
   );
@@ -6932,14 +6934,14 @@ function TaskAttachmentCollectionDialog({
             <div className="truncate text-sm font-semibold text-slate-900">{taskTitle}</div>
             <div className="mt-0.5 text-xs text-slate-500">{t("全部附件")} · {attachments.length}</div>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
             aria-label={t("关闭附件列表")}
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <ProgressAttachmentGrid attachments={attachments} />
@@ -7903,7 +7905,7 @@ function PersonTaskCockpit({
               {showPendingScoreBadge && (
                 <span
                   onClick={(event) => event.stopPropagation()}
-                  className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400"
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-[10px] font-semibold text-muted-foreground"
                   title={aiScoreFetched ? t("评分待生成") : t("评分加载中")}
                 >
                   <Sparkles className="h-3 w-3" />
@@ -7914,7 +7916,7 @@ function PersonTaskCockpit({
 
             <div className="flex shrink-0 items-center gap-1.5">
               {!researchCard && taskAttachmentCount > 0 && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   disabled={attachmentLoadingTaskId === task.task_id}
                   onClick={(event) => {
@@ -7926,18 +7928,18 @@ function PersonTaskCockpit({
                 >
                   {attachmentLoadingTaskId === task.task_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
                   {t("附件")} <span className="tabular-nums">{taskAttachmentCount}</span>
-                </button>
+                </Button>
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={(event) => event.stopPropagation()}
                     className="rd-horizon-more-action flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                     aria-label={t("更多操作")}
                   >
                     <MoreVertical className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-40" onClick={(event) => event.stopPropagation()}>
                   <DropdownMenuItem onSelect={() => onSelectTask(task, activityActor)}>
@@ -8088,7 +8090,7 @@ function PersonTaskCockpit({
             </span>
             {!researchCard && task.due_date && (
               <span className="inline-flex items-center gap-1">
-                <CalendarClock className="h-3 w-3 text-slate-400" />
+                <CalendarClock className="h-3 w-3 text-muted-foreground" />
                 {t("截止：")}{task.due_date.slice(5)}
               </span>
             )}
@@ -8113,7 +8115,7 @@ function PersonTaskCockpit({
                 {completedWorkItemCount}/{workItems.length}
               </span>
             )}
-            <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
+            <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
               {relativeUpdate && (
                 // shrink-0 + nowrap：这行与头像、姓名共享空间，不锁住就会被挤成
                 // 「更新：19 天 / 前」这样的折行。空间不足时让姓名去截断（它有 truncate）。
@@ -8281,8 +8283,8 @@ function PersonTaskCockpit({
           {/* 搜索常驻人员栏右侧；与顶栏共享关键词，大屏和普通视图保持同一个输入框。 */}
           <div className="rd-horizon-search flex w-full shrink-0 items-center px-4 pb-3 sm:ml-2 sm:w-auto sm:px-0 sm:pb-0">
               <label className="relative block w-full sm:w-auto">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
                   ref={searchInputRef}
                   type="search"
                   value={cockpitKeyword}
@@ -8312,18 +8314,18 @@ function PersonTaskCockpit({
                   {searchPending ? t("筛选中…") : t("{n} 条", { n: cockpitHitCount })}
                 </span>
                 {cockpitKeyword ? (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setCockpitKeyword("");
                       searchInputRef.current?.focus();
                     }}
-                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                     aria-label={t("清空搜索")}
                   >
                     <X className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 ) : null}
               </label>
           </div>
@@ -8345,7 +8347,7 @@ function PersonTaskCockpit({
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {kpiFilter === "completed" && canReassign && (
                   <>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => handleBackfillScores(false)}
                       disabled={backfillBusy}
@@ -8358,8 +8360,8 @@ function PersonTaskCockpit({
                         <Sparkles className="h-3 w-3" />
                       )}
                       {backfillBusy ? t("抽取+评分中…") : t("AI 复盘评分")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => {
                         if (
@@ -8376,8 +8378,8 @@ function PersonTaskCockpit({
                     >
                       <RotateCcw className="h-3 w-3" />
                       {t("按新标准重算")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="unstyled"
                       type="button"
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
@@ -8386,11 +8388,11 @@ function PersonTaskCockpit({
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
                       {batchExportBusy ? t("汇总中…") : t("批量导出报告")}
-                    </button>
+                    </Button>
                   </>
                 )}
                 {canReassign && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={handleBackfillExtraction}
                     disabled={extractionBackfillBusy}
@@ -8403,17 +8405,17 @@ function PersonTaskCockpit({
                       <FileText className="h-3 w-3" />
                     )}
                     {extractionBackfillBusy ? t("抽取中…") : t("仅抽取附件")}
-                  </button>
+                  </Button>
                 )}
                 {onClearKpiFilter && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={onClearKpiFilter}
                     className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <X className="h-3 w-3" />
                     {t("清除筛选")}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -8479,24 +8481,24 @@ function PersonTaskCockpit({
                           </p>
                           <div className="flex flex-wrap items-center justify-center gap-2">
                           {cockpitSearch && (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={clearSearchAndRestoreFocus}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
-                            </button>
+                            </Button>
                           )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={onClearKpiFilter}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
-                            </button>
+                            </Button>
                           )}
                           </div>
                         </div>
@@ -8520,16 +8522,16 @@ function PersonTaskCockpit({
                           </div>
 
                           {hasMore ? (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => loadNextTaskPage("all", allActiveTasks.length)}
-                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-accent/50 hover:text-primary"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-primary"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
-                            </button>
+                            </Button>
                           ) : (
-                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-muted-foreground">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
                                 {t("已显示全部")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}
@@ -8601,24 +8603,24 @@ function PersonTaskCockpit({
                           </p>
                           <div className="flex flex-wrap items-center justify-center gap-2">
                           {cockpitSearch && (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={clearSearchAndRestoreFocus}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
-                            </button>
+                            </Button>
                           )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={onClearKpiFilter}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
-                            </button>
+                            </Button>
                           )}
                           </div>
                         </div>
@@ -8633,10 +8635,10 @@ function PersonTaskCockpit({
                           <div className="flex items-center gap-2 px-4 pt-3 text-[11px] font-semibold text-slate-500">
                             <span className="h-3 w-0.5 rounded-full bg-primary" />
                             <span>{t("主责")}</span>
-                            <span className="tabular-nums text-slate-400">{primaryTasks.length}</span>
+                            <span className="tabular-nums text-muted-foreground">{primaryTasks.length}</span>
                           </div>
                           {primaryTasks.length === 0 ? (
-                            <div className="px-4 py-6 text-center text-[12px] text-slate-400">{t("该成员当前没有主责任务")}</div>
+                            <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">{t("该成员当前没有主责任务")}</div>
                           ) : (
                             <div className={cn("rd-horizon-masonry flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
                               {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
@@ -8654,7 +8656,7 @@ function PersonTaskCockpit({
                           {/* ── 协助段：默认折叠，但折叠态也要露出数量，一眼知道他还搭了几件事 ── */}
                           {collabTasks.length > 0 && (
                             <div className="border-t border-slate-100">
-                              <button
+                              <Button variant="unstyled"
                                 type="button"
                                 onClick={() => toggleCollabSegment(p.key)}
                                 aria-expanded={collabExpanded}
@@ -8662,9 +8664,9 @@ function PersonTaskCockpit({
                               >
                                 <span className="h-3 w-0.5 rounded-full bg-slate-300" />
                                 <span>{t("协助")}</span>
-                                <span className="tabular-nums text-slate-400">{collabTasks.length}</span>
+                                <span className="tabular-nums text-muted-foreground">{collabTasks.length}</span>
                                 <ChevronDown className={cn("ml-auto h-3.5 w-3.5 transition-transform", collabExpanded && "rotate-180")} />
-                              </button>
+                              </Button>
                               {collabExpanded && (
                                 <div className={cn("rd-horizon-masonry flex items-start", spaciousCards ? "gap-4 px-4 pb-4" : "gap-2.5 px-4 pb-3")}>
                                   {distributeIntoColumns(collabTasks, masonryColumns).map((column, colIdx) => (
@@ -8683,16 +8685,16 @@ function PersonTaskCockpit({
 
                           {/* 底部状态 */}
                           {hasMore ? (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => loadNextTaskPage(p.key, primaryTasks.length)}
-                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-accent/50 hover:text-primary"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-primary"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示主责")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}</span>
-                            </button>
+                            </Button>
                           ) : tasks.length > 0 ? (
-                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-muted-foreground">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
                                 {t("已显示全部主责")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}
@@ -8859,7 +8861,7 @@ function TaskReassignModal({
               {t("选择一个或多个任务，并指定新的负责人。")}
             </DialogDescription>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             aria-label={t("关闭批量转派任务")}
             disabled={saving}
@@ -8867,7 +8869,7 @@ function TaskReassignModal({
             className="flex size-10 shrink-0 items-center justify-center rounded-xl hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
           >
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {!confirmed ? (
@@ -8884,7 +8886,7 @@ function TaskReassignModal({
                   <div className="mb-2 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="relative min-w-0 flex-1">
-                        <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           value={taskKeyword}
                           onChange={(e) => setTaskKeyword(e.target.value)}
@@ -8915,7 +8917,7 @@ function TaskReassignModal({
                         { key: "medium", label: "中优先" },
                         { key: "low", label: "低优先" },
                       ] as const).map((p) => (
-                        <button
+                        <Button variant="unstyled"
                           key={p.key}
                           type="button"
                           aria-pressed={priorityFilter === p.key}
@@ -8928,25 +8930,25 @@ function TaskReassignModal({
                           )}
                         >
                           {t(p.label)}
-                        </button>
+                        </Button>
                       ))}
-                      <span className="ml-auto text-[11px] text-slate-400">{visibleTasks.length} / {assignableTasks.length} {t("个")}</span>
-                      <button
+                      <span className="ml-auto text-[11px] text-muted-foreground">{visibleTasks.length} / {assignableTasks.length} {t("个")}</span>
+                      <Button variant="unstyled"
                         type="button"
                         onClick={toggleSelectVisible}
                         disabled={visibleTasks.length === 0}
                         className="cursor-pointer rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {allVisibleSelected ? t("取消全选") : t("全选当前")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
                 <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(400px, 50dvh)" }}>
                   {assignableTasks.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无可转派任务")}</p>
+                    <p className="py-4 text-center text-sm text-muted-foreground">{t("暂无可转派任务")}</p>
                   ) : visibleTasks.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">{t("没有匹配的任务，试试调整筛选条件")}</p>
+                    <p className="py-4 text-center text-sm text-muted-foreground">{t("没有匹配的任务，试试调整筛选条件")}</p>
                   ) : visibleTasks.map((taskItem) => (
                     <label key={taskItem.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                       <Checkbox
@@ -8959,7 +8961,7 @@ function TaskReassignModal({
                           <AutoTranslatedText as="div" className="truncate text-sm text-slate-800" text={taskItem.title} />
                           <PriorityPill priority={taskItem.priority} />
                         </div>
-                        <div className="text-xs text-slate-400">
+                        <div className="text-xs text-muted-foreground">
                           {taskItem.owner === "待指派" ? t("待指派") : t("当前负责人 {name}", { name: taskItem.owner })}
                         </div>
                       </div>
@@ -8978,7 +8980,7 @@ function TaskReassignModal({
                   {people.filter((p) => !p.on_leave).map((p) => {
                     const isNoop = selectedAssignable.length > 0 && selectedAssignable.every((t) => t.owner === p.name);
                     return (
-                      <button
+                      <Button variant="unstyled"
                         key={p.id}
                         type="button"
                         aria-pressed={targetPerson?.id === p.id}
@@ -8997,7 +8999,7 @@ function TaskReassignModal({
                             {t("{n} 个任务", { n: p.task_count })}
                           </span>
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -9010,29 +9012,29 @@ function TaskReassignModal({
               <p className="mt-1 text-sm text-slate-500">
                 {t("已将 {n} 个任务转派给 {name}，操作已记录。", { n: selectedAssignable.length, name: targetPerson?.name ?? "" })}
               </p>
-              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">{t("关闭")}</button>
+              <Button variant="unstyled" type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">{t("关闭")}</Button>
             </div>
           )}
         </div>
         {!confirmed && (
               <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   disabled={saving}
                   onClick={() => { if (!saving) onClose(); }}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
                 >
                   {t("取消")}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={handleConfirm}
-                  className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-none hover:bg-primary/90 disabled:opacity-40 disabled:shadow-none"
+                  className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-none disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
                   {saving ? t("处理中...") : hasPendingAssign ? t("确认指派") : t("确认转派")}
-                </button>
+                </Button>
               </div>
         )}
       </DialogContent>
@@ -9147,15 +9149,15 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
           </div>
         </div>
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
-          <button type="button" onClick={onClose} disabled={clearing}
+          <Button variant="unstyled" type="button" onClick={onClose} disabled={clearing}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50">
             {t("取消")}
-          </button>
-          <button type="button" onClick={handleClear} disabled={!ready || clearing}
+          </Button>
+          <Button variant="unstyled" type="button" onClick={handleClear} disabled={!ready || clearing}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">
             {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {clearing ? t("清空中…") : cooldown > 0 ? t("{n} 秒后可执行", { n: cooldown }) : t("确认清空")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -9285,13 +9287,13 @@ function ProductManageDialog({
               <h2 className="text-base font-semibold text-slate-900">
                 {view === "list" ? t("产品线管理") : editingId ? t("编辑产品") : t("新增产品")}
               </h2>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={view === "list" ? onClose : () => setView("list")}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-600"
               >
                 <X className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
 
             {/* List view */}
@@ -9299,7 +9301,7 @@ function ProductManageDialog({
               <div className="flex flex-col">
                 <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
                   {products.length === 0 ? (
-                    <div className="py-12 text-center text-sm text-slate-400">{t("暂无产品线，请点击下方添加")}</div>
+                    <div className="py-12 text-center text-sm text-muted-foreground">{t("暂无产品线，请点击下方添加")}</div>
                   ) : (
                     products.map((prod) => {
                       const pStatus: RdProductStatus = prod.status ?? "developing";
@@ -9316,37 +9318,37 @@ function ProductManageDialog({
                                 {t(label)}
                               </span>
                             </div>
-                            {prod.description && <div className="mt-0.5 truncate text-xs text-slate-400">{prod.description}</div>}
+                            {prod.description && <div className="mt-0.5 truncate text-xs text-muted-foreground">{prod.description}</div>}
                           </div>
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => openEdit(prod)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-primary-hover"
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => handleDelete(prod.id)}
                             disabled={products.length <= 1}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       );
                     })
                   )}
                 </div>
                 <div className="border-t border-slate-100 px-6 py-4">
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={openNew}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
                   >
                     <Plus className="h-4 w-4" />
                     {t("新增产品")}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -9397,22 +9399,22 @@ function ProductManageDialog({
                 </div>
                 {/* Actions */}
                 <div className="flex gap-3 pt-1">
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setView("list")}
                     className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
                   >
                     {t("取消")}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     onClick={handleSaveForm}
                     disabled={!form.name.trim() || saving}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-sm font-semibold shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {t("保存")}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -9492,7 +9494,7 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
 
   return (
     <div className="rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
@@ -9503,29 +9505,29 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         </span>
         <span className="text-sm font-semibold text-slate-700">{t("今日日报")}</span>
         {loading ? (
-          <span className="text-xs text-slate-400">{t("读取中…")}</span>
+          <span className="text-xs text-muted-foreground">{t("读取中…")}</span>
         ) : reports.length > 0 ? (
           <>
-            <span className="text-xs text-slate-400">{t("{n} 位成员已生成", { n: reports.length })}</span>
+            <span className="text-xs text-muted-foreground">{t("{n} 位成员已生成", { n: reports.length })}</span>
             {chips.map((c) => (
               <span key={c.label} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", c.cls)}>
                 {c.label}
                 <span className="tabular-nums">{c.value}</span>
               </span>
             ))}
-            <span className="hidden items-center gap-1 text-xs text-slate-400 md:inline-flex">
+            <span className="hidden items-center gap-1 text-xs text-muted-foreground md:inline-flex">
               {reports.slice(0, 4).map((r) => r.user_name).join("、")}
               {reports.length > 4 ? ` ${t("等 {n} 人", { n: reports.length })}` : ""}
             </span>
           </>
         ) : (
-          <span className="text-xs text-slate-400">{t("今日暂无日报")}{canRegenerate ? ` · ${t("展开后可立即汇总")}` : ""}</span>
+          <span className="text-xs text-muted-foreground">{t("今日暂无日报")}{canRegenerate ? ` · ${t("展开后可立即汇总")}` : ""}</span>
         )}
         <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
           {expanded ? t("收起报表") : t("展开报表")}
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </span>
-      </button>
+      </Button>
       <CollapseTransition open={expanded}>
         <div className="border-t border-slate-100 p-4">
           <RDReportsPanel canRegenerate={canRegenerate} spacious />
@@ -9650,8 +9652,8 @@ function ExecutiveOverview({
     { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 总任务（{n}）", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", filterKey: null, activeRing: "ring-slate-300" },
     { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-primary", filterKey: "in_progress" as KpiFilter, activeRing: "ring-primary/45" },
     { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
-    { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
-    { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+    { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-muted-foreground", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+    { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-muted-foreground", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
   ] as const, [blocked, done, inProgress, lang, rate, risks.length, totalActive]);
 
   const decisionSummary = useMemo(() => {
@@ -9747,7 +9749,7 @@ function ExecutiveOverview({
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-balance text-xl font-bold text-slate-900">{t("协同任务驾驶舱")}</h2>
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {/* 与下方 KPI 首格同源：页头再报一个不同口径的任务数只会让人对不上账 */}
                   {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个任务", { n: totalActive })}
                   {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{t("{n} 个风险", { n: risks.length })}</span>}
@@ -9757,44 +9759,44 @@ function ExecutiveOverview({
               <div className="flex flex-wrap items-center gap-2">
                 <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
                 {canReassign && onReassign && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={onReassign}
                     className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <UserCog className="h-3.5 w-3.5" />
                     {t("批量转派")}
-                  </button>
+                  </Button>
                 )}
                 {onOpenPeople && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={onOpenPeople}
                     className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     {t("人员管理")}
-                  </button>
+                  </Button>
                 )}
                 {canClearData && onClearData && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={onClearData}
                     className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     {t("清空数据")}
-                  </button>
+                  </Button>
                 )}
                 {canDirectProject && onAiProject && (
-                  <button
+                  <Button
                     type="button"
                     onClick={onAiProject}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-hover"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold shadow-sm transition-colors"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     {t("AI 立项")}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -9827,7 +9829,7 @@ function ExecutiveOverview({
                     <span className={cn("text-2xl font-bold leading-none tabular-nums", active ? "text-primary" : item.tone)}>
                       <AnimatedNumber value={item.value} />
                     </span>
-                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-primary" : "text-slate-400")}>
+                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-primary" : "text-muted-foreground")}>
                       {item.label}
                       {active && ` · ${t("筛选中")}`}
                     </span>
@@ -9859,28 +9861,28 @@ function ExecutiveOverview({
 
             <div className="rd-horizon-actions flex flex-wrap items-center gap-2">
               {canDirectProject && onAiProject && (
-                <button type="button" onClick={onAiProject} className="rd-horizon-primary-action inline-flex min-h-10 items-center gap-2 rounded-xl bg-primary px-3 text-sm font-semibold text-primary-foreground">
+                <Button type="button" onClick={onAiProject} className="rd-horizon-primary-action inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-primary-foreground">
                   <Sparkles className="size-4" aria-hidden="true" />
                   {t("AI 立项")}
-                </button>
+                </Button>
               )}
               {onCreateTask && (
-                <button type="button" onClick={onCreateTask} className={cn("inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold", !canDirectProject && "rd-horizon-primary-action")}>
+                <Button variant="unstyled" type="button" onClick={onCreateTask} className={cn("inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold", !canDirectProject && "rd-horizon-primary-action")}>
                   <Plus className="size-4" aria-hidden="true" />
                   {t("新建任务")}
-                </button>
+                </Button>
               )}
               <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
-              <button type="button" onClick={() => setHeaderCollapsed(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium" title={t("展开任务大屏")}>
+              <Button variant="unstyled" type="button" onClick={() => setHeaderCollapsed(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium" title={t("展开任务大屏")}>
                 <Maximize2 className="size-4" aria-hidden="true" />
                 {t("大屏")}
-              </button>
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium" aria-label={t("更多工作区操作")}>
+                  <Button variant="unstyled" type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium" aria-label={t("更多工作区操作")}>
                     {t("更多")}
                     <ChevronDown className="size-4" aria-hidden="true" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="horizon-theme horizon-portal rd-horizon-cockpit-menu w-60 rounded-xl p-1.5">
                   {canReassign && onReassign && (
@@ -10005,23 +10007,23 @@ function ExecutiveOverview({
             )}
             {!loading && (
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={onRefresh}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-primary/20 bg-white px-3 text-xs font-semibold text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新读取")}
-                </button>
+                </Button>
                 {onCreateTask && (
-                  <button
+                  <Button
                     type="button"
                     onClick={onCreateTask}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     {t("新建任务")}
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -10033,14 +10035,14 @@ function ExecutiveOverview({
                 <p className="min-w-0 break-words text-pretty">
                   <span className="font-semibold">{t("刷新失败：")}</span>{loadError}
                 </p>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={onRefresh}
                   className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新读取")}
-                </button>
+                </Button>
               </div>
             )}
             <PersonTaskCockpit
@@ -10210,7 +10212,7 @@ export function MoveTaskDialog({
               </DialogDescription>
             </div>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             aria-label={t("关闭移动任务")}
             disabled={saving}
@@ -10218,7 +10220,7 @@ export function MoveTaskDialog({
             className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
           >
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-4 p-6">
@@ -10282,23 +10284,23 @@ export function MoveTaskDialog({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={() => { if (!saving) onClose(); }}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={saving || loadingTree || !targetSubId}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {t("确认移动")}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -10408,7 +10410,7 @@ function MoveTasksDialog({
               </DialogDescription>
             </div>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             aria-label={t("关闭批量移动任务")}
             disabled={saving}
@@ -10416,20 +10418,20 @@ function MoveTasksDialog({
             className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
           >
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-4 p-6">
           <div>
             <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
               <span>{t("选择任务")} ({selectedIds.size}/{movableTasks.length})</span>
-              <button type="button" onClick={toggleAll} className="text-xs text-indigo-600 hover:underline">
+              <Button variant="unstyled" type="button" onClick={toggleAll} className="text-xs text-primary hover:underline">
                 {selectedIds.size === movableTasks.length && movableTasks.length > 0 ? t("取消全选") : t("全选")}
-              </button>
+              </Button>
             </div>
             <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(240px, 35vh)" }}>
               {movableTasks.length === 0 ? (
-                <p className="py-4 text-center text-sm text-slate-400">{t("该子项下暂无可移动任务")}</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">{t("该子项下暂无可移动任务")}</p>
               ) : movableTasks.map((taskItem) => (
                 <label key={taskItem.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                   <Checkbox
@@ -10439,7 +10441,7 @@ function MoveTasksDialog({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-slate-800">{taskVisibleTitle(taskItem)}</div>
-                    <div className="text-xs text-slate-400">{taskItem.primary_owner} · {STATUS_CONFIG[taskItem.status] ? t(STATUS_CONFIG[taskItem.status].label) : taskItem.status}</div>
+                    <div className="text-xs text-muted-foreground">{taskItem.primary_owner} · {STATUS_CONFIG[taskItem.status] ? t(STATUS_CONFIG[taskItem.status].label) : taskItem.status}</div>
                   </div>
                 </label>
               ))}
@@ -10502,23 +10504,23 @@ function MoveTasksDialog({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={() => { if (!saving) onClose(); }}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={saving || loadingTree || selectedIds.size === 0 || !targetSubId}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {t("确认移动")}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -10557,13 +10559,13 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
         <h3 className="mb-2 text-xl font-bold text-slate-900">{t("太棒了！")}</h3>
         <p className="mb-1 font-semibold text-slate-700">{taskVisibleTitle(task)}</p>
         <p className="mb-6 text-sm text-slate-500">{t("任务已审核通过并完成")}</p>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={onClose}
           className="rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
         >
           {t("好的")}
-        </button>
+        </Button>
       </motion.div>
     </motion.div>
   );
@@ -10865,7 +10867,7 @@ function ProjectClassificationDialog({
         const task = taskById.get(taskId);
         if (!task) return null;
         return (
-          <button
+          <Button variant="unstyled"
             key={taskId}
             type="button"
             onClick={() => onOpenTask(task)}
@@ -10879,7 +10881,7 @@ function ProjectClassificationDialog({
             <span className="max-w-[260px] truncate">{task.title}</span>
             {primaryTaskId === taskId && <span className="shrink-0 text-[10px] text-amber-700">建议保留</span>}
             <ArrowRight className="h-3 w-3 shrink-0 opacity-50 transition-transform group-hover:translate-x-0.5" />
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -10896,11 +10898,10 @@ function ProjectClassificationDialog({
       )}
     >
       <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={draft.enabled}
           disabled={draft.sourceTaskIds.length === 0}
-          onChange={(event) => updateMergeDraft(draft.id, (current) => ({ ...current, enabled: event.target.checked }))}
+          onCheckedChange={(checkedValue) => updateMergeDraft(draft.id, (current) => ({ ...current, enabled: (checkedValue === true) }))}
           className="mt-1 h-4 w-4 shrink-0 accent-slate-950"
           aria-label={`纳入合并：${draft.label}`}
         />
@@ -10922,7 +10923,7 @@ function ProjectClassificationDialog({
         </div>
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <RadioGroup name={`classification-primary-${draft.id}`} value={draft.primaryTaskId} onValueChange={(taskId) => chooseMergePrimary(draft.id, taskId)} aria-label="保留主任务" className="mt-3 gap-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
         {draft.taskIds.map((taskId) => {
           const task = taskById.get(taskId);
           if (!task) return null;
@@ -10932,11 +10933,7 @@ function ProjectClassificationDialog({
           return (
             <div key={taskId} className="flex items-center gap-2 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
               <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
-                <input
-                  type="radio"
-                  name={`classification-primary-${draft.id}`}
-                  checked={isPrimary}
-                  onChange={() => chooseMergePrimary(draft.id, taskId)}
+                <RadioGroupItem value={taskId}
                   className="h-3.5 w-3.5 accent-slate-950"
                 />
                 保留
@@ -10945,15 +10942,14 @@ function ProjectClassificationDialog({
                 <label
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 text-[11px] font-medium",
-                    canAttach ? "cursor-pointer text-slate-600" : "cursor-not-allowed text-slate-300",
+                    canAttach ? "cursor-pointer text-slate-600" : "cursor-not-allowed text-muted-foreground",
                   )}
                   title={canAttach ? "确认后作为完整子任务并入" : "已有父任务，只能保留为目标，不能再次并入"}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedAsSource}
                     disabled={!canAttach}
-                    onChange={() => toggleMergeSource(draft.id, taskId)}
+                    onCheckedChange={() => toggleMergeSource(draft.id, taskId)}
                     className="h-3.5 w-3.5 accent-slate-950"
                   />
                   并入
@@ -10961,30 +10957,30 @@ function ProjectClassificationDialog({
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-slate-800">{task.title}</p>
-                <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
                   {task.primary_owner || "待指派"}{task.category_path ? ` · ${task.category_path}` : ""}
                 </p>
               </div>
               {!canAttach && !isPrimary && (
-                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">已有上级</span>
+                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-muted-foreground">已有上级</span>
               )}
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onOpenTask(task)}
-                className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
                 aria-label={`查看任务 ${task.title}`}
               >
                 <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             </div>
           );
         })}
-      </div>
+      </RadioGroup>
       <div className="mt-3 flex items-start justify-between gap-3 border-t border-slate-200/80 pt-3 text-xs leading-5">
         <p className={draft.kind === "duplicate" ? "text-amber-900" : "text-blue-900"}>
           <span className="font-semibold">建议：</span>{advice}
         </p>
-        <span className="shrink-0 text-slate-400">已选 {draft.sourceTaskIds.length} 条</span>
+        <span className="shrink-0 text-muted-foreground">已选 {draft.sourceTaskIds.length} 条</span>
       </div>
     </article>
   );
@@ -11025,15 +11021,15 @@ function ProjectClassificationDialog({
               </p>
             </div>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onClose}
             disabled={analyzing || merging}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="关闭全量任务归纳"
           >
             <X className="h-5 w-5" />
-          </button>
+          </Button>
         </header>
 
         {!result ? (
@@ -11058,7 +11054,7 @@ function ProjectClassificationDialog({
                       <ItemIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                       <div>
                         <p className="text-sm font-medium text-white">{String(title)}</p>
-                        <p className="mt-0.5 text-xs leading-5 text-slate-400">{String(description)}</p>
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{String(description)}</p>
                       </div>
                     </div>
                   );
@@ -11068,7 +11064,7 @@ function ProjectClassificationDialog({
 
             <main className="flex flex-col p-5 sm:p-7">
               <label htmlFor="project-classification-instruction" className="text-sm font-semibold text-slate-900">
-                本次分析重点 <span className="font-normal text-slate-400">（选填）</span>
+                本次分析重点 <span className="font-normal text-muted-foreground">（选填）</span>
               </label>
               <p className="mt-1 text-xs leading-5 text-slate-500">
                 可补充产品阶段、交付边界或你特别担心的重复方向；留空则执行完整检查。
@@ -11080,11 +11076,11 @@ function ProjectClassificationDialog({
                 placeholder="例如：重点检查测试验证类任务是否重复；同一物料的打样、验证和问题关闭应视为一个交付链路，不要误判为重复。"
                 className="mt-3 min-h-[150px] resize-y rounded-xl border-slate-200 bg-white px-4 py-3 text-sm leading-6 shadow-sm focus-visible:ring-slate-400"
               />
-              <div className="mt-2 text-right text-[11px] text-slate-400">{instruction.length} / 8000</div>
+              <div className="mt-2 text-right text-[11px] text-muted-foreground">{instruction.length} / 8000</div>
 
               <div className="mt-5 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">补充附件 <span className="font-normal text-slate-400">（选填）</span></p>
+                  <p className="text-sm font-semibold text-slate-900">补充附件 <span className="font-normal text-muted-foreground">（选填）</span></p>
                   <p className="mt-1 text-xs text-slate-500">最多 5 个，每个不超过 25 MB</p>
                 </div>
                 <Button
@@ -11097,7 +11093,7 @@ function ProjectClassificationDialog({
                   <Paperclip className="mr-1.5 h-4 w-4" />
                   选择附件
                 </Button>
-                <input
+                <Input
                   ref={fileInputRef}
                   type="file"
                   multiple
@@ -11134,7 +11130,7 @@ function ProjectClassificationDialog({
                 )}
                 <div className={cn("transition-opacity", isDraggingFiles && "opacity-20")}>
                   {files.length === 0 ? (
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={analyzing}
@@ -11142,7 +11138,7 @@ function ProjectClassificationDialog({
                     >
                       <FileUp className="h-4 w-4" />
                       拖拽附件到此处，或点击选择
-                    </button>
+                    </Button>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {files.map((file) => (
@@ -11150,16 +11146,16 @@ function ProjectClassificationDialog({
                           <FileText className="h-4 w-4 shrink-0 text-slate-500" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium text-slate-800">{file.name}</p>
-                            <p className="text-[10px] text-slate-400">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
+                            <p className="text-[10px] text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
                           </div>
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => setFiles((current) => current.filter((item) => item !== file))}
-                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            className="rounded p-1 text-muted-foreground hover:bg-slate-100 hover:text-slate-700"
                             aria-label={`移除 ${file.name}`}
                           >
                             <X className="h-3.5 w-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -11234,7 +11230,7 @@ function ProjectClassificationDialog({
                   </h3>
                   <p className="mt-1 text-xs text-slate-500">按主责人整理根任务，已存在的子任务不会被重复计算。</p>
                 </div>
-                <span className="text-xs text-slate-400">{result.member_task_lines.length} 条主任务线</span>
+                <span className="text-xs text-muted-foreground">{result.member_task_lines.length} 条主任务线</span>
               </div>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {memberTaskLinesByOwner.map(([owner, lines]) => (
@@ -11264,7 +11260,7 @@ function ProjectClassificationDialog({
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><CopyCheck className="h-4 w-4 text-amber-600" />疑似重复</h3>
-                  <span className="text-xs text-slate-400">{result.duplicate_groups.length} 组</span>
+                  <span className="text-xs text-muted-foreground">{result.duplicate_groups.length} 组</span>
                 </div>
                 <div className="mt-4 space-y-3">
                   {result.duplicate_groups.length === 0 ? (
@@ -11279,7 +11275,7 @@ function ProjectClassificationDialog({
               <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Layers3 className="h-4 w-4 text-blue-600" />同质任务聚类</h3>
-                  <span className="text-xs text-slate-400">{result.homogeneous_clusters.length} 组</span>
+                  <span className="text-xs text-muted-foreground">{result.homogeneous_clusters.length} 组</span>
                 </div>
                 <div className="mt-4 space-y-3">
                   {result.homogeneous_clusters.length === 0 ? (
@@ -11299,7 +11295,7 @@ function ProjectClassificationDialog({
                   <article key={`${category.label}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5">
                     <div className="flex items-center justify-between gap-2">
                       <h4 className="text-sm font-semibold text-slate-900">{category.label}</h4>
-                      <span className="text-[11px] text-slate-400">{category.task_ids.length} 条</span>
+                      <span className="text-[11px] text-muted-foreground">{category.task_ids.length} 条</span>
                     </div>
                     <p className="mt-1.5 text-xs leading-5 text-slate-500">{category.rationale}</p>
                     {renderTaskLinks(category.task_ids)}
@@ -11412,7 +11408,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     return id || name ? { id: id || null, name } : null;
   }, [location.search]);
   const { lang } = useI18n();
-  const usCollab = location.pathname.startsWith("/us-collab");
+  const usCollab = isUsCollabWorkspace();
   const productionWorkspace = isProductionWorkspace();
   // 视觉层：研发、协同与生产驾驶舱统一使用 Horizon；各工作区仍保留自己的信息结构与数据边界。
   const horizonCockpit = true;
@@ -11442,7 +11438,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       { replace: true },
     );
   }, [location.hash, location.pathname, location.search, nativeRdCockpit, navigate]);
-  // 协同路由下人员管理跳协同入口（rdApi 按 /us-collab 前缀路由到独立人员池）
+  // 人员管理入口与 rdApi 共用工作区身份，自定义协同地址仍进入独立人员池。
   const peopleManagementPath = usCollab
     ? "/us-collab-people-management"
     : productionWorkspace
@@ -12100,10 +12096,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       </Tabs>
       {productionActualsOpen && <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-xs text-slate-600">{t('产品')}
-          <select value={actualsProductId} className="h-8 max-w-64 rounded-md border border-slate-200 bg-white px-2 text-xs" onChange={(event) => setProductionActualsProductId(event.target.value)}>
+          <NativeSelect value={actualsProductId} className="h-8 max-w-64 rounded-md border border-slate-200 bg-white px-2 text-xs" onChange={(event) => setProductionActualsProductId(event.target.value)}>
             {!products.some((product) => product.id === actualsProductId) && <option value={actualsProductId}>{t('当前产品')}</option>}
             {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-          </select>
+          </NativeSelect>
         </label>
         {canOpenProcurement && <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/proc-cockpit?${new URLSearchParams({ view: 'systems', product: actualsProductId, line: 'production' })}`)}>{t('进入子系统登记')}<ArrowRight aria-hidden="true" className="ml-1 size-3.5" /></Button>}
       </div>}
@@ -12323,7 +12319,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       )}>
         {/* Breadcrumb / back to overview */}
         <div className="rd-board-breadcrumb flex min-w-0 items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => {
               setMode("overview");
@@ -12333,24 +12329,24 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                 loadCategoriesFor(MAIN_PRODUCT_ID);
               }
             }}
-            className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
+            className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-colors motion-reduce:transition-none duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
-            <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
+            <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out " />
             {t("返回总览")}
-          </button>
-          <span className="text-xs text-slate-300">·</span>
+          </Button>
+          <span className="text-xs text-muted-foreground">·</span>
           {boardProductName && (
             <>
               <span className="rd-board-brand-chip rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 ring-1 ring-inset ring-indigo-100">
                 {boardProductName}
               </span>
-              <span className="text-xs text-slate-300">›</span>
+              <span className="text-xs text-muted-foreground">›</span>
             </>
           )}
           <span className="text-sm text-slate-500">{t("详情视图")}</span>
           {selectedLabel && (
             <>
-              <span className="text-xs text-slate-300">›</span>
+              <span className="text-xs text-muted-foreground">›</span>
               <span className="min-w-0 truncate text-sm font-medium text-slate-800">{selectedLabel}</span>
             </>
           )}

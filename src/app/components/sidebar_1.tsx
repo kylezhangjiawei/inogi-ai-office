@@ -9,6 +9,7 @@ import { cn } from "./ui/utils";
 import { useVisibleNavigation } from "../lib/useVisibleNavigation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import logo from "../../assets/logo.png";
+import { Button } from "./ui/button";
 
 /** 被用户收起的菜单分组（存分组 label）。默认全展开，只记收起的那些。 */
 const NAV_GROUP_COLLAPSED_KEY = "inogi-nav-collapsed-groups";
@@ -185,7 +186,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                   {!collapsed && (
                     collapsible ? (
                       <CollapsibleTrigger asChild>
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           title={groupClosed
                             ? (lang === "en" ? "Expand group" : "展开该分组")
@@ -201,7 +202,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                             )}
                             <ChevronDown className={cn("size-3.5", groupClosed && "-rotate-90")} aria-hidden="true" />
                           </span>
-                        </button>
+                        </Button>
                       </CollapsibleTrigger>
                     ) : (
                       <div className="rd-horizon-sidebar-group-label mb-1.5 flex min-h-8 items-center px-3 text-xs font-semibold">
@@ -264,7 +265,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       </div>
 
       {!immersive && !mobile && (
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={toggleSidebar}
           aria-label={collapsed
@@ -276,7 +277,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
           className="rd-horizon-sidebar-toggle group absolute -right-3.5 top-1/2 z-50 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <ChevronLeft className={cn("size-4", collapsed && "rotate-180")} aria-hidden="true" />
-        </button>
+        </Button>
       )}
     </div>
   );

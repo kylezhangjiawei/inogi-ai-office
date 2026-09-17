@@ -38,9 +38,11 @@ import {
   type CategoryFormPayload,
   type MediaCategoryNode,
 } from "../lib/mediaCategory";
+import { Input } from "./ui/input";
+import { NativeSelect } from "./ui/native-select";
 
 /** 侧边栏选中态：与研发知识库同款主色块 */
-const SELECTED_ROW = "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(0,47,167,0.18)]";
+const SELECTED_ROW = "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(var(--primary-rgb),0.18)]";
 const UNSELECTED_ROW = "text-slate-600 hover:bg-slate-50";
 const SURFACE_CARD = "rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 
@@ -158,14 +160,14 @@ function CategoryTreeNode({
   const hasActions = canAddChild || canEdit || canDelete;
 
   const actionClass = cn(
-    "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-    selected ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+    "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+    selected ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-muted-foreground hover:bg-slate-100 hover:text-slate-700",
   );
 
   return (
     <div className="group/category w-full">
       <div className={cn("flex items-center rounded-md transition-colors duration-200", selected ? SELECTED_ROW : UNSELECTED_ROW)}>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => {
             onSelect(category.id);
@@ -173,7 +175,7 @@ function CategoryTreeNode({
           }}
           title={category.path}
           className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 pl-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 pl-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
             hasActions ? "rounded-l-md pr-1" : "rounded-md pr-3",
           )}
         >
@@ -192,7 +194,7 @@ function CategoryTreeNode({
               ) : null}
             </span>
           </span>
-        </button>
+        </Button>
 
         {hasActions ? (
           <div
@@ -202,7 +204,7 @@ function CategoryTreeNode({
             )}
           >
             {canAddChild ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onCreateChild(category.id)}
                 title="新增子分类"
@@ -210,10 +212,10 @@ function CategoryTreeNode({
                 className={actionClass}
               >
                 <FolderPlus className="size-3.5" />
-              </button>
+              </Button>
             ) : null}
             {canEdit ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onEdit(category)}
                 title="编辑分类"
@@ -221,10 +223,10 @@ function CategoryTreeNode({
                 className={actionClass}
               >
                 <Edit3 className="size-3.5" />
-              </button>
+              </Button>
             ) : null}
             {canDelete ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onDelete(category)}
                 disabled={busy}
@@ -233,7 +235,7 @@ function CategoryTreeNode({
                 className={cn(actionClass, selected ? "hover:text-white" : "hover:bg-red-50 hover:text-red-600", "disabled:cursor-not-allowed disabled:opacity-40")}
               >
                 {busy ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Trash2 className="size-3.5" />}
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -317,7 +319,7 @@ function CategoryFormDialog({
           <label htmlFor="media-category-name" className="text-xs font-semibold text-slate-600">
             分类名称 <span className="text-red-500">*</span>
           </label>
-          <input
+          <Input
             id="media-category-name"
             autoFocus
             value={name}
@@ -339,7 +341,7 @@ function CategoryFormDialog({
             <label htmlFor="media-category-parent" className="text-xs font-semibold text-slate-600">
               父分类
             </label>
-            <select
+            <NativeSelect
               id="media-category-parent"
               value={parentId}
               onChange={(event) => setParentId(event.target.value)}
@@ -351,7 +353,7 @@ function CategoryFormDialog({
                   {option.path}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         ) : null}
 
@@ -359,14 +361,14 @@ function CategoryFormDialog({
           <span className="text-xs font-semibold text-slate-600">颜色</span>
           <div className="flex items-center gap-1.5">
             {CATEGORY_COLORS.map((option) => (
-              <button
+              <Button variant="unstyled"
                 key={option}
                 type="button"
                 onClick={() => setColor(option)}
                 aria-label={`选择颜色 ${option}`}
                 aria-pressed={color === option}
                 className={cn(
-                  "size-6 cursor-pointer rounded-full border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "size-6 cursor-pointer rounded-full border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                   color === option ? "border-slate-900" : "border-transparent hover:border-slate-300",
                 )}
                 style={{ backgroundColor: option }}
@@ -413,8 +415,8 @@ export function AssignCategoryModal({
 }) {
   const rowClass = (active: boolean) =>
     cn(
-      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-      active ? "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-slate-50",
+      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+      active ? "border-primary bg-accent text-primary" : "border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:bg-slate-50",
     );
 
   return (
@@ -422,16 +424,16 @@ export function AssignCategoryModal({
       <div className="flex-1 space-y-1 overflow-y-auto px-5 py-4">
         <p className="line-clamp-2 pb-2 text-xs leading-5 text-slate-500">{subtitle}</p>
 
-        <button type="button" onClick={() => onSelect(null)} className={rowClass(currentId === null)}>
+        <Button variant="unstyled" type="button" onClick={() => onSelect(null)} className={rowClass(currentId === null)}>
           <span className="flex items-center gap-2">
             <FolderOpen className="size-3.5" />
             未分类
           </span>
           {currentId === null ? <Check className="size-4" /> : null}
-        </button>
+        </Button>
 
         {categories.map((category) => (
-          <button
+          <Button variant="unstyled"
             key={category.id}
             type="button"
             onClick={() => onSelect(category.id)}
@@ -445,11 +447,11 @@ export function AssignCategoryModal({
               <span className="truncate">{category.name}</span>
             </span>
             {currentId === category.id ? <Check className="size-4 shrink-0" /> : null}
-          </button>
+          </Button>
         ))}
 
         {categories.length === 0 ? (
-          <p className="py-6 text-center text-xs text-slate-400">还没有分类，请先在左侧新建。</p>
+          <p className="py-6 text-center text-xs text-muted-foreground">还没有分类，请先在左侧新建。</p>
         ) : null}
       </div>
     </ModalShell>
@@ -542,26 +544,26 @@ export function MediaCategorySidebar({
     <>
       {/* ── 分类侧边栏（同研发知识库：白卡片 + 行内悬停操作 + 子级左边线缩进）── */}
       <aside className={cn("flex w-full flex-col gap-1 p-2.5 lg:w-72 lg:min-h-0 lg:shrink-0 lg:overflow-y-auto", SURFACE_CARD, className)}>
-        <div className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
+        <div className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-muted-foreground">
           <span>分类</span>
           {canCreate ? (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setDialog({ mode: "create", parentId: null })}
               title="新增一级分类"
               aria-label="新增一级分类"
-              className="flex size-6 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="flex size-6 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Plus className="size-3.5" />
-            </button>
+            </Button>
           ) : null}
         </div>
 
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => onSelect("")}
           className={cn(
-            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
             selectedId === "" ? SELECTED_ROW : UNSELECTED_ROW,
           )}
         >
@@ -570,13 +572,13 @@ export function MediaCategorySidebar({
             全部
           </span>
           <span className="text-[11px] tabular-nums opacity-70">{totalCount}</span>
-        </button>
+        </Button>
 
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => onSelect(UNCATEGORIZED_FILTER)}
           className={cn(
-            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
             selectedId === UNCATEGORIZED_FILTER ? SELECTED_ROW : UNSELECTED_ROW,
           )}
         >
@@ -585,7 +587,7 @@ export function MediaCategorySidebar({
             未分类
           </span>
           <span className="text-[11px] tabular-nums opacity-70">{uncategorizedCount}</span>
-        </button>
+        </Button>
 
         {categories.map((category) => (
           <CategoryTreeNode
@@ -606,7 +608,7 @@ export function MediaCategorySidebar({
         ))}
 
         {categories.length === 0 ? (
-          <p className="px-3 py-3 text-xs leading-5 text-slate-400">
+          <p className="px-3 py-3 text-xs leading-5 text-muted-foreground">
             {loading
               ? "分类加载中…"
               : canCreate

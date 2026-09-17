@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -42,6 +43,8 @@ import {
   type ChatAnalyticsUserDetail,
   type ChatFeedbackRow,
 } from './lib/chatAnalyticsApi';
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 
 type RangeDays = 7 | 30 | 90;
 type MobileTab = 'overview' | 'people' | 'feedback';
@@ -122,8 +125,8 @@ function MobilePager({
     <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
       <span className="text-xs text-slate-500">共 {total} 条 · 第 {safePage}/{totalPages} 页</span>
       <div className="flex gap-2">
-        <button type="button" aria-label="上一页" disabled={safePage <= 1} onClick={() => onChange(safePage - 1)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-35"><ChevronLeft size={18} /></button>
-        <button type="button" aria-label="下一页" disabled={safePage >= totalPages} onClick={() => onChange(safePage + 1)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-35"><ChevronRight size={18} /></button>
+        <Button variant="unstyled" type="button" aria-label="上一页" disabled={safePage <= 1} onClick={() => onChange(safePage - 1)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-35"><ChevronLeft size={18} /></Button>
+        <Button variant="unstyled" type="button" aria-label="下一页" disabled={safePage >= totalPages} onClick={() => onChange(safePage + 1)} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-35"><ChevronRight size={18} /></Button>
       </div>
     </div>
   );
@@ -131,7 +134,7 @@ function MobilePager({
 
 function MetricCard({ label, value, detail, tone = 'brand' }: { label: string; value: string; detail: string; tone?: 'brand' | 'teal' | 'amber' | 'rose' }) {
   const toneClass = {
-    brand: 'bg-blue-50 text-[#002fa7]',
+    brand: 'bg-blue-50 text-primary',
     teal: 'bg-teal-50 text-teal-700',
     amber: 'bg-amber-50 text-amber-700',
     rose: 'bg-rose-50 text-rose-700',
@@ -140,7 +143,7 @@ function MetricCard({ label, value, detail, tone = 'brand' }: { label: string; v
     <article className="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-sm">
       <p className="text-[11px] font-medium text-slate-500">{label}</p>
       <p className={cn('mt-2 inline-flex rounded-lg px-2 py-1 text-xl font-black tabular-nums', toneClass)}>{value}</p>
-      <p className="mt-2 text-[11px] leading-4 text-slate-400">{detail}</p>
+      <p className="mt-2 text-[11px] leading-4 text-muted-foreground">{detail}</p>
     </article>
   );
 }
@@ -206,9 +209,9 @@ function PersonDetail({
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
           <SheetClose asChild>
-            <button type="button" aria-label="返回使用分析" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-600 active:bg-slate-100">
+            <Button variant="unstyled" type="button" aria-label="返回使用分析" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-600 active:bg-slate-100">
               <ArrowLeft size={21} aria-hidden="true" />
-            </button>
+            </Button>
           </SheetClose>
           <SheetHeader className="min-w-0 flex-1 gap-0.5 p-0 text-left">
             <SheetTitle className="truncate text-base font-bold text-[#1b2559]">
@@ -219,9 +222,9 @@ function PersonDetail({
             </SheetDescription>
           </SheetHeader>
           <SheetClose asChild>
-            <button type="button" aria-label="关闭人员详情" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-slate-100">
+            <Button variant="unstyled" type="button" aria-label="关闭人员详情" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-slate-100">
               <X size={20} aria-hidden="true" />
-            </button>
+            </Button>
           </SheetClose>
         </header>
 
@@ -236,23 +239,23 @@ function PersonDetail({
               <AlertTriangle className="mx-auto size-7 text-rose-500" aria-hidden="true" />
               <h3 className="mt-3 text-balance text-base font-bold text-slate-900">人员详情加载失败</h3>
               <p className="mt-2 break-words text-pretty text-xs leading-5 text-slate-500">{error}</p>
-              <button type="button" onClick={onRetry} className="mt-4 min-h-11 rounded-xl bg-[#002fa7] px-5 text-sm font-bold text-white active:bg-[#002581]">
+              <Button type="button" onClick={onRetry} className="mt-4 min-h-11 rounded-xl px-5 text-sm font-bold active:bg-primary-hover">
                 重新加载
-              </button>
+              </Button>
             </section>
           ) : detail ? (
             detail.summary.questions === 0 ? (
               <section className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-                <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-[#002fa7]"><UserRoundX size={27} aria-hidden="true" /></span>
+                <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-blue-50 text-primary"><UserRoundX size={27} aria-hidden="true" /></span>
                 <h3 className="mt-4 text-balance text-lg font-bold text-slate-900">近 {detail.range.days} 天尚未使用</h3>
                 <p className="mt-2 text-pretty text-sm leading-6 text-slate-500">该人员已有完整组织档案，但当前周期没有提交问题。</p>
                 <SheetClose asChild>
-                  <button type="button" className="mt-5 min-h-11 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-700 active:bg-slate-50">返回使用分析</button>
+                  <Button variant="unstyled" type="button" className="mt-5 min-h-11 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-700 active:bg-slate-50">返回使用分析</Button>
                 </SheetClose>
               </section>
             ) : (
               <div className="min-w-0 space-y-3">
-                <section className="rounded-2xl border border-blue-100 bg-[#eef3ff] p-4 text-[#1b2559]">
+                <section className="rounded-2xl border border-blue-100 bg-accent p-4 text-[#1b2559]">
                   <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
                     {[['提问', detail.summary.questions], ['会话', detail.summary.conversations], ['活跃天', detail.summary.activeDays], ['回答', detail.summary.answers]].map(([label, value]) => (
                       <div key={label} className="rounded-xl bg-white/80 px-2 py-3">
@@ -272,26 +275,26 @@ function PersonDetail({
                   <div className="mt-3 space-y-2">
                     <label className="relative block min-w-0">
                       <span className="sr-only">搜索问题或回答</span>
-                      <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-slate-400" aria-hidden="true" />
-                      <input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="搜索问题或回答" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-xs outline-none focus:border-[#002fa7]" />
+                      <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground" aria-hidden="true" />
+                      <Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="搜索问题或回答" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-xs outline-none focus:border-primary" />
                     </label>
-                    <select aria-label="筛选使用场景" value={activityScenario} onChange={(event) => setActivityScenario(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
+                    <NativeSelect aria-label="筛选使用场景" value={activityScenario} onChange={(event) => setActivityScenario(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
                       <option value="all">全部使用场景</option>
                       {scenarios.map((scenario) => <option key={scenario} value={scenario}>{scenario}</option>)}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="mt-3 min-w-0 space-y-3">
                     {pagedActivity.map((row) => (
                       <article key={row.id} className="min-w-0 rounded-2xl border border-slate-200 p-3">
                         <div className="flex min-w-0 items-center justify-between gap-2">
-                          <span className="min-w-0 truncate rounded-full bg-blue-50 px-2 py-1 text-[10px] font-semibold text-[#002fa7]">{row.scenario}</span>
-                          <span className="shrink-0 text-[10px] text-slate-400">{formatDateTime(row.createdAt)}</span>
+                          <span className="min-w-0 truncate rounded-full bg-blue-50 px-2 py-1 text-[10px] font-semibold text-primary">{row.scenario}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(row.createdAt)}</span>
                         </div>
                         <p className="mt-2 break-words text-pretty text-sm font-medium leading-6 text-slate-800">{row.question}</p>
                         {row.answer && <p className="mt-2 line-clamp-3 break-words rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">AI：{row.answer}</p>}
                       </article>
                     ))}
-                    {filteredActivity.length === 0 && <p className="py-8 text-center text-xs text-slate-400">暂无匹配记录</p>}
+                    {filteredActivity.length === 0 && <p className="py-8 text-center text-xs text-muted-foreground">暂无匹配记录</p>}
                   </div>
                   <div className="mt-3"><MobilePager page={safeActivityPage} pageSize={pageSize} total={filteredActivity.length} onChange={setActivityPage} /></div>
                 </section>
@@ -300,8 +303,8 @@ function PersonDetail({
                   <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <h3 className="text-balance text-sm font-bold text-slate-900">个人反馈</h3>
                     <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
-                      <select aria-label="筛选反馈类型" value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></select>
-                      <select aria-label="筛选反馈状态" value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                      <NativeSelect aria-label="筛选反馈类型" value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></NativeSelect>
+                      <NativeSelect aria-label="筛选反馈状态" value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect>
                     </div>
                     <div className="mt-3 space-y-2">
                       {pagedFeedback.map((row) => (
@@ -505,13 +508,13 @@ export function MobileChatAnalyticsPage() {
       <section className="border-b border-slate-200 bg-white px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-[#002fa7]">MateChat 使用观察</p>
-            <p className="mt-1 text-[11px] text-slate-400">更新于 {formatDateTime(data?.dataFreshness.generatedAt ?? null)}</p>
+            <p className="truncate text-xs font-semibold text-primary">MateChat 使用观察</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">更新于 {formatDateTime(data?.dataFreshness.generatedAt ?? null)}</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={loading} className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-40" aria-label="刷新数据"><RefreshCw size={18} className={loading ? 'animate-spin' : ''} aria-hidden="true" /></button>
+          <Button variant="unstyled" type="button" onClick={() => void load()} disabled={loading} className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-40" aria-label="刷新数据"><RefreshCw size={18} className={loading ? 'animate-spin' : ''} aria-hidden="true" /></Button>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1">
-          {RANGE_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => selectRange(option.value)} aria-pressed={days === option.value} className={cn('h-11 min-w-0 rounded-xl text-xs font-bold', days === option.value ? 'bg-white text-[#002fa7] shadow-sm' : 'text-slate-500')}>{option.label}</button>)}
+          {RANGE_OPTIONS.map((option) => <Button variant="unstyled" key={option.value} type="button" onClick={() => selectRange(option.value)} aria-pressed={days === option.value} className={cn('h-11 min-w-0 rounded-xl text-xs font-bold', days === option.value ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}>{option.label}</Button>)}
         </div>
       </section>
 
@@ -520,7 +523,7 @@ export function MobileChatAnalyticsPage() {
           ['overview', '概览', BarChart3],
           ['people', '人员', Users],
           ['feedback', '反馈', MessageSquareText],
-        ] as const).map(([value, label, Icon]) => <button key={value} type="button" onClick={() => selectTab(value)} aria-current={tab === value ? 'page' : undefined} className={cn('relative flex h-12 min-w-0 items-center justify-center gap-1.5 text-xs font-bold', tab === value ? 'text-[#002fa7]' : 'text-slate-500')}><Icon size={15} aria-hidden="true" />{label}{tab === value && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-[#002fa7]" />}</button>)}
+        ] as const).map(([value, label, Icon]) => <Button variant="unstyled" key={value} type="button" onClick={() => selectTab(value)} aria-current={tab === value ? 'page' : undefined} className={cn('relative flex h-12 min-w-0 items-center justify-center gap-1.5 text-xs font-bold', tab === value ? 'text-primary' : 'text-slate-500')}><Icon size={15} aria-hidden="true" />{label}{tab === value && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-primary" />}</Button>)}
       </nav>
 
       {loading && !data ? (
@@ -529,9 +532,9 @@ export function MobileChatAnalyticsPage() {
         <main className="min-w-0 px-3 py-4">
           {tab === 'overview' && (
             <div className="space-y-3">
-              <section className="min-w-0 rounded-2xl border border-blue-100 bg-[#eef3ff] p-5 text-[#1b2559]">
+              <section className="min-w-0 rounded-2xl border border-blue-100 bg-accent p-5 text-[#1b2559]">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-blue-100 bg-white px-2.5 py-1 text-[10px] font-bold text-[#002fa7]">管理结论</span>
+                  <span className="rounded-full border border-blue-100 bg-white px-2.5 py-1 text-[10px] font-bold text-primary">管理结论</span>
                   {sampleInsufficient && <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700">样本积累期</span>}
                 </div>
                 <h1 className="mt-4 text-balance text-2xl font-black leading-tight">{adoptionTitle}</h1>
@@ -551,22 +554,22 @@ export function MobileChatAnalyticsPage() {
               </section>
 
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">管理关注</h2><p className="mt-1 text-[11px] text-slate-400">点击查看对应人员或反馈</p></div>
-                <button type="button" onClick={() => openPeople('not_used')} className="flex min-h-16 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-50 text-xs font-black text-rose-600">1</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{notUsed} 人尚未形成使用</strong><span className="mt-1 block text-[11px] text-slate-400">查看部门覆盖缺口</span></span><ChevronRight size={17} className="text-slate-300" /></button>
-                <button type="button" onClick={() => openPeople(oneTime > 0 ? 'one_time' : 'repeat')} className="flex min-h-16 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-xs font-black text-amber-700">2</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{oneTime > 0 ? `${oneTime} 人仅尝试一次` : `${summary.repeatUsers} 人跨天复用`}</strong><span className="mt-1 block text-[11px] text-slate-400">当前复用率 {summary.repeatRate}%</span></span><ChevronRight size={17} className="text-slate-300" /></button>
-                <button type="button" onClick={openFeedback} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-50 text-xs font-black text-sky-700">3</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{summary.openFeedback > 0 ? `${summary.openFeedback} 条问题待闭环` : `有效反馈 ${summary.feedbackCount}/30`}</strong><span className="mt-1 block text-[11px] text-slate-400">查看真实问答与评价</span></span><ChevronRight size={17} className="text-slate-300" /></button>
+                <div className="border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">管理关注</h2><p className="mt-1 text-[11px] text-muted-foreground">点击查看对应人员或反馈</p></div>
+                <Button variant="unstyled" type="button" onClick={() => openPeople('not_used')} className="flex min-h-16 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-50 text-xs font-black text-rose-600">1</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{notUsed} 人尚未形成使用</strong><span className="mt-1 block text-[11px] text-muted-foreground">查看部门覆盖缺口</span></span><ChevronRight size={17} className="text-muted-foreground" /></Button>
+                <Button variant="unstyled" type="button" onClick={() => openPeople(oneTime > 0 ? 'one_time' : 'repeat')} className="flex min-h-16 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-xs font-black text-amber-700">2</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{oneTime > 0 ? `${oneTime} 人仅尝试一次` : `${summary.repeatUsers} 人跨天复用`}</strong><span className="mt-1 block text-[11px] text-muted-foreground">当前复用率 {summary.repeatRate}%</span></span><ChevronRight size={17} className="text-muted-foreground" /></Button>
+                <Button variant="unstyled" type="button" onClick={openFeedback} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-50 text-xs font-black text-sky-700">3</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{summary.openFeedback > 0 ? `${summary.openFeedback} 条问题待闭环` : `有效反馈 ${summary.feedbackCount}/30`}</strong><span className="mt-1 block text-[11px] text-muted-foreground">查看真实问答与评价</span></span><ChevronRight size={17} className="text-muted-foreground" /></Button>
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between"><div><h2 className="text-balance text-sm font-bold text-slate-900">采用趋势</h2><p className="mt-1 text-[11px] text-slate-400">每日提问量</p></div><Activity size={18} className="text-[#002fa7]" aria-hidden="true" /></div>
+                <div className="flex items-start justify-between"><div><h2 className="text-balance text-sm font-bold text-slate-900">采用趋势</h2><p className="mt-1 text-[11px] text-muted-foreground">每日提问量</p></div><Activity size={18} className="text-primary" aria-hidden="true" /></div>
                 <div className="mt-3 h-44">
-                  <ResponsiveContainer width="100%" height="100%"><AreaChart data={trend} margin={{ top: 8, right: 2, left: 2, bottom: 0 }}><XAxis dataKey="day" axisLine={false} tickLine={false} minTickGap={28} tick={{ fontSize: 9, fill: '#94a3b8' }} /><Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 11 }} /><Area type="monotone" dataKey="questions" name="提问" stroke="#002fa7" strokeWidth={2.2} fill="#dbe7ff" fillOpacity={0.8} /></AreaChart></ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%"><AreaChart data={trend} margin={{ top: 8, right: 2, left: 2, bottom: 0 }}><XAxis dataKey="day" axisLine={false} tickLine={false} minTickGap={28} tick={{ fontSize: 9, fill: '#94a3b8' }} /><Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 11 }} /><Area type="monotone" dataKey="questions" name="提问" stroke="var(--primary)" strokeWidth={2.2} fill="#dbe7ff" fillOpacity={0.8} /></AreaChart></ResponsiveContainer>
                 </div>
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2"><Building2 size={17} className="text-[#002fa7]" aria-hidden="true" /><h2 className="text-balance text-sm font-bold text-slate-900">部门采用</h2></div>
-                <div className="mt-4 space-y-3">{data.departments.slice(0, 5).map((department) => <button key={department.department} type="button" onClick={() => { setPeopleDepartment(department.department); setPeopleStage('all'); selectTab('people'); }} className="block min-h-11 w-full min-w-0 rounded-xl px-1 py-1 text-left active:bg-slate-50"><div className="flex min-w-0 items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate font-semibold text-slate-700">{department.department}</span><span className="shrink-0 font-bold tabular-nums text-slate-900">{department.adoptionRate}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${department.adoptionRate}%` }} /></div><p className="mt-1 truncate text-[10px] text-slate-400">{department.activeUsers}/{department.eligibleUsers} 人 · 较上期 {department.adoptionRate - department.previousAdoptionRate >= 0 ? '+' : ''}{Number((department.adoptionRate - department.previousAdoptionRate).toFixed(1))}pp</p></button>)}</div>
+                <div className="flex items-center gap-2"><Building2 size={17} className="text-primary" aria-hidden="true" /><h2 className="text-balance text-sm font-bold text-slate-900">部门采用</h2></div>
+                <div className="mt-4 space-y-3">{data.departments.slice(0, 5).map((department) => <Button variant="unstyled" key={department.department} type="button" onClick={() => { setPeopleDepartment(department.department); setPeopleStage('all'); selectTab('people'); }} className="block min-h-11 w-full min-w-0 rounded-xl px-1 py-1 text-left active:bg-slate-50"><div className="flex min-w-0 items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate font-semibold text-slate-700">{department.department}</span><span className="shrink-0 font-bold tabular-nums text-slate-900">{department.adoptionRate}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary" style={{ width: `${department.adoptionRate}%` }} /></div><p className="mt-1 truncate text-[10px] text-muted-foreground">{department.activeUsers}/{department.eligibleUsers} 人 · 较上期 {department.adoptionRate - department.previousAdoptionRate >= 0 ? '+' : ''}{Number((department.adoptionRate - department.previousAdoptionRate).toFixed(1))}pp</p></Button>)}</div>
               </section>
 
               <section className={cn('rounded-2xl border p-4 shadow-sm', sampleInsufficient ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50')}>
@@ -578,23 +581,23 @@ export function MobileChatAnalyticsPage() {
           {tab === 'people' && (
             <div className="min-w-0 space-y-3">
               <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex min-w-0 items-center justify-between gap-2"><div className="min-w-0"><h1 className="text-balance text-base font-black text-slate-950">人员使用</h1><p className="mt-1 text-[11px] text-slate-400">共 {filteredPeople.length} 人</p></div>{(peopleQuery || peopleDepartment !== 'all' || peopleStage !== 'all') && <button type="button" onClick={() => { setPeopleQuery(''); setPeopleDepartment('all'); setPeopleStage('all'); }} className="h-11 shrink-0 rounded-xl px-3 text-xs font-bold text-[#002fa7] active:bg-blue-50">重置</button>}</div>
-                <label className="relative mt-3 block min-w-0"><span className="sr-only">搜索姓名、部门、职位或场景</span><Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-slate-400" aria-hidden="true" /><input value={peopleQuery} onChange={(event) => setPeopleQuery(event.target.value)} placeholder="搜索姓名、部门、职位或场景" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-[#002fa7]" /></label>
-                <select aria-label="筛选人员部门" value={peopleDepartment} onChange={(event) => setPeopleDepartment(event.target.value)} className="mt-2 h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">全部部门</option>{departments.map((department) => <option key={department} value={department}>{department}</option>)}</select>
-                <div className="mt-3 flex max-w-full gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{PEOPLE_STAGES.map((stage) => <button key={stage.value} type="button" onClick={() => setPeopleStage(stage.value)} aria-pressed={peopleStage === stage.value} className={cn('h-11 shrink-0 rounded-full px-3.5 text-xs font-bold', peopleStage === stage.value ? 'bg-[#002fa7] text-white' : 'bg-slate-100 text-slate-600')}>{stage.label}</button>)}</div>
+                <div className="flex min-w-0 items-center justify-between gap-2"><div className="min-w-0"><h1 className="text-balance text-base font-black text-slate-950">人员使用</h1><p className="mt-1 text-[11px] text-muted-foreground">共 {filteredPeople.length} 人</p></div>{(peopleQuery || peopleDepartment !== 'all' || peopleStage !== 'all') && <Button variant="unstyled" type="button" onClick={() => { setPeopleQuery(''); setPeopleDepartment('all'); setPeopleStage('all'); }} className="h-11 shrink-0 rounded-xl px-3 text-xs font-bold text-primary active:bg-accent">重置</Button>}</div>
+                <label className="relative mt-3 block min-w-0"><span className="sr-only">搜索姓名、部门、职位或场景</span><Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground" aria-hidden="true" /><Input value={peopleQuery} onChange={(event) => setPeopleQuery(event.target.value)} placeholder="搜索姓名、部门、职位或场景" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-primary" /></label>
+                <NativeSelect aria-label="筛选人员部门" value={peopleDepartment} onChange={(event) => setPeopleDepartment(event.target.value)} className="mt-2 h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">全部部门</option>{departments.map((department) => <option key={department} value={department}>{department}</option>)}</NativeSelect>
+                <div className="mt-3 flex max-w-full gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{PEOPLE_STAGES.map((stage) => <Button variant="unstyled" key={stage.value} type="button" onClick={() => setPeopleStage(stage.value)} aria-pressed={peopleStage === stage.value} className={cn('h-11 shrink-0 rounded-full px-3.5 text-xs font-bold', peopleStage === stage.value ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600')}>{stage.label}</Button>)}</div>
               </section>
               <div className="min-w-0 space-y-3">
                 {pagedPeople.map((row) => {
                   const stage = stageMeta(row);
                   return (
-                    <button key={row.userId} type="button" onClick={(event) => openPersonDetail(row.userId, event.currentTarget)} aria-label={`查看 ${row.name} 的使用详情`} className="block min-h-11 w-full min-w-0 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm active:bg-blue-50">
-                      <div className="flex min-w-0 items-start gap-3"><span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-base font-black text-[#002fa7]">{String(row.name ?? '').slice(0, 1) || '?'}</span><span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><strong className="min-w-0 flex-1 truncate text-sm text-slate-950">{row.name}</strong><span className={cn('shrink-0 rounded-full px-2 py-1 text-[10px] font-bold', stage.className)}>{stage.label}</span></span><span className="mt-1 block truncate text-[11px] text-slate-400">{row.department}{row.role ? ` · ${row.role}` : ''}</span></span><ChevronRight size={18} className="mt-2 shrink-0 text-slate-300" aria-hidden="true" /></div>
-                      <div className="mt-4 grid min-w-0 grid-cols-3 divide-x divide-slate-100 rounded-xl bg-slate-50 py-2.5 text-center"><span className="min-w-0"><strong className="block text-sm tabular-nums text-slate-900">{row.questions}</strong><small className="text-[10px] text-slate-400">提问</small></span><span className="min-w-0"><strong className="block text-sm tabular-nums text-slate-900">{row.activeDays}</strong><small className="text-[10px] text-slate-400">活跃天</small></span><span className="min-w-0"><strong className="block truncate px-1 text-xs text-slate-700">{row.primaryScenario}</strong><small className="text-[10px] text-slate-400">主要用途</small></span></div>
-                      <p className="mt-3 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-400"><Clock3 size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">最近使用 {formatDateTime(row.lastActiveAt)}</span></p>
-                    </button>
+                    <Button variant="unstyled" key={row.userId} type="button" onClick={(event) => openPersonDetail(row.userId, event.currentTarget)} aria-label={`查看 ${row.name} 的使用详情`} className="block min-h-11 w-full min-w-0 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm active:bg-accent">
+                      <div className="flex min-w-0 items-start gap-3"><span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-base font-black text-primary">{String(row.name ?? '').slice(0, 1) || '?'}</span><span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><strong className="min-w-0 flex-1 truncate text-sm text-slate-950">{row.name}</strong><span className={cn('shrink-0 rounded-full px-2 py-1 text-[10px] font-bold', stage.className)}>{stage.label}</span></span><span className="mt-1 block truncate text-[11px] text-muted-foreground">{row.department}{row.role ? ` · ${row.role}` : ''}</span></span><ChevronRight size={18} className="mt-2 shrink-0 text-muted-foreground" aria-hidden="true" /></div>
+                      <div className="mt-4 grid min-w-0 grid-cols-3 divide-x divide-slate-100 rounded-xl bg-slate-50 py-2.5 text-center"><span className="min-w-0"><strong className="block text-sm tabular-nums text-slate-900">{row.questions}</strong><small className="text-[10px] text-muted-foreground">提问</small></span><span className="min-w-0"><strong className="block text-sm tabular-nums text-slate-900">{row.activeDays}</strong><small className="text-[10px] text-muted-foreground">活跃天</small></span><span className="min-w-0"><strong className="block truncate px-1 text-xs text-slate-700">{row.primaryScenario}</strong><small className="text-[10px] text-muted-foreground">主要用途</small></span></div>
+                      <p className="mt-3 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground"><Clock3 size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">最近使用 {formatDateTime(row.lastActiveAt)}</span></p>
+                    </Button>
                   );
                 })}
-                {filteredPeople.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-400" role="status">没有符合条件的人员</div>}
+                {filteredPeople.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-muted-foreground" role="status">没有符合条件的人员</div>}
               </div>
               <MobilePager page={safePeoplePage} pageSize={pageSize} total={filteredPeople.length} onChange={setPeoplePage} />
             </div>
@@ -603,29 +606,29 @@ export function MobileChatAnalyticsPage() {
           {tab === 'feedback' && (
             <div className="min-w-0 space-y-3">
               <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex min-w-0 items-center justify-between gap-2"><div className="min-w-0"><h1 className="text-balance text-base font-black text-slate-950">反馈与问题</h1><p className="mt-1 text-[11px] text-slate-400">共 {filteredFeedback.length} 条</p></div>{(feedbackQuery || feedbackReaction !== 'all' || feedbackStatus !== 'all' || feedbackDepartment !== 'all') && <button type="button" onClick={() => { setFeedbackQuery(''); setFeedbackReaction('all'); setFeedbackStatus('all'); setFeedbackDepartment('all'); }} className="h-11 shrink-0 rounded-xl px-3 text-xs font-bold text-[#002fa7] active:bg-blue-50">重置</button>}</div>
-                <label className="relative mt-3 block min-w-0"><span className="sr-only">搜索人员、问题、回答或反馈</span><Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-slate-400" aria-hidden="true" /><input value={feedbackQuery} onChange={(event) => setFeedbackQuery(event.target.value)} placeholder="搜索人员、问题、回答或反馈" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-[#002fa7]" /></label>
-                <div className="mt-2 grid min-w-0 grid-cols-2 gap-2"><select aria-label="筛选反馈类型" value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></select><select aria-label="筛选反馈状态" value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
-                <select aria-label="筛选反馈部门" value={feedbackDepartment} onChange={(event) => setFeedbackDepartment(event.target.value)} className="mt-2 h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">全部部门</option>{feedbackDepartments.map((department) => <option key={department} value={department}>{department}</option>)}</select>
+                <div className="flex min-w-0 items-center justify-between gap-2"><div className="min-w-0"><h1 className="text-balance text-base font-black text-slate-950">反馈与问题</h1><p className="mt-1 text-[11px] text-muted-foreground">共 {filteredFeedback.length} 条</p></div>{(feedbackQuery || feedbackReaction !== 'all' || feedbackStatus !== 'all' || feedbackDepartment !== 'all') && <Button variant="unstyled" type="button" onClick={() => { setFeedbackQuery(''); setFeedbackReaction('all'); setFeedbackStatus('all'); setFeedbackDepartment('all'); }} className="h-11 shrink-0 rounded-xl px-3 text-xs font-bold text-primary active:bg-accent">重置</Button>}</div>
+                <label className="relative mt-3 block min-w-0"><span className="sr-only">搜索人员、问题、回答或反馈</span><Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-muted-foreground" aria-hidden="true" /><Input value={feedbackQuery} onChange={(event) => setFeedbackQuery(event.target.value)} placeholder="搜索人员、问题、回答或反馈" className="h-11 w-full min-w-0 rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-primary" /></label>
+                <div className="mt-2 grid min-w-0 grid-cols-2 gap-2"><NativeSelect aria-label="筛选反馈类型" value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></NativeSelect><NativeSelect aria-label="筛选反馈状态" value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect></div>
+                <NativeSelect aria-label="筛选反馈部门" value={feedbackDepartment} onChange={(event) => setFeedbackDepartment(event.target.value)} className="mt-2 h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">全部部门</option>{feedbackDepartments.map((department) => <option key={department} value={department}>{department}</option>)}</NativeSelect>
               </section>
               <div className="min-w-0 space-y-3">
                 {pagedFeedback.map((row) => (
                   <article key={row.id} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="flex min-w-0 items-start justify-between gap-2"><button type="button" onClick={(event) => openPersonDetail(row.userId, event.currentTarget)} className="min-h-11 min-w-0 flex-1 py-1 text-left" aria-label={`查看 ${row.user} 的使用详情`}><strong className="block truncate text-sm text-slate-950">{row.user}</strong><span className="mt-1 block truncate text-[11px] text-slate-400">{row.department}</span></button><span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div>
-                    <div className="mt-3 flex min-w-0 items-center gap-2"><span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp size={11} aria-hidden="true" /> : <ThumbsDown size={11} aria-hidden="true" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="min-w-0 truncate text-[10px] text-slate-400">{formatDateTime(row.submittedAt)}</span></div>
+                    <div className="flex min-w-0 items-start justify-between gap-2"><Button variant="unstyled" type="button" onClick={(event) => openPersonDetail(row.userId, event.currentTarget)} className="min-h-11 min-w-0 flex-1 py-1 text-left" aria-label={`查看 ${row.user} 的使用详情`}><strong className="block truncate text-sm text-slate-950">{row.user}</strong><span className="mt-1 block truncate text-[11px] text-muted-foreground">{row.department}</span></Button><span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div>
+                    <div className="mt-3 flex min-w-0 items-center gap-2"><span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp size={11} aria-hidden="true" /> : <ThumbsDown size={11} aria-hidden="true" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="min-w-0 truncate text-[10px] text-muted-foreground">{formatDateTime(row.submittedAt)}</span></div>
                     {(row.reasonLabels ?? []).length > 0 && <p className="mt-3 break-words text-xs font-semibold leading-5 text-slate-700">{(row.reasonLabels ?? []).join('、')}</p>}
                     {row.comment && <p className="mt-1 break-words text-xs leading-5 text-slate-500">“{row.comment}”</p>}
-                    <div className="mt-3 min-w-0 space-y-2 rounded-2xl bg-slate-50 p-3 text-xs leading-5"><p className="line-clamp-2 break-words text-slate-700"><strong className="text-slate-400">问：</strong>{row.question || '—'}</p><p className="line-clamp-3 break-words text-slate-500"><strong className="text-slate-400">答：</strong>{row.answer || '—'}</p></div>
+                    <div className="mt-3 min-w-0 space-y-2 rounded-2xl bg-slate-50 p-3 text-xs leading-5"><p className="line-clamp-2 break-words text-slate-700"><strong className="text-muted-foreground">问：</strong>{row.question || '—'}</p><p className="line-clamp-3 break-words text-slate-500"><strong className="text-muted-foreground">答：</strong>{row.answer || '—'}</p></div>
                     {row.resolutionNote && <p className="mt-3 break-words rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">处理结论：{row.resolutionNote}</p>}
                   </article>
                 ))}
-                {filteredFeedback.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center" role="status"><AlertTriangle size={22} className="mx-auto text-slate-300" aria-hidden="true" /><p className="mt-2 text-sm text-slate-400">没有符合条件的反馈</p></div>}
+                {filteredFeedback.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center" role="status"><AlertTriangle size={22} className="mx-auto text-muted-foreground" aria-hidden="true" /><p className="mt-2 text-sm text-muted-foreground">没有符合条件的反馈</p></div>}
               </div>
               <MobilePager page={safeFeedbackPage} pageSize={pageSize} total={filteredFeedback.length} onChange={setFeedbackPage} />
             </div>
           )}
         </main>
-      ) : <div className="px-3 py-16 text-center" role="alert"><p className="text-sm text-rose-600">使用数据暂时无法加载</p><button type="button" onClick={() => void load()} className="mt-4 min-h-11 rounded-xl bg-[#002fa7] px-5 text-sm font-bold text-white active:bg-[#002581]">重新加载</button></div>}
+      ) : <div className="px-3 py-16 text-center" role="alert"><p className="text-sm text-rose-600">使用数据暂时无法加载</p><Button type="button" onClick={() => void load()} className="mt-4 min-h-11 rounded-xl px-5 text-sm font-bold active:bg-primary-hover">重新加载</Button></div>}
 
       <PersonDetail
         open={Boolean(selectedUserId)}

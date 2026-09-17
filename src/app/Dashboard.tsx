@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -486,7 +487,7 @@ export function Dashboard() {
   ];
 
   const refreshAction = (
-    <button
+    <Button variant="unstyled"
       type="button"
       onClick={() => void loadData(false)}
       disabled={refreshing}
@@ -494,7 +495,7 @@ export function Dashboard() {
     >
       <RefreshCw className="size-4" aria-hidden="true" />
       {refreshing ? t("同步中") : t("刷新数据")}
-    </button>
+    </Button>
   );
 
   return (
@@ -543,9 +544,9 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <button type="button" onClick={() => void loadData(false)} disabled={refreshing} className="min-h-10 shrink-0 cursor-pointer self-start rounded-xl border border-amber-300 bg-card px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 md:self-auto">
+          <Button variant="unstyled" type="button" onClick={() => void loadData(false)} disabled={refreshing} className="min-h-10 shrink-0 cursor-pointer self-start rounded-xl border border-amber-300 bg-card px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 md:self-auto">
             {refreshing ? t("同步中") : t("重试失败项")}
-          </button>
+          </Button>
         </section>
       ) : null}
 
@@ -556,10 +557,10 @@ export function Dashboard() {
             title={t("待办事项")}
             description={t("优先处理高优先级事项，再跟进进行中的工作。")}
             trailing={(
-              <button type="button" onClick={() => void loadData(false)} disabled={refreshing} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
+              <Button type="button" onClick={() => void loadData(false)} disabled={refreshing} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl px-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60">
                 <RefreshCw className="size-4" aria-hidden="true" />
                 {refreshing ? t("同步中") : t("同步待办")}
-              </button>
+              </Button>
             )}
           />
           <div className="hz-toolbar flex flex-wrap gap-2 border-b px-5 py-3" role="group" aria-label={t("待办状态筛选")}>
@@ -569,7 +570,7 @@ export function Dashboard() {
               { key: "处理中", label: t("处理中") },
               { key: "待审批", label: t("待审批") },
             ] as const).map((item) => (
-              <button
+              <Button variant="unstyled"
                 key={item.key}
                 type="button"
                 onClick={() => changeFilter(item.key)}
@@ -580,7 +581,7 @@ export function Dashboard() {
                 aria-pressed={statusFilter === item.key}
               >
                 {item.label}
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -616,7 +617,7 @@ export function Dashboard() {
                     </div>
                     <div className="mt-4 flex gap-2">
                       <Link to={item.path} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/15">{t("进入模块")}</Link>
-                      <button type="button" onClick={() => setFocusedTodo(item)} className="min-h-10 cursor-pointer rounded-xl bg-muted px-3 text-xs font-semibold text-muted-foreground hover:bg-muted/70">{t("查看详情")}</button>
+                      <Button variant="unstyled" type="button" onClick={() => setFocusedTodo(item)} className="min-h-10 cursor-pointer rounded-xl bg-muted px-3 text-xs font-semibold text-muted-foreground hover:bg-muted/70">{t("查看详情")}</Button>
                     </div>
                   </article>
                 ))}
@@ -649,7 +650,7 @@ export function Dashboard() {
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3 whitespace-nowrap">
                             <Link to={item.path} className="inline-flex min-h-9 items-center text-xs font-semibold text-primary hover:underline">{t("进入模块")}</Link>
-                            <button type="button" onClick={() => setFocusedTodo(item)} className="min-h-9 cursor-pointer text-xs font-medium text-muted-foreground hover:text-primary">{t("查看详情")}</button>
+                            <Button variant="unstyled" type="button" onClick={() => setFocusedTodo(item)} className="min-h-9 cursor-pointer text-xs font-medium text-muted-foreground hover:text-primary">{t("查看详情")}</Button>
                           </div>
                         </td>
                       </tr>
@@ -662,15 +663,15 @@ export function Dashboard() {
             <EmptyBlock
               title={t("当前筛选条件下没有待办事项")}
               helper={statusFilter === "全部" ? t("新任务和提醒会显示在这里。") : t("切换到全部，查看其他状态的待办。")}
-              action={statusFilter === "全部" ? refreshAction : <button type="button" onClick={() => changeFilter("全部")} className="min-h-10 cursor-pointer rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{t("查看全部待办")}</button>}
+              action={statusFilter === "全部" ? refreshAction : <Button type="button" onClick={() => changeFilter("全部")} className="min-h-10 cursor-pointer rounded-xl px-4 text-sm font-semibold text-primary-foreground">{t("查看全部待办")}</Button>}
             />
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4">
             <div className="text-xs tabular-nums text-muted-foreground">{t("共 {count} 条待办，当前第 {page}/{total} 页", { count: filteredTodos.length, page, total: totalPages })}</div>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="min-h-9 cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{t("上一页")}</button>
-              <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="min-h-9 cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{t("下一页")}</button>
+              <Button variant="unstyled" type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="min-h-9 cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{t("上一页")}</Button>
+              <Button variant="unstyled" type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="min-h-9 cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">{t("下一页")}</Button>
             </div>
           </div>
         </section>
@@ -737,7 +738,7 @@ export function Dashboard() {
             title={chartConfig.title}
             description={chartConfig.helper}
             trailing={chartConfig.data.length ? (
-              <button type="button" onClick={() => setChartOpen(true)} aria-label={t("查看状态明细")} className="flex size-10 cursor-pointer items-center justify-center rounded-xl bg-muted text-primary hover:bg-primary/10"><BarChart3 className="size-5" aria-hidden="true" /></button>
+              <Button variant="unstyled" type="button" onClick={() => setChartOpen(true)} aria-label={t("查看状态明细")} className="flex size-10 cursor-pointer items-center justify-center rounded-xl bg-muted text-primary hover:bg-primary/10"><BarChart3 className="size-5" aria-hidden="true" /></Button>
             ) : null}
           />
           {chartConfig.data.length ? (
@@ -787,7 +788,7 @@ export function Dashboard() {
           <div className="grid grid-cols-1 gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.65fr)] sm:p-6">
             <div className="min-w-0 space-y-2">
               {activityItems.map((item) => (
-                <button
+                <Button variant="unstyled"
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedFeedId(item.id)}
@@ -803,7 +804,7 @@ export function Dashboard() {
                     <AutoTranslatedText as="div" className="mt-1 truncate text-sm font-semibold text-foreground" text={item.title} />
                     <AutoTranslatedText as="div" className="mt-1 line-clamp-1 text-pretty text-xs leading-5 text-muted-foreground" text={item.helper} />
                   </div>
-                </button>
+                </Button>
               ))}
             </div>
             <div className="min-w-0 self-start rounded-2xl bg-muted/60 p-5 sm:p-6">

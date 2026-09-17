@@ -1,3 +1,5 @@
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
+import { Button } from "./components/ui/button";
 import React, { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -40,6 +42,7 @@ import {
 import { cn } from "./components/ui/utils";
 import { authFetch, readErrorMessage } from "./lib/authSession";
 import { clearStoredUserAvatar, useUserAvatar } from "./lib/userAvatar";
+import { Input } from "./components/ui/input";
 
 type AvatarPreset = { key: string; url: string };
 type ProfileErrors = { englishName?: string; email?: string };
@@ -283,9 +286,9 @@ export function PersonalCenterPage() {
     }
   }
 
-  const inputClass = "h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-900 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
-  const primaryButtonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#002fa7] px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50";
-  const secondaryButtonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-200 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50";
+  const inputClass = "h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-900 outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+  const primaryButtonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50";
+  const secondaryButtonClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:border-primary/25 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <main className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1600px] min-w-0 flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
@@ -327,7 +330,7 @@ export function PersonalCenterPage() {
             />
             <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.45fr)] lg:items-center lg:p-6">
               <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center">
-                <div className="relative size-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-[#002fa7] shadow-sm">
+                <div className="relative size-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-primary shadow-sm">
                   <div className="flex size-full items-center justify-center text-3xl font-bold">
                     {avatar ? <img src={avatar} alt="当前头像" className="size-full object-cover" /> : initials(user.name)}
                   </div>
@@ -342,20 +345,20 @@ export function PersonalCenterPage() {
                   <h2 className="truncate text-balance text-2xl font-semibold text-slate-950">{user.name}</h2>
                   <p className="mt-1 truncate text-sm text-slate-500">{englishName.trim() || "暂未设置英文名"}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#002fa7]"><ShieldCheck className="size-3.5" />{roleLabel}</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-primary"><ShieldCheck className="size-3.5" />{roleLabel}</span>
                     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600"><Mail className="size-3.5 shrink-0" /><span className="truncate">{user.email || "未绑定邮箱"}</span></span>
                   </div>
                 </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
-                <button ref={avatarTriggerRef} type="button" onClick={openAvatarDialog} disabled={uploadingAvatar || resettingAvatar} className={primaryButtonClass}>
+                <Button variant="unstyled" ref={avatarTriggerRef} type="button" onClick={openAvatarDialog} disabled={uploadingAvatar || resettingAvatar} className={primaryButtonClass}>
                   <Camera className="size-4" />更换头像
-                </button>
+                </Button>
                 {user.hasCustomAvatar ? (
-                  <button type="button" onClick={() => void handleResetAvatar()} disabled={uploadingAvatar || resettingAvatar} className={secondaryButtonClass}>
+                  <Button variant="unstyled" type="button" onClick={() => void handleResetAvatar()} disabled={uploadingAvatar || resettingAvatar} className={secondaryButtonClass}>
                     {resettingAvatar ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
                     恢复默认
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </div>
@@ -380,7 +383,7 @@ export function PersonalCenterPage() {
 
                 <div className="space-y-2">
                   <FieldLabel htmlFor="profile-english-name">英文名</FieldLabel>
-                  <input
+                  <Input
                     ref={englishNameRef}
                     id="profile-english-name"
                     type="text"
@@ -399,7 +402,7 @@ export function PersonalCenterPage() {
 
                 <div className="space-y-2">
                   <FieldLabel htmlFor="profile-email">邮箱地址</FieldLabel>
-                  <input
+                  <Input
                     ref={emailRef}
                     id="profile-email"
                     type="email"
@@ -421,10 +424,10 @@ export function PersonalCenterPage() {
                 </div>
 
                 <div className="mt-auto flex justify-end pt-1">
-                  <button type="submit" disabled={!canEditEnglishName || savingProfile || profileUnchanged} className={primaryButtonClass}>
+                  <Button variant="unstyled" type="submit" disabled={!canEditEnglishName || savingProfile || profileUnchanged} className={primaryButtonClass}>
                     {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                     {savingProfile ? "保存中" : "保存资料"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>
@@ -441,7 +444,7 @@ export function PersonalCenterPage() {
                 <div className="space-y-2">
                   <FieldLabel htmlFor="profile-old-password">当前密码</FieldLabel>
                   <div className="relative">
-                    <input
+                    <Input
                       ref={oldPasswordRef}
                       id="profile-old-password"
                       type={showOldPassword ? "text" : "password"}
@@ -454,9 +457,9 @@ export function PersonalCenterPage() {
                       aria-invalid={Boolean(passwordErrors.oldPassword)}
                       aria-describedby={passwordErrors.oldPassword ? "profile-old-password-error" : undefined}
                     />
-                    <button type="button" onClick={() => setShowOldPassword((value) => !value)} disabled={!canEditAccountFields || savingPassword} className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40" aria-label={showOldPassword ? "隐藏当前密码" : "显示当前密码"} aria-pressed={showOldPassword}>
+                    <Button variant="unstyled" type="button" onClick={() => setShowOldPassword((value) => !value)} disabled={!canEditAccountFields || savingPassword} className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" aria-label={showOldPassword ? "隐藏当前密码" : "显示当前密码"} aria-pressed={showOldPassword}>
                       {showOldPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
+                    </Button>
                   </div>
                   {passwordErrors.oldPassword ? <FieldError id="profile-old-password-error">{passwordErrors.oldPassword}</FieldError> : null}
                 </div>
@@ -464,7 +467,7 @@ export function PersonalCenterPage() {
                 <div className="space-y-2">
                   <FieldLabel htmlFor="profile-password">新密码</FieldLabel>
                   <div className="relative">
-                    <input
+                    <Input
                       ref={newPasswordRef}
                       id="profile-password"
                       type={showPassword ? "text" : "password"}
@@ -477,9 +480,9 @@ export function PersonalCenterPage() {
                       aria-invalid={Boolean(passwordErrors.password)}
                       aria-describedby={passwordErrors.password ? "profile-password-error" : passwordForm.password ? "profile-password-strength" : undefined}
                     />
-                    <button type="button" onClick={() => setShowPassword((value) => !value)} disabled={!canEditAccountFields || savingPassword} className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40" aria-label={showPassword ? "隐藏新密码" : "显示新密码"} aria-pressed={showPassword}>
+                    <Button variant="unstyled" type="button" onClick={() => setShowPassword((value) => !value)} disabled={!canEditAccountFields || savingPassword} className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" aria-label={showPassword ? "隐藏新密码" : "显示新密码"} aria-pressed={showPassword}>
                       {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
+                    </Button>
                   </div>
                   {passwordErrors.password ? <FieldError id="profile-password-error">{passwordErrors.password}</FieldError> : null}
                   {passwordForm.password ? (
@@ -494,7 +497,7 @@ export function PersonalCenterPage() {
 
                 <div className="space-y-2">
                   <FieldLabel htmlFor="profile-password-confirm">确认新密码</FieldLabel>
-                  <input
+                  <Input
                     ref={confirmPasswordRef}
                     id="profile-password-confirm"
                     type={showPassword ? "text" : "password"}
@@ -511,10 +514,10 @@ export function PersonalCenterPage() {
                 </div>
 
                 <div className="mt-auto flex justify-end pt-1">
-                  <button type="submit" disabled={!canEditAccountFields || savingPassword} className={primaryButtonClass}>
+                  <Button variant="unstyled" type="submit" disabled={!canEditAccountFields || savingPassword} className={primaryButtonClass}>
                     {savingPassword ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
                     {savingPassword ? "修改中" : "修改密码"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </form>
@@ -522,7 +525,7 @@ export function PersonalCenterPage() {
         </>
       )}
 
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} disabled={uploadingAvatar || resettingAvatar} aria-label="上传头像文件" />
+      <Input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} disabled={uploadingAvatar || resettingAvatar} aria-label="上传头像文件" />
 
       <AvatarPickerDialog
         open={avatarDialogOpen}
@@ -590,61 +593,59 @@ function AvatarPickerDialog({
         }}
       >
         <DialogHeader className="border-b border-slate-200 px-5 py-4 pr-12 text-left sm:px-6">
-          <DialogTitle className="flex items-center gap-2 text-slate-950"><Camera className="size-5 text-[#002fa7]" />更换头像</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-slate-950"><Camera className="size-5 text-primary" />更换头像</DialogTitle>
           <DialogDescription>上传自定义图片，或从默认头像库中选择。</DialogDescription>
         </DialogHeader>
 
-        <div className="flex border-b border-slate-200 px-4 pt-2" role="tablist" aria-label="头像来源">
-          <button id="avatar-tab-upload" type="button" role="tab" aria-selected={tab === "upload"} aria-controls="avatar-panel-upload" onClick={() => setTab("upload")} className={cn("inline-flex min-h-10 items-center gap-2 border-b-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300", tab === "upload" ? "border-[#002fa7] text-[#002fa7]" : "border-transparent text-slate-500 hover:text-slate-800")}>
-            <Upload className="size-4" />上传自定义
-          </button>
-          <button id="avatar-tab-gallery" type="button" role="tab" aria-selected={tab === "gallery"} aria-controls="avatar-panel-gallery" onClick={() => setTab("gallery")} className={cn("inline-flex min-h-10 items-center gap-2 border-b-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300", tab === "gallery" ? "border-[#002fa7] text-[#002fa7]" : "border-transparent text-slate-500 hover:text-slate-800")}>
-            <Images className="size-4" />默认头像库
-          </button>
-        </div>
+        <Tabs value={tab} onValueChange={(value) => setTab(value as "upload" | "gallery")} className="min-h-0 gap-0">
+        <TabsList aria-label="头像来源" className="h-auto w-full justify-start rounded-none border-b border-border bg-transparent px-4 pt-2">
+          <TabsTrigger value="upload" className="min-h-10 flex-none"><Upload className="size-4" />上传自定义</TabsTrigger>
+          <TabsTrigger value="gallery" className="min-h-10 flex-none"><Images className="size-4" />默认头像库</TabsTrigger>
+        </TabsList>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
           {actionError ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{actionError}</div> : null}
 
           {tab === "upload" ? (
-            <div id="avatar-panel-upload" role="tabpanel" aria-labelledby="avatar-tab-upload" className="flex flex-col items-center gap-5 py-6 text-center">
-              <span className="flex size-16 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-[#002fa7]" aria-hidden="true"><Upload className="size-7" /></span>
+            <TabsContent value="upload" className="flex flex-col items-center gap-5 py-6 text-center">
+              <span className="flex size-16 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-primary" aria-hidden="true"><Upload className="size-7" /></span>
               <div>
                 <div className="text-sm font-semibold text-slate-900">上传你自己的图片</div>
                 <p className="mt-1.5 max-w-sm text-pretty text-xs leading-5 text-slate-500">支持 jpg、png、webp、gif，单张不超过 10MB。图片将安全存储到 OSS。</p>
               </div>
-              <button type="button" onClick={onPickFile} disabled={uploading} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#002fa7] px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50">
+              <Button type="button" onClick={onPickFile} disabled={uploading} size="lg">
                 {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
                 {uploading ? "上传中" : "选择图片"}
-              </button>
-            </div>
+              </Button>
+            </TabsContent>
           ) : (
-            <div id="avatar-panel-gallery" role="tabpanel" aria-labelledby="avatar-tab-gallery">
+            <TabsContent value="gallery">
               {loading ? (
-                <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-slate-500" role="status"><Loader2 className="size-6 animate-spin text-[#002fa7]" /><span className="text-sm">正在加载默认头像</span></div>
+                <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-slate-500" role="status"><Loader2 className="size-6 animate-spin text-primary" /><span className="text-sm">正在加载默认头像</span></div>
               ) : loadError ? (
                 <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-center">
                   <p className="text-sm text-rose-600" role="alert">{loadError}</p>
-                  <button type="button" onClick={loadPresets} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-200 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"><RotateCcw className="size-4" />重新加载</button>
+                  <Button variant="unstyled" type="button" onClick={loadPresets} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:border-primary/25 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"><RotateCcw className="size-4" />重新加载</Button>
                 </div>
               ) : presets?.length ? (
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 md:grid-cols-6">
                   {presets.map((preset, index) => {
                     const busy = selectingKey === preset.key;
                     return (
-                      <button key={preset.key} type="button" onClick={() => onSelectPreset(preset.key)} disabled={Boolean(selectingKey)} aria-label={`选择默认头像 ${index + 1}`} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition-colors hover:border-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Button variant="unstyled" key={preset.key} type="button" onClick={() => onSelectPreset(preset.key)} disabled={Boolean(selectingKey)} aria-label={`选择默认头像 ${index + 1}`} className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60">
                         <img src={preset.url} alt={`默认头像 ${index + 1}`} loading="lazy" className="size-full object-cover" />
-                        {busy ? <span className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-white" role="status"><Loader2 className="size-5 animate-spin" /></span> : <span className="absolute bottom-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-[#002fa7] text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true"><Check className="size-3.5" /></span>}
-                      </button>
+                        {busy ? <span className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-white" role="status"><Loader2 className="size-5 animate-spin" /></span> : <span className="absolute bottom-1.5 right-1.5 flex size-6 items-center justify-center rounded-full bg-primary text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true"><Check className="size-3.5" /></span>}
+                      </Button>
                     );
                   })}
                 </div>
               ) : (
-                <HorizonEmptyState Icon={Images} title="暂无默认头像" description="请联系管理员上传预置头像，或改为上传自定义图片。" action={<button type="button" onClick={() => setTab("upload")} className="text-sm font-semibold text-[#002fa7] underline-offset-4 hover:underline">上传自定义图片</button>} />
+                <HorizonEmptyState Icon={Images} title="暂无默认头像" description="请联系管理员上传预置头像，或改为上传自定义图片。" action={<Button variant="unstyled" type="button" onClick={() => setTab("upload")} className="text-sm font-semibold text-primary underline-offset-4 hover:underline">上传自定义图片</Button>} />
               )}
-            </div>
+            </TabsContent>
           )}
         </div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

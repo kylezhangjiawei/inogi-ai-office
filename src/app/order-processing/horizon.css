@@ -1,24 +1,24 @@
 /*
  * Order & Inventory Horizon
  *
- * 与研发、采购驾驶舱保持同源的 Klein Blue 工作界面；所有规则均限制在
+ * 与研发、采购驾驶舱共享 Horizon 配色与悬浮层级；所有规则均限制在
  * order-horizon 作用域内，避免影响其他业务模块。
  */
 .order-horizon,
 .order-horizon-overlay {
-  --order-primary: #002fa7;
-  --order-primary-hover: #002581;
-  --order-ink: #1b2559;
-  --order-body: #42526f;
-  --order-muted: #64748b;
-  --order-subtle: #8f9bba;
-  --order-canvas: #f4f7fe;
-  --order-surface: #ffffff;
-  --order-soft-blue: #eef3ff;
-  --order-line: #e9edf7;
-  --order-line-strong: #e0e5f2;
-  --order-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
-  --order-shadow-focal: 0 14px 36px rgba(112, 144, 176, 0.1);
+  --order-primary: var(--primary);
+  --order-primary-hover: var(--primary-hover);
+  --order-ink: var(--foreground);
+  --order-body: var(--on-surface-variant);
+  --order-muted: var(--muted-foreground);
+  --order-subtle: var(--muted-foreground);
+  --order-canvas: var(--background);
+  --order-surface: var(--card);
+  --order-soft-blue: var(--accent);
+  --order-line: var(--border-subtle);
+  --order-line-strong: var(--border);
+  --order-shadow-card: var(--shadow-card);
+  --order-shadow-focal: var(--shadow-focal);
   color: var(--order-body);
 }
 
@@ -59,7 +59,7 @@
   border-radius: 12px;
   color: #fff;
   background: var(--order-primary);
-  box-shadow: 0 9px 18px -12px rgba(0, 47, 167, 0.66);
+  box-shadow: 0 9px 18px -12px rgba(var(--primary-rgb),0.66);
 }
 
 .order-horizon-command-copy {
@@ -108,7 +108,7 @@
 .order-horizon-actions [data-slot="button"],
 .order-horizon-actions > button {
   min-height: 2.5rem;
-  border-radius: 11px !important;
+  border-radius: 999px !important;
   box-shadow: none !important;
 }
 
@@ -116,8 +116,10 @@
   border-color: var(--order-primary) !important;
   color: #fff !important;
   background: var(--order-primary) !important;
-  box-shadow: 0 13px 26px -15px rgba(0, 47, 167, 0.75) !important;
+  box-shadow: var(--shadow-primary) !important;
 }
+
+.order-horizon-actions .order-horizon-primary-action:disabled { box-shadow: none !important; }
 
 .order-horizon-actions .order-horizon-primary-action:hover {
   border-color: var(--order-primary-hover) !important;
@@ -191,7 +193,7 @@
   border-radius: 9px;
   color: var(--order-primary);
   background: var(--order-soft-blue);
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb),0.08);
 }
 
 .order-horizon-metric[data-tone="success"] .order-horizon-metric-value,
@@ -249,7 +251,7 @@
 }
 
 .order-horizon .order-horizon-row-action {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb),0.12) !important;
   color: var(--order-primary) !important;
   background: var(--order-soft-blue) !important;
 }
@@ -336,7 +338,7 @@
   min-height: auto;
   border-bottom-color: var(--order-line) !important;
   padding: 0.4rem 0.75rem;
-  background: #fff !important;
+  background: var(--card) !important;
 }
 
 .order-horizon-workbench .order-horizon-stat-item {
@@ -372,13 +374,13 @@
 
 .order-horizon-workbench .order-horizon-order-item:hover,
 .order-horizon-workbench .order-horizon-template-option:hover {
-  border-color: rgba(0, 47, 167, 0.08);
+  border-color: rgba(var(--primary-rgb),0.08);
   background: rgba(238, 243, 255, 0.72) !important;
 }
 
 .order-horizon-workbench .order-horizon-order-item[data-selected="true"],
 .order-horizon-workbench .order-horizon-template-option[data-selected="true"] {
-  border-color: rgba(0, 47, 167, 0.12);
+  border-color: rgba(var(--primary-rgb),0.12);
   background: var(--order-soft-blue) !important;
 }
 
@@ -392,12 +394,11 @@
 }
 
 .order-horizon-overlay {
-  --primary: #002fa7;
-  --ring: #002fa7;
+  --ring: var(--primary);
   border-color: var(--order-line) !important;
   border-radius: 18px !important;
   color: var(--order-body) !important;
-  background: #fff !important;
+  background: var(--card) !important;
   box-shadow: 0 20px 56px rgba(27, 37, 89, 0.16) !important;
   overscroll-behavior: contain;
 }
@@ -405,9 +406,9 @@
 .order-horizon-overlay :is(h1, h2, h3, [data-slot="dialog-title"]) { color: var(--order-ink); }
 .order-horizon-overlay [class*="elevation-"] { box-shadow: none !important; }
 
-.order-horizon :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible,
-.order-horizon-overlay :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+.order-horizon :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible,
+.order-horizon-overlay :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb),0.72) !important;
   outline-offset: 2px !important;
 }
 
@@ -487,7 +488,7 @@
     min-height: calc(100dvh - 10rem) !important;
   }
 
-  .order-horizon-workbench :is(button, input, select, [data-slot="select-trigger"], [data-slot="tabs-trigger"]) {
+  .order-horizon-workbench :is(button, input, :is(select, :where([data-slot="select-trigger"])), [data-slot="select-trigger"], [data-slot="tabs-trigger"]) {
     min-height: 2.75rem;
   }
 

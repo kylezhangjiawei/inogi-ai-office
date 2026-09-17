@@ -1,3 +1,4 @@
+import { Button } from "../ui/button";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Flame, Sparkles } from 'lucide-react';
 import { useLocation } from 'react-router';
@@ -133,7 +134,7 @@ export function MateChatReminderModal() {
       {data && (
         <DialogContent className="horizon-theme matechat-reminder-horizon gap-0 overflow-hidden border-[#e9edf7] bg-white p-0 shadow-xl sm:max-w-sm [&>button.absolute]:bg-white [&>button.absolute]:text-slate-600 [&>button.absolute]:opacity-100">
           {/* 头图：复用当天吉祥物场景图；无图时使用 Klein Blue 纯色底。 */}
-          <div className="relative h-44 overflow-hidden border-b border-[#e9edf7] bg-[#002fa7]">
+          <div className="relative h-44 overflow-hidden border-b border-[#e9edf7] bg-primary">
             {data.mascotUrl ? (
               <img
                 src={data.mascotUrl}
@@ -153,26 +154,26 @@ export function MateChatReminderModal() {
               {streak > 0 ? t('别断了连续 {n} 天！', { n: streak }) : t('今天还没用 MateChat 哦')}
             </DialogTitle>
             <DialogDescription className="mt-2 flex items-start justify-center gap-1.5 text-pretty text-sm leading-6 text-slate-600">
-              <Sparkles className="mt-0.5 size-4 shrink-0 text-[#002fa7]" />
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
               <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-2 px-6 pb-6 pt-4">
-            <button
+            <Button
               type="button"
               onClick={goChat}
-              className="w-full rounded-xl bg-[#002fa7] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#001f73]"
+              className="w-full rounded-xl px-4 py-2.5 text-sm font-bold shadow-sm"
             >
               {t('立即去用 MateChat')}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={close}
               className="w-full rounded-xl px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
             >
               {t('稍后再说')}
-            </button>
+            </Button>
           </div>
         </DialogContent>
       )}

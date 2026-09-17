@@ -165,6 +165,64 @@ function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
 const bash = await availableBash();
 const utf8Locale = availableUtf8Locale(bash);
 
+function runQualityGate(overrides = {}) {
+  const start = deploySource.indexOf('if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then');
+  const end = deploySource.indexOf("# ----------------- 6. 数据库备份收口", start);
+  assert.ok(start >= 0 && end > start, "unable to locate the real deployment quality gate");
+  // Execute the production branch itself; all commands are shell functions, so no
+  // build, deployment, package manager or database is invoked by this test.
+  const input = `set -Eeuo pipefail
+CACHE_DIR=unused-test-cache
+log() { printf 'log:%s\\n' "$*"; }
+start_stage() { printf 'start:%s\\n' "$*"; }
+finish_stage() { printf 'finish:%s\\n' "$*"; }
+skip_stage() { printf 'skip:%s\\n' "$*"; }
+die() { printf 'failure:%s\\n' "$*"; exit 1; }
+npx() { printf 'command:npx %s\\n' "$*"; }
+npm() { printf 'command:npm %s\\n' "$*"; [ "$*" != "\${DEPLOY_TEST_FAILURE:-}" ]; }
+node() { return 0; }
+${deploySource.slice(start, end)}
+printf 'gate-complete\\n'
+`;
+  return spawnSync(bash, ["-s"], {
+    input,
+    env: {
+      ...process.env,
+      DEPLOY_PLAN_FRONTEND: "0",
+      DEPLOY_PLAN_API: "0",
+      DEPLOY_PLAN_QUALITY: "0",
+      DEPLOY_RUN_TESTS: "1",
+      DEPLOY_TEST_FAILURE: "",
+      ...overrides,
+    },
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+}
+
+const frontendTypecheck = "npx --no-install tsc --noEmit -p tsconfig.json";
+const apiTypecheck = "npx --no-install tsc --noEmit -p apps/api/tsconfig.json --tsBuildInfoFile unused-test-cache/tsbuildinfo-api";
+const frontendTests = "npm run test:dev-scripts";
+const apiTests = "npm --prefix apps/api run test";
+for (const [name, env, commands, status = 0] of [
+  ["frontend-only runs frontend regression tests", { DEPLOY_PLAN_FRONTEND: "1" }, [frontendTypecheck, frontendTests]],
+  ["API-only runs API tests", { DEPLOY_PLAN_API: "1" }, [apiTypecheck, apiTests]],
+  ["quality-only runs both suites", { DEPLOY_PLAN_QUALITY: "1" }, [apiTypecheck, frontendTests, apiTests]],
+  ["combined changes run both suites once", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1" }, [frontendTypecheck, apiTypecheck, frontendTests, apiTests]],
+  ["unchanged inputs skip checks", {}, []],
+  ["explicit disable skips checks", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1", DEPLOY_PLAN_QUALITY: "1", DEPLOY_RUN_TESTS: "0" }, []],
+  ["frontend test failure blocks release", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_TEST_FAILURE: "run test:dev-scripts" }, [frontendTypecheck, frontendTests], 1],
+  ["API test failure blocks release", { DEPLOY_PLAN_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test" }, [apiTypecheck, apiTests], 1],
+]) {
+  test(`quality gate: ${name}`, { skip: !bash }, () => {
+    const result = runQualityGate(env);
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, status, result.stdout + result.stderr);
+    assert.deepEqual(result.stdout.split(/\r?\n/).filter((line) => line.startsWith("command:")).map((line) => line.slice(8)), commands);
+    assert.equal(result.stdout.includes("gate-complete"), status === 0);
+  });
+}
+
 test("failed frozen dependency installation blocks release instead of falling back", { skip: !bash }, async () => {
   const fixture = await createFakeDeployment();
   try {

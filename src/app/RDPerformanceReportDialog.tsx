@@ -16,6 +16,7 @@ import {
   PERF_BEHAVIOR_KPIS,
   type RdPerformanceReport,
 } from "./lib/rdApi";
+import { Button } from "./components/ui/button";
 
 /** 事项指标（80 分）——AI 未生成时回退用的固定考核项与分值权重；两文本列留空手填。 */
 const ITEM_KPIS: ReadonlyArray<{ name: string; weight: string }> = [
@@ -214,7 +215,7 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
   const cells: Array<{ label: string; value: string | number; accent?: string }> = [
     { label: "任务总数", value: m.total_tasks },
     { label: "本月完成", value: m.completed, accent: "text-emerald-600" },
-    { label: "完成率", value: `${m.completion_rate}%`, accent: "text-[#002fa7]" },
+    { label: "完成率", value: `${m.completion_rate}%`, accent: "text-primary" },
     { label: "进行中", value: m.in_progress, accent: "text-blue-600" },
     { label: "阻塞", value: m.blocked, accent: "text-red-600" },
     { label: "停滞", value: m.stalled, accent: "text-amber-600" },
@@ -224,12 +225,12 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
   ];
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-4 py-3">
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#dce6ff] bg-accent px-4 py-3">
         <div>
           <div className="text-[11px] text-slate-500">综合评分</div>
-          <div className="text-3xl font-bold tabular-nums text-[#002fa7]">
+          <div className="text-3xl font-bold tabular-nums text-primary">
             {s.score}
-            <span className="ml-0.5 text-base font-medium text-[#002fa7]/65">分</span>
+            <span className="ml-0.5 text-base font-medium text-primary/65">分</span>
           </div>
         </div>
         <span className={cn("inline-flex items-center rounded-full px-3.5 py-1 text-sm font-bold ring-1", gradeCls)}>
@@ -239,7 +240,7 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
       <div className="mb-4 grid grid-cols-3 gap-2">
         {cells.map((c) => (
           <div key={c.label} className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
-            <div className="text-[10px] text-slate-400">{c.label}</div>
+            <div className="text-[10px] text-muted-foreground">{c.label}</div>
             <div className={cn("mt-0.5 text-lg font-bold tabular-nums text-slate-700", c.accent)}>{c.value}</div>
           </div>
         ))}
@@ -273,10 +274,10 @@ function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) 
       <div className="border-b border-slate-100 px-4 py-2 text-[11px] font-semibold text-slate-500">绩效评分（逐考核项）</div>
       <table className="w-full text-[12px]">
         <thead>
-          <tr className="text-slate-400">
+          <tr className="text-muted-foreground">
             <th className="px-4 py-1.5 text-left font-medium">考核项</th>
-            <th className="px-2 py-1.5 text-center font-medium text-slate-400">权重</th>
-            <th className="px-2 py-1.5 text-center font-medium text-[#002fa7]">个人自评</th>
+            <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">权重</th>
+            <th className="px-2 py-1.5 text-center font-medium text-primary">个人自评</th>
             <th className="px-2 py-1.5 text-center font-medium text-amber-600">直接领导</th>
           </tr>
         </thead>
@@ -284,14 +285,14 @@ function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) 
           {rows.map((r) => (
             <tr key={r.name} className="border-t border-slate-50">
               <td className="px-4 py-1.5 text-slate-600">{r.name}</td>
-              <td className="px-2 py-1.5 text-center tabular-nums text-slate-400">{r.weight}</td>
+              <td className="px-2 py-1.5 text-center tabular-nums text-muted-foreground">{r.weight}</td>
               <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{cell(self, r.name)}</td>
               <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{cell(supervisor, r.name)}</td>
             </tr>
           ))}
           <tr className="border-t border-slate-100 bg-slate-50/60">
             <td className="px-4 py-1.5 font-semibold text-slate-600" colSpan={2}>总计</td>
-            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-[#002fa7]">{sum(self) ?? "—"}</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-primary">{sum(self) ?? "—"}</td>
             <td className="px-2 py-1.5 text-center font-bold tabular-nums text-amber-700">{sum(supervisor) ?? "—"}</td>
           </tr>
         </tbody>
@@ -299,7 +300,7 @@ function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) 
       {(self?.comment?.trim() || supervisor?.comment?.trim()) && (
         <div className="space-y-2 px-4 py-2.5 text-pretty text-[12px] leading-6 text-slate-600">
           {self?.comment?.trim() && (
-            <div><span className="font-semibold text-[#002fa7]">自评说明：</span>{self.comment}</div>
+            <div><span className="font-semibold text-primary">自评说明：</span>{self.comment}</div>
           )}
           {supervisor?.comment?.trim() && (
             <div><span className="font-semibold text-amber-600">主管评语：</span>{supervisor.comment}</div>
@@ -380,7 +381,7 @@ export function RDPerformanceReportDialog({
         <DialogContent className="horizon-portal flex max-h-[88dvh] flex-col gap-0 overflow-hidden border-slate-200 bg-white p-0 sm:max-w-2xl">
           <DialogHeader className="border-b border-slate-200 px-5 py-3.5 pr-12 text-left">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-primary ring-1 ring-[#dce6ff]">
               <Award className="size-4" />
             </span>
             <div>
@@ -394,7 +395,7 @@ export function RDPerformanceReportDialog({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-slate-400">
+            <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               正在读取绩效…
             </div>
@@ -406,7 +407,7 @@ export function RDPerformanceReportDialog({
                 {loaded ? "该成员本月尚未生成绩效报表。" : ""}
               </p>
               {canGenerate ? (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={generate}
                   disabled={generating || !userId}
@@ -414,9 +415,9 @@ export function RDPerformanceReportDialog({
                 >
                   {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {generating ? "AI 评估中…" : "生成绩效报表"}
-                </button>
+                </Button>
               ) : (
-                <p className="text-xs text-slate-400">暂无生成权限，请联系研发主管。</p>
+                <p className="text-xs text-muted-foreground">暂无生成权限，请联系研发主管。</p>
               )}
             </div>
           )}
@@ -430,7 +431,7 @@ export function RDPerformanceReportDialog({
             </span>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {canGenerate && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={generate}
                   disabled={generating}
@@ -438,19 +439,19 @@ export function RDPerformanceReportDialog({
                 >
                   {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                   重新生成
-                </button>
+                </Button>
               )}
               {canGenerate && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setScoringOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-[#dce6ff] bg-white px-3 py-1.5 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
+                  className="inline-flex items-center gap-1 rounded-full border border-[#dce6ff] bg-white px-3 py-1.5 text-xs font-semibold text-primary hover:bg-accent"
                 >
                   <UserCheck className="h-3.5 w-3.5" />
                   {report.summary.supervisor_assessment ? "修改主管评分" : "主管评分"}
-                </button>
+                </Button>
               )}
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => {
                   downloadPerformanceXlsx(report).catch((err) =>
@@ -461,7 +462,7 @@ export function RDPerformanceReportDialog({
               >
                 <Download className="h-3.5 w-3.5" />
                 下载正式绩效文件
-              </button>
+              </Button>
             </div>
           </div>
           )}

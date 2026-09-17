@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { authFetch } from "../lib/authSession";
 import { t, useI18n } from "../lib/i18n";
 import { cn } from "./ui/utils";
+import { Button } from "./ui/button";
 
 // ── 自动翻译（混合模式的"短文本"路线）────────────────────────────────────────
 // 模块级缓存 + in-flight 去重 + 并发限制：列表页几十条标题同时挂载时，
@@ -178,18 +179,18 @@ export function TranslatableText({
     <>
       <Tag className={className}>{showTranslated && translated ? translated : source}</Tag>
       {canTranslate && (
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => void handleTranslate()}
           disabled={loading}
           className={cn(
             "mt-1 inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-            showTranslated ? "text-slate-400 hover:text-slate-600" : "text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002fa7]",
+            showTranslated ? "text-muted-foreground hover:text-slate-600" : "text-primary hover:bg-accent hover:text-primary",
           )}
         >
           {loading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Languages className="h-2.5 w-2.5" />}
           {showTranslated ? t("显示原文") : "Translate"}
-        </button>
+        </Button>
       )}
     </>
   );

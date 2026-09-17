@@ -7,6 +7,8 @@ import { cn } from "./ui/utils";
 import { ModalShell } from "./MediaCategorySidebar";
 import { uploadResourceFile, type ResourceBusinessType } from "../lib/resourceUpload";
 import { flattenCategories, type MediaCategoryNode } from "../lib/mediaCategory";
+import { Input } from "./ui/input";
+import { NativeSelect } from "./ui/native-select";
 
 export type MediaUploadKind = "image" | "video";
 
@@ -252,12 +254,12 @@ export function MediaUploadDialog({
             }
           }}
           className={cn(
-            "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
             uploading
               ? "cursor-not-allowed border-slate-200 bg-slate-50/60 opacity-60"
               : dragging
                 ? "cursor-pointer border-blue-500 bg-blue-50"
-                : "cursor-pointer border-slate-300 bg-slate-50 hover:border-blue-400",
+                : "cursor-pointer border-slate-300 bg-slate-50 hover:border-primary",
           )}
         >
           <div className="flex size-11 items-center justify-center rounded-xl bg-primary-container text-on-primary-container">
@@ -268,7 +270,7 @@ export function MediaUploadDialog({
           </p>
           <p id="media-upload-format-hint" className="text-pretty text-[11px] text-slate-500">{config.hint}</p>
         </div>
-        <input
+        <Input
           ref={inputRef}
           type="file"
           multiple
@@ -286,7 +288,7 @@ export function MediaUploadDialog({
           <label htmlFor="media-upload-category" className="text-xs font-semibold text-slate-600">
             放入分类
           </label>
-          <select
+          <NativeSelect
             id="media-upload-category"
             value={categoryId}
             disabled={uploading}
@@ -299,7 +301,7 @@ export function MediaUploadDialog({
                 {category.path}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
 
         {rows.length > 0 ? (
@@ -312,9 +314,9 @@ export function MediaUploadDialog({
                 <span className="min-w-0 flex-1 truncate font-medium text-slate-700" title={row.file.name}>
                   {row.file.name}
                 </span>
-                <span className="shrink-0 tabular-nums text-[11px] text-slate-400">{formatSize(row.file.size)}</span>
+                <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{formatSize(row.file.size)}</span>
                 {row.status === "uploading" ? (
-                  <Loader2 className="size-3.5 shrink-0 animate-spin text-[#002fa7] motion-reduce:animate-none" />
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
                 ) : row.status === "done" ? (
                   <span className="shrink-0 text-[11px] font-semibold text-emerald-600">已入库</span>
                 ) : row.status === "error" ? (
@@ -322,14 +324,14 @@ export function MediaUploadDialog({
                     失败
                   </span>
                 ) : (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setRows((current) => current.filter((item) => item.localId !== row.localId))}
                     aria-label={`移除 ${row.file.name}`}
                     className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                   >
                     <Trash2 className="size-3.5" />
-                  </button>
+                  </Button>
                 )}
                 {row.status === "error" && row.error ? <p role="alert" className="basis-full text-pretty text-[11px] text-rose-700">{row.error}</p> : null}
               </div>
@@ -339,7 +341,7 @@ export function MediaUploadDialog({
       </div>
 
       {uploading ? (
-        <div className="border-t border-slate-100 bg-blue-50 px-5 py-2 text-xs font-medium tabular-nums text-[#002fa7]" role="status" aria-live="polite">
+        <div className="border-t border-slate-100 bg-blue-50 px-5 py-2 text-xs font-medium tabular-nums text-primary" role="status" aria-live="polite">
           正在上传 {progress.done}/{progress.total}，请勿关闭窗口。
         </div>
       ) : null}

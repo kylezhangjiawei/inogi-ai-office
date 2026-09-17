@@ -10,9 +10,9 @@ assert.ok(hook);
 let input;
 let clearButton;
 function visit(node) {
-  if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "input"
+  if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "Input"
     && node.attributes.properties.some((prop) => ts.isJsxAttribute(prop) && prop.name.getText(ast) === "aria-label" && prop.initializer?.getText(ast).includes("搜索任务全部内容"))) input = node;
-  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "button"
+  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "Button"
     && node.openingElement.attributes.properties.some((prop) => ts.isJsxAttribute(prop) && prop.name.getText(ast) === "aria-label" && prop.initializer?.getText(ast).includes("清空搜索"))) clearButton = node.openingElement;
   ts.forEachChild(node, visit);
 }

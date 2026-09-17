@@ -64,7 +64,7 @@ test("专用图片与附件预览保留手势能力并使用可恢复焦点的�
   assert.match(attachmentPreview, /<MobileZoomableImage/);
 });
 
-test("研发共享附属面统一使用 Klein Blue 并清除旧视觉噪声", () => {
+test("研发共享附属面统一使用 Horizon 主题 并清除旧视觉噪声", () => {
   const forbiddenPatterns = [
     ["旧紫色", /\b(?:indigo|violet|purple|fuchsia|pink)-/i],
     ["暗色变体", /\bdark:/],
@@ -80,7 +80,7 @@ test("研发共享附属面统一使用 Klein Blue 并清除旧视觉噪声", ()
     }
   }
 
-  for (const page of Object.values(surfaces)) assert.match(page, /#002fa7|#eef3ff/);
+  for (const page of Object.values(surfaces)) assert.match(page, /primary|accent/);
 });
 
 test("导出、审计、附件与绩效业务契约保持完整", () => {

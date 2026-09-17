@@ -110,17 +110,17 @@ function RankingPagination({
         <span className="tabular-nums font-semibold text-slate-700">{totalItems}</span> {itemLabel}
       </span>
       <nav className="flex items-center gap-1" aria-label={`${itemLabel}排行分页`}>
-        <button
+        <Button variant="unstyled"
           type="button"
           aria-label="上一页"
           disabled={!hasPrevious}
           onClick={() => onPageChange(safePage - 1)}
-          className="flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronLeft className="size-4" />
-        </button>
+        </Button>
         {visiblePages.map((pageNumber) => (
-          <button
+          <Button variant="unstyled"
             key={pageNumber}
             type="button"
             aria-label={`第 ${pageNumber} 页`}
@@ -129,22 +129,22 @@ function RankingPagination({
             className={cn(
               "h-10 min-w-10 rounded-lg px-2 text-xs font-semibold tabular-nums transition-colors",
               safePage === pageNumber
-                ? "bg-[#002fa7] text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-[#002fa7]",
+                ? "bg-primary text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:text-primary",
             )}
           >
             {pageNumber}
-          </button>
+          </Button>
         ))}
-        <button
+        <Button variant="unstyled"
           type="button"
           aria-label="下一页"
           disabled={!hasNext}
           onClick={() => onPageChange(safePage + 1)}
-          className="flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex size-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronRight className="size-4" />
-        </button>
+        </Button>
       </nav>
     </div>
   );
@@ -288,7 +288,7 @@ export function AiUsageDashboardPage() {
           <>
             <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="统计周期">
               {RANGE_TABS.map((item) => (
-                <button
+                <Button variant="unstyled"
                   key={item.value}
                   type="button"
                   aria-pressed={range === item.value}
@@ -296,12 +296,12 @@ export function AiUsageDashboardPage() {
                   className={cn(
                     "min-h-9 rounded-lg px-3 text-sm font-semibold transition-colors",
                     range === item.value
-                      ? "bg-[#002fa7] text-white"
-                      : "text-slate-600 hover:bg-white hover:text-[#002fa7]",
+                      ? "bg-primary text-white"
+                      : "text-slate-600 hover:bg-white hover:text-primary",
                   )}
                 >
                   {item.label}
-                </button>
+                </Button>
               ))}
             </div>
             <Button
@@ -331,43 +331,43 @@ export function AiUsageDashboardPage() {
       />
 
       <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
-        <button
+        <Button variant="unstyled"
           type="button"
-          className="min-w-0 rounded-xl text-left transition-colors hover:bg-blue-50/70 [&>.hz-stat]:h-full"
+          className="min-w-0 rounded-xl text-left transition-colors hover:bg-accent/70 [&>.hz-stat]:h-full"
           onClick={(event) => openDetails({ title: "全部 AI 调用", description: `${RANGE_LABELS[range]}全部逐次调用记录` }, event.currentTarget)}
           aria-label="查看全部 AI 调用详情"
         >
           <HorizonMetric Icon={BarChart3} label="总调用" value={metricsUnavailable ? "—" : (t?.calls ?? 0).toLocaleString()} note={metricsUnavailable ? "等待用量数据" : `对话 ${t?.chat_calls ?? 0} · 图片 ${t?.image_calls ?? 0} · 视频 ${t?.video_calls ?? 0}`} tone="brand" />
-        </button>
-        <button
+        </Button>
+        <Button variant="unstyled"
           type="button"
-          className="min-w-0 rounded-xl text-left transition-colors hover:bg-blue-50/70 [&>.hz-stat]:h-full"
+          className="min-w-0 rounded-xl text-left transition-colors hover:bg-accent/70 [&>.hz-stat]:h-full"
           onClick={(event) => openDetails({ title: "Token 使用详情", description: `${RANGE_LABELS[range]}逐次调用的输入、输出和总 Token` }, event.currentTarget)}
           aria-label="查看 Token 使用详情"
         >
           <HorizonMetric Icon={MessageSquare} label="Token" value={metricsUnavailable ? "—" : (t?.tokens ?? 0).toLocaleString()} note="对话 Token 为内容长度估算" tone="neutral" />
-        </button>
-        <button
+        </Button>
+        <Button variant="unstyled"
           type="button"
-          className="min-w-0 rounded-xl text-left transition-colors hover:bg-blue-50/70 [&>.hz-stat]:h-full"
+          className="min-w-0 rounded-xl text-left transition-colors hover:bg-accent/70 [&>.hz-stat]:h-full"
           onClick={(event) => openDetails({ title: "AI 花费详情", description: `${RANGE_LABELS[range]}逐次调用成本与折合人民币` }, event.currentTarget)}
           aria-label="查看 AI 花费详情"
         >
           <HorizonMetric Icon={Video} label="约合花费" value={metricsUnavailable ? "—" : `¥${t?.cost_cny_approx ?? 0}`} note={metricsUnavailable ? "等待成本数据" : `视频 ¥${t?.video_cost_yuan ?? 0} · 图片 $${t?.image_cost_usd ?? 0}`} tone="warning" />
-        </button>
-        <button
+        </Button>
+        <Button variant="unstyled"
           type="button"
-          className="min-w-0 rounded-xl text-left transition-colors hover:bg-blue-50/70 [&>.hz-stat]:h-full"
+          className="min-w-0 rounded-xl text-left transition-colors hover:bg-accent/70 [&>.hz-stat]:h-full"
           onClick={(event) => openDetails({ title: "活跃用户调用详情", description: `${RANGE_LABELS[range]}所有活跃用户的逐次调用记录` }, event.currentTarget)}
           aria-label="查看活跃用户调用详情"
         >
           <HorizonMetric Icon={Users} label="活跃用户" value={metricsUnavailable ? "—" : t?.active_users ?? 0} note={`${RANGE_LABELS[range]}产生调用的成员`} tone="success" />
-        </button>
+        </Button>
       </HorizonMetricGrid>
 
       {initialLoading ? (
         <section className="hz-surface flex min-h-72 items-center justify-center gap-2 text-sm text-slate-500" aria-live="polite">
-          <Loader2 className="size-5 animate-spin text-[#002fa7]" />
+          <Loader2 className="size-5 animate-spin text-primary" />
           正在加载{RANGE_LABELS[range]}数据...
         </section>
       ) : loadError && !data ? (
@@ -423,7 +423,7 @@ export function AiUsageDashboardPage() {
                     </div>
                     <div className="relative flex h-full items-end gap-1">
                       {(data?.trend ?? []).map((item) => (
-                        <button
+                        <Button variant="unstyled"
                           key={item.date}
                           type="button"
                           className="group relative flex h-full min-w-0 flex-1 cursor-pointer items-end rounded-t-md focus-visible:outline-none"
@@ -437,12 +437,12 @@ export function AiUsageDashboardPage() {
                         >
                           <span
                             className={cn(
-                              "block w-full rounded-t-md group-hover:bg-blue-800",
-                              item.calls > 0 ? "bg-[#002fa7]" : "bg-slate-200",
+                              "block w-full rounded-t-md group-hover:bg-primary-hover",
+                              item.calls > 0 ? "bg-primary" : "bg-slate-200",
                             )}
                             style={{ height: item.calls > 0 ? `${Math.max(5, (item.calls / Math.max(1, maxTrend)) * 100)}%` : "2px" }}
                           />
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </div>
@@ -461,30 +461,30 @@ export function AiUsageDashboardPage() {
                 description="按内容类型下钻到逐次调用记录。"
               />
               <div className="grid gap-2 p-4">
-                <button
+                <Button variant="unstyled"
                   type="button"
-                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-primary/25 hover:bg-accent/60"
                   onClick={(event) => openDetails({ title: "对话调用详情", description: `${RANGE_LABELS[range]}对话模型调用记录`, modality: "chat" }, event.currentTarget)}
                 >
                   <span className="flex items-center gap-3 text-sm font-semibold text-slate-700"><MessageSquare className="size-4 text-sky-600" />对话调用</span>
-                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.chat_calls ?? 0}<ChevronRight className="size-4 text-slate-400" /></span>
-                </button>
-                <button
+                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.chat_calls ?? 0}<ChevronRight className="size-4 text-muted-foreground" /></span>
+                </Button>
+                <Button variant="unstyled"
                   type="button"
-                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-primary/25 hover:bg-accent/60"
                   onClick={(event) => openDetails({ title: "图片调用详情", description: `${RANGE_LABELS[range]}图片生成调用记录`, modality: "image" }, event.currentTarget)}
                 >
                   <span className="flex items-center gap-3 text-sm font-semibold text-slate-700"><ImageIcon className="size-4 text-amber-600" />图片调用</span>
-                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.image_calls ?? 0}<ChevronRight className="size-4 text-slate-400" /></span>
-                </button>
-                <button
+                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.image_calls ?? 0}<ChevronRight className="size-4 text-muted-foreground" /></span>
+                </Button>
+                <Button variant="unstyled"
                   type="button"
-                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+                  className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-primary/25 hover:bg-accent/60"
                   onClick={(event) => openDetails({ title: "视频调用详情", description: `${RANGE_LABELS[range]}视频生成调用记录`, modality: "video" }, event.currentTarget)}
                 >
                   <span className="flex items-center gap-3 text-sm font-semibold text-slate-700"><Video className="size-4 text-blue-700" />视频调用</span>
-                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.video_calls ?? 0}<ChevronRight className="size-4 text-slate-400" /></span>
-                </button>
+                  <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-slate-900">{t?.video_calls ?? 0}<ChevronRight className="size-4 text-muted-foreground" /></span>
+                </Button>
               </div>
             </section>
           </div>
@@ -519,7 +519,7 @@ export function AiUsageDashboardPage() {
                           ? `$${modelRow.cost_usd}`
                           : "—";
                       return (
-                        <button
+                        <Button variant="unstyled"
                           key={`${modelRow.modality}-${modelRow.model}`}
                           type="button"
                           onClick={(event) => openDetails({
@@ -528,7 +528,7 @@ export function AiUsageDashboardPage() {
                             modality: modelRow.modality,
                             model: modelRow.model,
                           }, event.currentTarget)}
-                          className="block w-full rounded-xl border border-slate-200 p-3 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/50 focus-visible:outline-none"
+                          className="block w-full rounded-xl border border-slate-200 p-3 text-left transition-colors hover:border-primary/25 hover:bg-accent/50 focus-visible:outline-none"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex min-w-0 items-center gap-2">
@@ -539,13 +539,13 @@ export function AiUsageDashboardPage() {
                               <span className="text-sm font-bold text-slate-900">{modelRow.calls}</span> 次
                               {modelRow.tokens > 0 ? <span className="ml-2">{modelRow.tokens.toLocaleString()} tok</span> : null}
                               {cost !== "—" ? <span className="ml-2">{cost}</span> : null}
-                              <ChevronRight className="ml-1 inline size-4 text-slate-400" />
+                              <ChevronRight className="ml-1 inline size-4 text-muted-foreground" />
                             </div>
                           </div>
                           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
-                            <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${(modelRow.calls / maxModelCalls) * 100}%` }} />
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${(modelRow.calls / maxModelCalls) * 100}%` }} />
                           </div>
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -610,7 +610,7 @@ export function AiUsageDashboardPage() {
                                 openDetails(userDetails, event.currentTarget);
                               }
                             }}
-                            className="cursor-pointer text-slate-700 transition-colors hover:bg-blue-50/50 focus-visible:bg-blue-50/70 focus-visible:outline-none"
+                            className="cursor-pointer text-slate-700 transition-colors hover:bg-accent/50 focus-visible:bg-blue-50/70 focus-visible:outline-none"
                           >
                             <td className="py-3 pr-2 tabular-nums text-slate-500">{userPageState.startIndex + index + 1}</td>
                             <td className="py-3 pr-2">
@@ -623,7 +623,7 @@ export function AiUsageDashboardPage() {
                             <td className="py-3 pr-2 text-right tabular-nums">{userRow.video_calls}</td>
                             <td className="py-3 pr-2 text-right tabular-nums text-slate-500">{userRow.tokens ? userRow.tokens.toLocaleString() : "—"}</td>
                             <td className="py-3 text-right tabular-nums text-slate-500">{userRow.cost_cny_approx ? `¥${userRow.cost_cny_approx}` : "—"}</td>
-                            <td className="py-3 pl-2"><ChevronRight className="size-4 text-slate-400" aria-hidden="true" /></td>
+                            <td className="py-3 pl-2"><ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" /></td>
                           </tr>
                         );
                       })}
@@ -692,28 +692,28 @@ export function AiUsageDashboardPage() {
               <div className="space-y-4">
                 <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="text-xs text-slate-400">调用次数</div>
+                    <div className="text-xs text-muted-foreground">调用次数</div>
                     <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">{detailSummary?.calls ?? 0}</div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="text-xs text-slate-400">对话 / 图片 / 视频</div>
+                    <div className="text-xs text-muted-foreground">对话 / 图片 / 视频</div>
                     <div className="mt-1 text-sm font-bold tabular-nums text-slate-900">
                       {detailSummary?.chat_calls ?? 0} / {detailSummary?.image_calls ?? 0} / {detailSummary?.video_calls ?? 0}
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="text-xs text-slate-400">总 Token</div>
+                    <div className="text-xs text-muted-foreground">总 Token</div>
                     <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
                       {(detailSummary?.total_tokens ?? 0).toLocaleString()}
                     </div>
-                    <div className="mt-0.5 text-[11px] tabular-nums text-slate-400">
+                    <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
                       输入 {(detailSummary?.prompt_tokens ?? 0).toLocaleString()} · 输出 {(detailSummary?.completion_tokens ?? 0).toLocaleString()}
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="text-xs text-slate-400">约合花费</div>
+                    <div className="text-xs text-muted-foreground">约合花费</div>
                     <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">¥{detailSummary?.cost_cny_approx ?? 0}</div>
-                    <div className="mt-0.5 text-[11px] tabular-nums text-slate-400">
+                    <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
                       视频 ¥{detailSummary?.cost_yuan ?? 0} · 图片 ${detailSummary?.cost_usd ?? 0}
                     </div>
                   </div>
@@ -724,7 +724,7 @@ export function AiUsageDashboardPage() {
                     Icon={FileText}
                     title="逐次调用记录"
                     description={`共 ${detailData.pagination.total} 条，按调用时间倒序`}
-                    trailing={detailLoading ? <Loader2 className="size-4 animate-spin text-[#002fa7]" aria-label="正在刷新调用明细" /> : null}
+                    trailing={detailLoading ? <Loader2 className="size-4 animate-spin text-primary" aria-label="正在刷新调用明细" /> : null}
                   />
 
                   {detailError ? <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800" role="alert">{detailError}</div> : null}
@@ -781,7 +781,7 @@ export function AiUsageDashboardPage() {
                                 <div className="text-sm font-bold text-slate-900">
                                   {item.total_tokens > 0 ? `${item.total_tokens.toLocaleString()} Token` : originalCost}
                                 </div>
-                                <div className="mt-0.5 text-[11px] text-slate-400">
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">
                                   约合 ¥{item.cost_cny_approx}
                                   {item.seconds > 0 ? ` · ${item.seconds}s` : ""}
                                 </div>
@@ -790,19 +790,19 @@ export function AiUsageDashboardPage() {
 
                             <div className="mt-3 grid gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] tabular-nums text-slate-500 sm:grid-cols-2">
                               <div>
-                                <span className="text-slate-400">Token：</span>
+                                <span className="text-muted-foreground">Token：</span>
                                 输入 {item.prompt_tokens.toLocaleString()} · 输出 {item.completion_tokens.toLocaleString()}
                               </div>
                               <div>
-                                <span className="text-slate-400">成本：</span>
+                                <span className="text-muted-foreground">成本：</span>
                                 {originalCost} · 折合 ¥{item.cost_cny_approx}
                               </div>
                               <div>
-                                <span className="text-slate-400">服务商 / 来源：</span>
+                                <span className="text-muted-foreground">服务商 / 来源：</span>
                                 {item.provider || "—"} / {item.source || "—"}
                               </div>
                               <div className="min-w-0">
-                                <span className="text-slate-400">关联业务 ID：</span>
+                                <span className="text-muted-foreground">关联业务 ID：</span>
                                 <span className="break-all font-mono">{item.ref_id || "—"}</span>
                               </div>
                             </div>
@@ -814,7 +814,7 @@ export function AiUsageDashboardPage() {
 
                   {detailData.pagination.total_pages > 1 && (
                     <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3">
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => setDetailPage((page) => Math.max(1, page - 1))}
                         disabled={detailPage <= 1 || detailLoading}
@@ -822,11 +822,11 @@ export function AiUsageDashboardPage() {
                       >
                         <ChevronLeft className="h-3.5 w-3.5" />
                         上一页
-                      </button>
-                      <span className="text-xs tabular-nums text-slate-400">
+                      </Button>
+                      <span className="text-xs tabular-nums text-muted-foreground">
                         第 {detailData.pagination.page} / {detailData.pagination.total_pages} 页
                       </span>
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => setDetailPage((page) => Math.min(detailData.pagination.total_pages, page + 1))}
                         disabled={detailPage >= detailData.pagination.total_pages || detailLoading}
@@ -834,7 +834,7 @@ export function AiUsageDashboardPage() {
                       >
                         下一页
                         <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </section>

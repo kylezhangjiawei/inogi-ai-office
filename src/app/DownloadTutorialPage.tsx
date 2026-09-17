@@ -372,7 +372,7 @@ function TutorialImageSlot({ step }: { step: TutorialStep }) {
         </MobileImagePreviewLink>
       ) : (
         <div className={cn("w-full overflow-hidden rounded-sm border border-slate-100 bg-slate-50 shadow-sm", shapeClass)}>
-          <div className="flex h-full w-full items-center justify-center border border-dashed border-slate-200 bg-white text-sm font-medium text-slate-300">
+          <div className="flex h-full w-full items-center justify-center border border-dashed border-slate-200 bg-white text-sm font-medium text-muted-foreground">
             图片预留位置
           </div>
         </div>
@@ -392,7 +392,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
     const Icon = platform.icon;
     return (
       <div className="flex justify-center lg:justify-end">
-        <div className="flex size-64 items-center justify-center rounded-full bg-[#002fa7] shadow-md">
+        <div className="flex size-64 items-center justify-center rounded-full bg-primary shadow-md">
           <Icon className="size-28 text-white" strokeWidth={1.5} />
         </div>
       </div>
@@ -402,7 +402,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
   if (type === "download-list") {
     return (
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 text-xs text-[#002fa7] shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 text-xs text-primary shadow-sm">
           {["Clash.Verge_1.7.3_x64-setup.exe", "Clash.Verge_1.7.3_x64.dmg", "Clash.Verge_1.7.3_arm64.dmg", "Clash.Verge_1.7.3_portable.zip"].map((item) => (
             <div key={item} className="break-all border-b border-slate-100 py-2 underline">
               {item}
@@ -414,7 +414,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 text-xs">
             {["Clash Verge 1.7.2 arm64.dmg", "Clash Verge 1.7.2 x64-setup.exe", "Clash Verge 1.7.2 x64.dmg"].map((item) => (
               <React.Fragment key={item}>
-                <span className="min-w-0 truncate text-[#002fa7] underline">{item}</span>
+                <span className="min-w-0 truncate text-primary underline">{item}</span>
                 <span>2024-07-03</span>
                 <span>35M</span>
               </React.Fragment>
@@ -446,7 +446,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
         </div>
         {type === "installer" ? (
           <div className="grid grid-cols-[86px_1fr] gap-4">
-            <div className="h-36 rounded bg-[#002fa7]" />
+            <div className="h-36 rounded bg-primary" />
             <div className="space-y-3">
               <div className="h-4 rounded bg-slate-300" />
               <div className="h-3 rounded bg-slate-200" />
@@ -496,7 +496,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
           </div>
         ) : type === "mac-about" ? (
           <div className="flex items-center gap-5 rounded bg-black p-5 text-white">
-            <div className="flex size-24 items-center justify-center rounded-3xl bg-[#002fa7]">
+            <div className="flex size-24 items-center justify-center rounded-3xl bg-primary">
               <Laptop className="size-12" />
             </div>
             <div>
@@ -638,13 +638,13 @@ export function DownloadTutorialPage() {
                     key={platform.id}
                     to={`${downloadsPath}/${platform.id}`}
                     aria-label={`查看${platform.title}，共 ${stats.steps} 个步骤`}
-                    className="group flex min-h-44 flex-col justify-between gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-[#b7c7ee] hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 sm:p-6"
+                    className="group flex min-h-44 flex-col justify-between gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-[#b7c7ee] hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:p-6"
                   >
                     <div className="flex items-start justify-between gap-4">
-                      <span className="flex size-12 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+                      <span className="flex size-12 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden="true">
                         <Icon className="size-6" strokeWidth={1.7} />
                       </span>
-                      <span className="text-xs font-semibold tabular-nums text-slate-400">平台 {String(index + 1).padStart(2, "0")}</span>
+                      <span className="text-xs font-semibold tabular-nums text-muted-foreground">平台 {String(index + 1).padStart(2, "0")}</span>
                     </div>
 
                     <div className="min-w-0">
@@ -654,7 +654,7 @@ export function DownloadTutorialPage() {
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 tabular-nums">{stats.steps} 个步骤</span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 tabular-nums">{stats.externalActions} 个下载入口</span>
                       </div>
-                      <span className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ccd8f5] bg-[#eef3ff] px-3 text-sm font-semibold text-[#002fa7] transition-colors group-hover:border-[#9fb4e8] group-hover:bg-[#e4ecff]">
+                      <span className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ccd8f5] bg-accent px-3 text-sm font-semibold text-primary transition-colors group-hover:border-[#9fb4e8] group-hover:bg-[#e4ecff]">
                         <BookOpen className="size-4" aria-hidden="true" />
                         查看教程
                       </span>
@@ -735,7 +735,7 @@ export function PlatformTutorialPage() {
                       className="grid min-h-[240px] gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,430px)] lg:items-start lg:gap-8 lg:px-6 lg:py-8"
                     >
                       <div className="min-w-0 max-w-4xl">
-                        <span className="inline-flex min-h-8 items-center rounded-lg bg-[#eef3ff] px-3 text-sm font-bold tabular-nums text-[#002fa7]">
+                        <span className="inline-flex min-h-8 items-center rounded-lg bg-accent px-3 text-sm font-bold tabular-nums text-primary">
                           步骤 {stepNumber}
                         </span>
                         <h3 id={headingId} className="mt-3 text-balance text-lg font-bold leading-7 text-[#1b2559]">{step.title}</h3>

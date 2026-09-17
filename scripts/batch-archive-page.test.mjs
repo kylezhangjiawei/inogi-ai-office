@@ -14,6 +14,8 @@ const noStorage = new Proxy({}, { get: noExternal, set: noExternal });
 function evaluate(code, dependencies = {}, env = {}) {
   const exports = {};
   new Function('exports', 'require', 'window', 'URL', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     assert.ok(Object.hasOwn(dependencies, name), `未审查的依赖 ${name}`); return dependencies[name];
   }, env.window ?? {}, env.URL ?? URL, noExternal, noStorage, noStorage, noStorage);
   return exports;
@@ -57,7 +59,7 @@ function fixture(initialSearch = '') {
     './BatchArchiveSections': { BatchArchiveSections: 'BatchArchiveSections' }, './VersionEvidenceForm': { VersionEvidenceForm: 'VersionEvidenceForm' },
     '../../order-processing/horizon.css': {}, './batch-archive-preview.css': {},
   };
-  for (const name of ['alert-dialog', 'button', 'input', 'label', 'select', 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
+  for (const name of ['alert-dialog', "button", "input", 'label', "select", 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
   const exports = evaluate(pageCode, dependencies, { window: {
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: (name, handler) => { if (listeners.get(name) === handler) listeners.delete(name); },
     document: { createElement(name) { assert.equal(name, 'a'); const link = { click() { downloads.push({ href: link.href, download: link.download }); }, remove() {} }; return link; }, body: { appendChild() {} }, getElementById(id) { assert.ok(nodes(tree).some((node) => node.props.id === id), `滚动目标 ${id} 存在`); return { scrollIntoView(options) { scrolls.push({ id, options }); } }; } },
@@ -70,7 +72,7 @@ function fixture(initialSearch = '') {
     section: () => view.byType('BatchArchiveSections'), form: () => view.byType('VersionEvidenceForm'), state: () => slots.find((value) => value?.batches && value?.revisions),
     content() { return view.section() ? section.BatchArchiveSections(view.section().props) : null; }, contentText() { return normalized(view.content()); },
     sheet: () => view.byType('Sheet'), params: () => new URLSearchParams(location.search), location: () => ({ ...location }), downloads, blobs, revoked, navigations, scrolls,
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
     click(label) { const node = view.button(label); assert.ok(node, `${label} exists`); assert.equal(Boolean(node.props.disabled), false, `${label} enabled`); node.props.onClick(); return view.render(); },
     input(value) { view.byId('bap-query').props.onChange({ target: { value } }); return view.render(); },
     select(id) { view.nodes().find((node) => node.type === 'Select').props.onValueChange(id); return view.render(); },
@@ -80,7 +82,7 @@ function fixture(initialSearch = '') {
     discardDialog: () => view.nodes().find((node) => node.type === 'AlertDialog' && /放弃尚未保存/.test(normalized(node))),
     cancelDiscard() { view.discardDialog().props.onOpenChange(false); return view.render(); },
     discard() { view.click('放弃并继续'); return view.render(); },
-    failNext() { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); return view.render(); },
+    failNext() { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(true); return view.render(); },
     failExport(value = true) { exportFails = value; },
     amendment(patch = {}) { const props = view.form().props, batch = view.state().batches.find((item) => item.id === props.batchId), scope = batch.versionScopes.find((item) => item.id === props.scopeId); return { scopeId: props.scopeId, name: scope?.name ?? '剩余 16 台', quantity: scope?.quantity ?? 16, versions: { software: 'V1.0.8', hardware: 'HW-B', bom: 'BOM-V3.2', drawing: 'DW-V1', sop: 'SOP-V1', sip: 'SIP-V1' }, serialNumbers: scope?.serialNumbers ?? [], evidenceIds: ['b2-technical-partial'], actor: '演示核对人', reason: '按历史烧录和受控图纸补齐实际版本', ...patch }; },
     async save(patch = {}) { try { await view.form().props.onSubmit(view.amendment(patch)); } finally { view.render(); } },
@@ -166,7 +168,7 @@ test('页面内两个区域跳转仅滚动，不产生路由导航或触发未�
   const page = fixture('?batch=batch-02&tab=versions'); page.edit(); page.dirty();
   const location = page.location(), formKey = page.form().key, navigationCount = page.navigations.length;
   for (const [label, id] of [['前往核对与修订', 'bap-actions'], ['查看当前资料', 'bap-content'], ['返回当前资料', 'bap-content']]) {
-    const button = page.button(label); assert.ok(button); assert.equal(button.type, 'button'); assert.equal(button.props.type, 'button'); assert.equal(button.props.href, undefined);
+    const button = page.button(label); assert.ok(button); assert.equal(button.type, "Button"); assert.equal(button.props.type, 'button'); assert.equal(button.props.href, undefined);
     page.click(label); assert.equal(page.scrolls.at(-1)?.id, id); assert.equal(page.scrolls.at(-1)?.options.block, 'start');
     assert.equal(page.navigations.length, navigationCount); assert.deepEqual(page.location(), location); assert.equal(page.discardDialog().props.open, false); assert.equal(page.form().key, formKey); assert.equal(page.unload(), true);
   }

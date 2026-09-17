@@ -188,7 +188,7 @@ test("上一页与下一页按钮使用边界状态并触发相邻页", () => {
   const pagination = namedFunction("RankingPagination");
   const previousButton = findJsxOpening(
     pagination,
-    "button",
+    "Button",
     (opening) => jsxAttribute(opening, "aria-label")?.getText(pageAst).includes("上一页"),
   );
   assert.ok(previousButton, "缺少上一页按钮");
@@ -197,7 +197,7 @@ test("上一页与下一页按钮使用边界状态并触发相邻页", () => {
 
   const nextButton = findJsxOpening(
     pagination,
-    "button",
+    "Button",
     (opening) => jsxAttribute(opening, "aria-label")?.getText(pageAst).includes("下一页"),
   );
   assert.ok(nextButton, "缺少下一页按钮");
@@ -206,7 +206,7 @@ test("上一页与下一页按钮使用边界状态并触发相邻页", () => {
 
   const currentPageButton = findJsxOpening(
     pagination,
-    "button",
+    "Button",
     (opening) => Boolean(jsxAttribute(opening, "aria-current")),
   );
   assert.ok(currentPageButton, "页码按钮必须标记当前页");

@@ -34,14 +34,15 @@ test("考勤导入和采购深层交互统一使用 Horizon 浅色单强调视�
 
   assert.match(attendance, /className="horizon-theme horizon-portal/);
   for (const [name, page] of Object.entries(procurementSources)) {
-    assert.match(page, /#002fa7|proc-horizon/, `${name}应接入采购 Horizon 视觉`);
+    assert.match(page, /primary|proc-horizon/, `${name}应接入采购 Horizon 视觉`);
   }
 });
 
-test("全局错误恢复入口在 Horizon 作用域外仍使用 Klein Blue 与可见焦点", () => {
+test("全局错误恢复入口在 Horizon 作用域外仍使用 Horizon 主题 与可见焦点", () => {
   assert.doesNotMatch(app, /bg-indigo-(?:500|600)/);
-  assert.match(app, /bg-\[#002fa7\]/);
-  assert.match(app, /focus-visible:ring-\[#002fa7\]\/30/);
+  assert.match(app, /import \{ Button \} from "\.\/components\/ui\/button"/);
+  assert.match(app, /<Button[\s\S]*onClick=\{\(\) => window\.location\.reload\(\)\}/);
+  assert.match(app, /focus-visible:ring-primary\/30/);
   assert.match(app, /onClick=\{\(\) => window\.location\.reload\(\)\}/);
 });
 

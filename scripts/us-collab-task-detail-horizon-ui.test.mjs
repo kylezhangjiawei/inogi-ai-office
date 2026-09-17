@@ -45,5 +45,5 @@ test("协同任务详情移除旧靛紫视觉与位移悬停", () => {
   assert.doesNotMatch(detailSource, /(?:indigo|purple|violet)-/);
   assert.doesNotMatch(detailSource, /bg-gradient/);
   assert.doesNotMatch(detailSource, /hover:-translate/);
-  assert.match(detailSource, /#002fa7/);
+  assert.match(detailSource, /primary/);
 });

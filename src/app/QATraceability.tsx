@@ -132,7 +132,7 @@ export function QATraceability() {
           <div className="min-w-0 flex-1 space-y-2">
             <Label htmlFor="trace-query" className="text-slate-700">批号 / SN / 订单号</Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 id="trace-query"
                 value={query}
@@ -218,11 +218,11 @@ export function QATraceability() {
                           <span className="flex size-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-700" aria-hidden="true">
                             <CheckCircle2 className="size-4" />
                           </span>
-                          <span className="text-xs tabular-nums text-slate-400">{index + 1}</span>
+                          <span className="text-xs tabular-nums text-muted-foreground">{index + 1}</span>
                         </div>
                         <div className="mt-3 text-sm font-semibold text-slate-800">{step.title}</div>
                         <div className="mt-1 text-xs text-slate-500">{step.owner}</div>
-                        <time className="mt-2 block text-xs tabular-nums text-slate-400">{step.time}</time>
+                        <time className="mt-2 block text-xs tabular-nums text-muted-foreground">{step.time}</time>
                       </li>
                     ))}
                   </ol>
@@ -326,7 +326,7 @@ export function QATraceability() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={() => toast.warning("已发起召回评估流程")}>
+            <AlertDialogAction className="bg-primary text-white hover:bg-primary-hover" onClick={() => toast.warning("已发起召回评估流程")}>
               确认发起
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -352,7 +352,7 @@ function TraceStage({
   return (
     <li className="relative grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
       {!last ? <span className="absolute bottom-0 left-[17px] top-9 w-px bg-blue-200" aria-hidden="true" /> : null}
-      <span className="relative z-10 flex size-9 items-center justify-center rounded-xl bg-[#002fa7] text-white" aria-hidden="true">
+      <span className="relative z-10 flex size-9 items-center justify-center rounded-xl bg-primary text-white" aria-hidden="true">
         <Icon className="size-4" />
       </span>
       <div className="min-w-0">

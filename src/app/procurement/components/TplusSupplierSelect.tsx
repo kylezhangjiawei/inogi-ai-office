@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/pop
 import { cn } from "../../components/ui/utils";
 import { useI18n } from "../../lib/i18n";
 import { listQuoteSuppliers, type SupplierOption } from "../../lib/procurementApi";
+import { Button } from "../../components/ui/button";
 
 export interface TplusSupplierSelectProps {
   id: string;
@@ -63,7 +64,7 @@ export function TplusSupplierSelect({ id, value, onChange, disabled, onValidityC
         if (next) setSearch("");
       }}>
         <PopoverTrigger asChild>
-          <button
+          <Button variant="unstyled"
             id={id}
             type="button"
             role="combobox"
@@ -75,9 +76,9 @@ export function TplusSupplierSelect({ id, value, onChange, disabled, onValidityC
             disabled={disabled || loading || Boolean(error) || suppliers.length === 0}
             className={cn("flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:cursor-not-allowed disabled:opacity-60", unavailable ? "border-amber-300" : "border-slate-200")}
           >
-            <span className={cn("min-w-0 truncate", !value && "text-slate-400")}>{value || t("请选择畅捷通供应商")}</span>
-            {loading ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <ChevronsUpDown className="size-4 shrink-0 text-slate-400" />}
-          </button>
+            <span className={cn("min-w-0 truncate", !value && "text-muted-foreground")}>{value || t("请选择畅捷通供应商")}</span>
+            {loading ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />}
+          </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="horizon-theme horizon-portal proc-horizon-overlay w-[var(--radix-popover-trigger-width)] p-0">
           <Command shouldFilter={false}>
@@ -94,7 +95,7 @@ export function TplusSupplierSelect({ id, value, onChange, disabled, onValidityC
                   <Check className={cn("size-4 shrink-0", supplier.name === value ? "opacity-100" : "opacity-0")} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{supplier.name}</span>
-                    {supplier.shortName && <span className="block truncate text-xs text-slate-400">{supplier.shortName}</span>}
+                    {supplier.shortName && <span className="block truncate text-xs text-muted-foreground">{supplier.shortName}</span>}
                   </span>
                 </CommandItem>
               ))}
@@ -106,7 +107,7 @@ export function TplusSupplierSelect({ id, value, onChange, disabled, onValidityC
         {loading ? <p role="status" className="text-slate-500">{t("正在读取畅捷通供应商目录…")}</p> : error ? (
           <div role="alert" className="text-rose-700">
             <p>{error}</p>
-            <button type="button" disabled={disabled} onClick={() => setReload((attempt) => attempt + 1)} className="mt-1 rounded px-1 py-1 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:opacity-50">{t("重新加载供应商")}</button>
+            <Button variant="unstyled" type="button" disabled={disabled} onClick={() => setReload((attempt) => attempt + 1)} className="mt-1 rounded px-1 py-1 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:opacity-50">{t("重新加载供应商")}</Button>
           </div>
         ) : suppliers.length === 0 ? (
           <p role="status" className="text-amber-700">{t("暂无已同步的畅捷通供应商，请联系管理员先同步供应商目录")}</p>

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { Button } from "./components/ui/button";
 
 const initialSettings = [
   { title: "通知中心", desc: "逾期提醒、资料更新、审批事件统一配置", enabled: true, owner: "平台运营", snapshot: "消息模板 V2.1" },
@@ -32,10 +33,10 @@ export function SystemSettings() {
           {settings.map((item) => (
             <div key={item.title} className="material-card-flat p-5">
               <div className="flex items-start justify-between gap-3">
-                <button type="button" className="text-left" onClick={() => setSelectedTitle(item.title)}>
+                <Button variant="unstyled" type="button" className="text-left" onClick={() => setSelectedTitle(item.title)}>
                   <div className="text-lg font-semibold text-slate-900">{item.title}</div>
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   className={cn("rounded-full px-3 py-1 text-xs font-semibold", item.enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600")}
                   onClick={() =>
                     setSettings((prev) =>
@@ -44,11 +45,11 @@ export function SystemSettings() {
                   }
                 >
                   {item.enabled ? "已开启" : "已关闭"}
-                </button>
+                </Button>
               </div>
               <div className="mt-2 text-sm leading-7 text-slate-500">{item.desc}</div>
-              <div className="mt-4 text-xs uppercase tracking-[0.14em] text-slate-400">{item.snapshot}</div>
-              <button
+              <div className="mt-4 text-xs uppercase tracking-[0.14em] text-muted-foreground">{item.snapshot}</div>
+              <Button variant="unstyled"
                 className="mt-4 material-button-secondary"
                 onClick={() => {
                   setSelectedTitle(item.title);
@@ -56,7 +57,7 @@ export function SystemSettings() {
                 }}
               >
                 保存本项
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -78,7 +79,7 @@ export function SystemSettings() {
               ["回滚方式", "可回退到上一份系统快照"],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
+                <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
                 <div className="mt-2 text-sm text-slate-700">{value}</div>
               </div>
             ))}
@@ -92,9 +93,9 @@ export function SystemSettings() {
             <h3 className="text-slate-900">全局保存</h3>
             <p className="mt-1 text-sm text-slate-500">把当前所有配置项一次性保存为新的系统设置快照，并生成变更记录。</p>
           </div>
-          <button className="material-button-primary" onClick={() => setDialogMode("all")}>
+          <Button variant="unstyled" className="material-button-primary" onClick={() => setDialogMode("all")}>
             保存全部设置
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -108,12 +109,12 @@ export function SystemSettings() {
           </div>
         </DialogContent>
         <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
             取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success(`${selected.title} 设置已保存`); }}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success(`${selected.title} 设置已保存`); }}>
             确认保存
-          </button>
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -123,12 +124,12 @@ export function SystemSettings() {
           <p className="text-sm leading-7 text-slate-600">会生成一份新的系统快照并同步通知给平台管理员，便于回溯配置变更。</p>
         </DialogContent>
         <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
             关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("系统设置已全部保存"); }}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("系统设置已全部保存"); }}>
             保存快照
-          </button>
+          </Button>
         </DialogActions>
       </Dialog>
     </div>

@@ -362,44 +362,44 @@ function MiniPagination({
   if (totalPages <= 1) return null;
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => onChange(Math.max(1, page - 1))}
         disabled={page <= 1}
-        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
         aria-label={translate("上一页")}
       >
         <ChevronLeft className="h-3.5 w-3.5" />
-      </button>
+      </Button>
       {Array.from({ length: totalPages }).map((_, i) => {
         const p = i + 1;
         const active = p === page;
         return (
-          <button
+          <Button variant="unstyled"
             key={p}
             type="button"
             onClick={() => onChange(p)}
             className={cn(
               "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
               active
-                ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
+                ? "bg-accent text-primary shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-primary/25"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
             )}
             aria-current={active ? "page" : undefined}
           >
             {p}
-          </button>
+          </Button>
         );
       })}
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => onChange(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
-        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
+        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
         aria-label={translate("下一页")}
       >
         <ChevronRight className="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -414,7 +414,7 @@ function DashboardEmptyPanel({
   return (
     <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center">
       <div className="text-sm font-semibold text-slate-700">{title}</div>
-      <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -474,13 +474,13 @@ function PersonCard({
               <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">{translate("请假中")}</span>
             )}
           </div>
-          <div className="text-xs text-slate-400">{person.position}</div>
+          <div className="text-xs text-muted-foreground">{person.position}</div>
         </div>
         <div className="text-right">
           <div className={cn("text-xl font-bold", ratio >= 1 ? "text-red-600" : ratio >= 0.75 ? "text-orange-600" : "text-slate-700")}>
             {person.task_count}
           </div>
-          <div className="text-[10px] text-slate-400">/ {person.max_tasks}</div>
+          <div className="text-[10px] text-muted-foreground">/ {person.max_tasks}</div>
         </div>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/50">
@@ -670,7 +670,7 @@ function TaskDetailDrawer({
         <header className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-3">
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center gap-2">
-              <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
+              <span className="font-mono text-xs text-muted-foreground">{task.task_id}</span>
               <span className={cn("inline-flex min-w-[72px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                 {translate(sCfg.label)}
@@ -678,39 +678,39 @@ function TaskDetailDrawer({
               <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-bold", pCfg.color)}>{translate(pCfg.label)}</span>
             </div>
             <h3 className="text-base font-semibold leading-snug text-slate-900">{task.title}</h3>
-            <p className="mt-1 text-xs text-slate-400">{task.category_path}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{task.category_path}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {canEditTask && !isEditing && (
-              <button
+              <Button variant="unstyled"
                 onClick={() => {
                   setDrawerTab("overview");
                   setIsEditing(true);
                 }}
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-primary-hover"
                 aria-label={translate("编辑任务")}
                 title={translate("编辑任务")}
               >
                 <Pencil className="h-4 w-4" />
-              </button>
+              </Button>
             )}
             {canEditTask && !isEditing && (
-              <button
+              <Button variant="unstyled"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-500"
                 aria-label={translate("删除任务")}
                 title={translate("删除任务")}
               >
                 <Trash2 className="h-4 w-4" />
-              </button>
+              </Button>
             )}
-            <button
+            <Button variant="unstyled"
               onClick={isEditing ? () => setIsEditing(false) : onClose}
-              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
               aria-label={isEditing ? translate("取消编辑") : translate("关闭")}
             >
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -719,21 +719,21 @@ function TaskDetailDrawer({
           <div className="flex items-center gap-3 border-b border-red-100 bg-red-50 px-6 py-3">
             <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
             <span className="flex-1 text-sm text-red-700">{translate("确认删除任务「{title}」？此操作不可恢复。", { title: task.title })}</span>
-            <button
+            <Button variant="unstyled"
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
               className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
               {translate("取消")}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               onClick={handleDelete}
               disabled={deleting}
               className="flex items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
             >
               {deleting && <Loader2 className="h-3 w-3 animate-spin" />}
               {translate("确认删除")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -746,7 +746,7 @@ function TaskDetailDrawer({
                 type="text"
                 value={editForm.title}
                 onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary focus:ring-1 focus:ring-primary/25"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -755,7 +755,7 @@ function TaskDetailDrawer({
                 <NativeSelect
                   value={editForm.status}
                   onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary"
                 >
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                     <option key={s} value={s}>{translate(TASK_STATUS_CONFIG[s].label)}</option>
@@ -767,7 +767,7 @@ function TaskDetailDrawer({
                 <NativeSelect
                   value={editForm.priority}
                   onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value as Priority }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary"
                 >
                   <option value="high">{translate("高")}</option>
                   <option value="medium">{translate("中")}</option>
@@ -782,7 +782,7 @@ function TaskDetailDrawer({
                   max={100}
                   value={editForm.progress}
                   onChange={(e) => setEditForm((f) => ({ ...f, progress: Number(e.target.value) }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary"
                 />
               </div>
               <div>
@@ -791,7 +791,7 @@ function TaskDetailDrawer({
                   type="date"
                   value={editForm.due_date}
                   onChange={(e) => setEditForm((f) => ({ ...f, due_date: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary"
                 />
               </div>
             </div>
@@ -801,7 +801,7 @@ function TaskDetailDrawer({
                 type="text"
                 value={editForm.owner}
                 onChange={(e) => setEditForm((f) => ({ ...f, owner: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary"
               />
             </div>
             <div>
@@ -810,25 +810,25 @@ function TaskDetailDrawer({
                 value={editForm.description}
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 rows={3}
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary focus:ring-1 focus:ring-primary/25"
               />
             </div>
             <div className="flex gap-2 pt-1">
-              <button
+              <Button variant="unstyled"
                 onClick={() => setIsEditing(false)}
                 disabled={saving}
                 className="flex-1 rounded-lg border border-slate-200 bg-white py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
                 {translate("取消")}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_6px_14px_rgba(79,70,229,0.18)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold shadow-[0_6px_14px_rgba(79,70,229,0.18)] transition-colors disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {translate("保存")}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -844,14 +844,14 @@ function TaskDetailDrawer({
               const Icon = item.icon;
               const active = drawerTab === item.key;
               return (
-                <button
+                <Button variant="unstyled"
                   key={item.key}
                   type="button"
                   onClick={() => setDrawerTab(item.key)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "relative flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-                    active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                    "relative flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    active ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -868,7 +868,7 @@ function TaskDetailDrawer({
                       transition={shouldReduceMotion ? { duration: 0 } : DIRECTOR_FAST_TRANSITION}
                     />
                   )}
-                </button>
+                </Button>
               );
             })}
           </nav>
@@ -900,26 +900,26 @@ function TaskDetailDrawer({
           {/* Meta grid */}
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-100 bg-slate-50/40 p-3">
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("主责人")}</div>
-              <button
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{translate("主责人")}</div>
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => task.owner !== "待指派" && task.owner !== "外部机构" && onOpenPerson?.(task.owner)}
                 disabled={task.owner === "待指派" || task.owner === "外部机构"}
-                className="mt-1 flex items-center gap-2 rounded-md py-0.5 text-sm font-medium text-slate-800 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
+                className="mt-1 flex items-center gap-2 rounded-md py-0.5 text-sm font-medium text-slate-800 transition-colors enabled:cursor-pointer enabled:hover:text-primary-hover disabled:cursor-default"
               >
                 <MiniAvatar name={task.owner} size="sm" />
                 {task.owner === "待指派" || task.owner === "外部机构" ? translate(task.owner) : task.owner}
                 {task.owner !== "待指派" && task.owner !== "外部机构" && <ChevronRight className="h-3 w-3 opacity-50" />}
-              </button>
+              </Button>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("截止日期")}</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{translate("截止日期")}</div>
               <div className="mt-1 text-sm font-medium tabular-nums text-slate-800">
                 {task.due_date ?? "—"}
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("进度")}</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{translate("进度")}</div>
               <div className="mt-1 flex items-center gap-2">
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
                   <div className={cn("h-full rounded-full", sCfg.dot)} style={{ width: `${task.progress}%` }} />
@@ -928,7 +928,7 @@ function TaskDetailDrawer({
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("附件")}</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{translate("附件")}</div>
               <div className="mt-1 text-sm font-medium text-slate-800">{translate("{count} 个", { count: task.attachments ?? 0 })}</div>
             </div>
           </div>
@@ -949,16 +949,16 @@ function TaskDetailDrawer({
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("协作人")}</h4>
               <div className="flex flex-wrap gap-2">
                 {task.collaborators.map((c) => (
-                  <button
+                  <Button variant="unstyled"
                     key={c}
                     type="button"
                     onClick={() => onOpenPerson?.(c)}
-                    className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
                   >
                     <MiniAvatar name={c} size="sm" />
                     {c}
                     <ChevronRight className="h-3 w-3 opacity-0 transition-all group-hover:opacity-100" />
-                  </button>
+                  </Button>
                 ))}
               </div>
             </section>
@@ -972,10 +972,10 @@ function TaskDetailDrawer({
                 {task.recent_activities.map((a, idx) => (
                   <li key={idx} className="relative">
                     <span className="absolute -left-[19px] top-1.5 h-2 w-2 rounded-full bg-slate-300 ring-2 ring-white" />
-                    <div className="text-xs tabular-nums text-slate-400">{a.date}</div>
+                    <div className="text-xs tabular-nums text-muted-foreground">{a.date}</div>
                     <div className="mt-0.5 text-sm text-slate-700">
                       {a.action}
-                      {a.actor && <span className="ml-1.5 text-xs text-slate-400">· {a.actor}</span>}
+                      {a.actor && <span className="ml-1.5 text-xs text-muted-foreground">· {a.actor}</span>}
                     </div>
                   </li>
                 ))}
@@ -1032,34 +1032,34 @@ function TaskDetailDrawer({
           <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
             {task.status === "pending_review" && canEditTask ? (
               <>
-                <button
+                <Button variant="unstyled"
                   disabled={saving}
                   onClick={() => onReviewTask?.(task, "rejected")}
                   className="flex-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:bg-red-100 active:scale-[0.98] disabled:opacity-50"
                 >
                   {translate("驳回")}
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   disabled={saving}
                   onClick={() => onReviewTask?.(task, "approved")}
                   className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50"
                 >
                   {translate("审核通过")}
-                </button>
+                </Button>
               </>
             ) : canReassignTask && (
-              <button
+              <Button variant="unstyled"
                 disabled={saving}
                 onClick={() => onOpenReassign?.(task)}
-                className="flex-1 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition-all duration-150 hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-50"
+                className="flex-1 rounded-md border border-primary/25 bg-accent px-3 py-2 text-sm font-semibold text-primary transition-all duration-150 hover:bg-accent active:scale-[0.98] disabled:opacity-50"
               >
                 {task.status === "pending_assign" || task.owner === "待指派" ? translate("指派负责人") : translate("转派任务")}
-              </button>
+              </Button>
             )}
             {canEditTask && task.status !== "completed" && task.status !== "pending_review" && (
-              <button disabled={saving} onClick={() => recordDirectorTaskAction("task.status_changed")} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50">
+              <Button variant="unstyled" disabled={saving} onClick={() => recordDirectorTaskAction("task.status_changed")} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50">
                 {translate("标记完成")}
-              </button>
+              </Button>
             )}
           </footer>
         )}
@@ -1109,13 +1109,13 @@ function PersonDetailDrawer({
       >
         {/* Header */}
         <header className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-5">
-          <button
+          <Button variant="unstyled"
             onClick={onClose}
-            className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="absolute right-4 top-4 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
             aria-label={translate("关闭")}
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
           <div className="flex items-center gap-3">
             <span className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-bold text-white ring-4 ring-white", hashColor(person.name))}>
               {person.name.replace(/\(.+?\)/g, "").trim().slice(0, 1)}
@@ -1128,7 +1128,7 @@ function PersonDetailDrawer({
                 )}
               </div>
               <p className="text-xs text-slate-500">{person.position}</p>
-              {person.department && <p className="mt-0.5 text-[11px] text-slate-400">{person.department}</p>}
+              {person.department && <p className="mt-0.5 text-[11px] text-muted-foreground">{person.department}</p>}
             </div>
           </div>
 
@@ -1153,7 +1153,7 @@ function PersonDetailDrawer({
               <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate("本月完成")}</div>
             </div>
             <div className="border-x border-slate-200 text-center">
-              <div className={cn("text-xl font-semibold tabular-nums", (person.blocked_count ?? 0) > 0 ? "text-orange-600" : "text-slate-300")}>
+              <div className={cn("text-xl font-semibold tabular-nums", (person.blocked_count ?? 0) > 0 ? "text-orange-600" : "text-muted-foreground")}>
                 {person.blocked_count ?? 0}
               </div>
               <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate("阻塞中")}</div>
@@ -1197,7 +1197,7 @@ function PersonDetailDrawer({
               )}
             >
               <div className="flex items-center gap-2 font-semibold">
-                <Info className={cn("h-3.5 w-3.5", canReassignPersonTasks ? "text-blue-500" : "text-slate-400")} />
+                <Info className={cn("h-3.5 w-3.5", canReassignPersonTasks ? "text-blue-500" : "text-muted-foreground")} />
                 {translate("可转派任务 {available} / 当前任务 {total}", { available: reassignableTaskCount, total: person.tasks.length })}
               </div>
               <p className="mt-1 leading-5">
@@ -1212,7 +1212,7 @@ function PersonDetailDrawer({
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("当前任务")}</h4>
-              <span className="text-[11px] tabular-nums text-slate-400">
+              <span className="text-[11px] tabular-nums text-muted-foreground">
                 {translate("{count} 项", { count: person.tasks.length })}
                 {canReassignTask && <span className="ml-1 text-blue-500">· {translate("可转派 {count}", { count: reassignableTaskCount })}</span>}
               </span>
@@ -1224,7 +1224,7 @@ function PersonDetailDrawer({
                 const sCfg = task ? TASK_STATUS_CONFIG[task.status] : null;
                 return (
                   <li key={idx}>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => onOpenTask(taskId ?? taskTitle, person.name)}
                       className="group flex w-full items-center gap-2.5 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 hover:shadow-[0_4px_12px_rgba(15,23,42,0.05)] active:translate-y-0"
@@ -1237,19 +1237,19 @@ function PersonDetailDrawer({
                         {task && (
                           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
                             <span className={cn("font-semibold", sCfg?.text)}>{sCfg ? translate(sCfg.label) : null}</span>
-                            <span className="text-slate-300">·</span>
+                            <span className="text-muted-foreground">·</span>
                             <span className="tabular-nums text-slate-500">{task.progress}%</span>
                             {task.due_date && (
                               <>
-                                <span className="text-slate-300">·</span>
+                                <span className="text-muted-foreground">·</span>
                                 <span className="tabular-nums text-slate-500">{task.due_date}</span>
                               </>
                             )}
                           </div>
                         )}
                       </div>
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
-                    </button>
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
+                    </Button>
                   </li>
                 );
               })}
@@ -1264,7 +1264,7 @@ function PersonDetailDrawer({
                 {person.recent_activities.map((a, idx) => (
                   <li key={idx} className="relative">
                     <span className="absolute -left-[19px] top-1.5 h-2 w-2 rounded-full bg-slate-300 ring-2 ring-white" />
-                    <div className="text-xs tabular-nums text-slate-400">{a.date}</div>
+                    <div className="text-xs tabular-nums text-muted-foreground">{a.date}</div>
                     <div className="mt-0.5 text-sm text-slate-700">{a.action}</div>
                   </li>
                 ))}
@@ -1276,25 +1276,25 @@ function PersonDetailDrawer({
         {/* Footer actions */}
         <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
           {canManagePeople && onEditPerson && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => onEditPerson(person)}
               className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
               {translate("编辑信息")}
-            </button>
+            </Button>
           )}
           {onSendMessage && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => onSendMessage(person)}
               className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
               {translate("发消息")}
-            </button>
+            </Button>
           )}
           {canReassignTask && onReassignPerson && (
-            <button
+            <Button variant="unstyled"
               type="button"
               disabled={!canReassignPersonTasks}
               onClick={() => {
@@ -1304,12 +1304,12 @@ function PersonDetailDrawer({
               className={cn(
                 "flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-all duration-150 active:scale-[0.98]",
                 canReassignPersonTasks
-                  ? "bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
-                  : "cursor-not-allowed bg-slate-100 text-slate-400 shadow-none",
+                  ? "bg-primary text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-primary-hover"
+                  : "cursor-not-allowed bg-slate-100 text-muted-foreground shadow-none",
               )}
             >
               {canReassignPersonTasks ? translate("转派任务") : translate("暂无可转派")}
-            </button>
+            </Button>
           )}
         </footer>
       </div>
@@ -1407,13 +1407,13 @@ function CategoryDetailDrawer({
       >
         {/* Header */}
         <header className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-5">
-          <button
+          <Button variant="unstyled"
             onClick={onClose}
-            className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="absolute right-4 top-4 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700"
             aria-label={translate("关闭")}
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
           <div className="flex items-center gap-3">
             <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-[0_8px_18px_rgba(15,23,42,0.12)]", categoryColor)}>
               <LayoutGrid className="h-5 w-5" />
@@ -1465,7 +1465,7 @@ function CategoryDetailDrawer({
               { label: "总数", value: category.total, tone: "text-slate-900" },
               { label: "完成率", value: `${completedRate}%`, tone: "text-emerald-600" },
               { label: "进行", value: category.in_progress, tone: "text-blue-600" },
-              { label: "阻塞", value: category.blocked, tone: category.blocked > 0 ? "text-red-600" : "text-slate-300" },
+              { label: "阻塞", value: category.blocked, tone: category.blocked > 0 ? "text-red-600" : "text-muted-foreground" },
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <div className={cn("text-xl font-semibold tabular-nums tracking-tight", s.tone)}>{s.value}</div>
@@ -1478,12 +1478,12 @@ function CategoryDetailDrawer({
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("关键任务")}</h4>
-              <span className="text-[11px] tabular-nums text-slate-400">
+              <span className="text-[11px] tabular-nums text-muted-foreground">
                 {translate("显示 {shown} 项 · 共 {total} 项", { shown: relatedTasks.length, total: category.total })}
               </span>
             </div>
             {relatedTasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 py-6 text-center text-xs text-slate-400">
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 py-6 text-center text-xs text-muted-foreground">
                 {translate("暂无关键任务录入")}
               </div>
             ) : (
@@ -1492,7 +1492,7 @@ function CategoryDetailDrawer({
                   const sCfg = TASK_STATUS_CONFIG[t.status] ?? TASK_STATUS_CONFIG.in_progress;
                   return (
                     <li key={t.task_id}>
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => onOpenTask(t.task_id, t.owner)}
                         className="group flex w-full items-center gap-2.5 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 hover:shadow-[0_4px_12px_rgba(15,23,42,0.05)] active:translate-y-0"
@@ -1500,7 +1500,7 @@ function CategoryDetailDrawer({
                         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", sCfg.dot)} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono text-slate-400">{t.task_id}</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{t.task_id}</span>
                             <span className="truncate text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
                           </div>
                           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
@@ -1508,18 +1508,18 @@ function CategoryDetailDrawer({
                               <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                               {translate(sCfg.label)}
                             </span>
-                            <span className="text-slate-300">·</span>
+                            <span className="text-muted-foreground">·</span>
                             <span className="tabular-nums text-slate-500">{t.progress}%</span>
                             {t.owner && (
                               <>
-                                <span className="text-slate-300">·</span>
+                                <span className="text-muted-foreground">·</span>
                                 <span className="text-slate-500">{t.owner === "待指派" || t.owner === "外部机构" ? translate(t.owner) : t.owner}</span>
                               </>
                             )}
                           </div>
                         </div>
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
-                      </button>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
+                      </Button>
                     </li>
                   );
                 })}
@@ -1534,7 +1534,7 @@ function CategoryDetailDrawer({
               <ul className="space-y-1.5">
                 {topContributors.map((c) => (
                   <li key={c.name}>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => onOpenPerson(c.name)}
                       className="group flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50/60 active:translate-y-0"
@@ -1546,8 +1546,8 @@ function CategoryDetailDrawer({
                       <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600">
                         {translate("{count} 项", { count: c.count })}
                       </span>
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
-                    </button>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -1557,22 +1557,22 @@ function CategoryDetailDrawer({
 
         {/* Footer */}
         <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={handleExportReport}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
           >
             <Download className="h-4 w-4" />
             {translate("导出报表")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => onViewFullList(category)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all duration-150 hover:bg-indigo-700 active:scale-[0.98]"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all duration-150 active:scale-[0.98]"
           >
             <ListChecks className="h-4 w-4" />
             {translate("查看完整清单")}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>
@@ -1664,9 +1664,9 @@ function BatchReassignModal({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <span className="font-semibold text-slate-800">{translate("批量转派任务")}</span>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <Button variant="unstyled" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -1688,7 +1688,7 @@ function BatchReassignModal({
                         />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm text-slate-800">{t.title}</div>
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-muted-foreground">
                             {t.task_id}
                             {t.owner === "待指派"
                               ? ` · ${translate("待指派")}`
@@ -1714,19 +1714,19 @@ function BatchReassignModal({
                     PERSON_LOADS.filter((p) => !p.on_leave).map((p) => {
                       const isNoopTarget = selectedAssignableTasks.length > 0 && selectedAssignableTasks.every((task) => task.owner === p.name);
                       return (
-                      <button
+                      <Button variant="unstyled"
                         key={p.id}
                         disabled={isNoopTarget}
                         onClick={() => !isNoopTarget && setTargetPerson(p)}
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                           isNoopTarget && "cursor-not-allowed opacity-45",
-                          targetPerson?.id === p.id ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
+                          targetPerson?.id === p.id ? "border-primary/25 bg-accent" : "border-slate-200 hover:bg-slate-50",
                         )}
                         title={isNoopTarget ? translate("不能转派给当前负责人本人") : undefined}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
-                        <div className="flex items-center justify-between text-xs text-slate-400">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
                           <span>{p.position}</span>
                           <span className={cn(
                             "font-semibold",
@@ -1735,7 +1735,7 @@ function BatchReassignModal({
                             {translate("{count} 个任务", { count: p.task_count })}
                           </span>
                         </div>
-                      </button>
+                      </Button>
                     );
                     })
                   )}
@@ -1743,17 +1743,17 @@ function BatchReassignModal({
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                <Button variant="unstyled" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
                   {translate("取消")}
-                </button>
-                <button
+                </Button>
+                <Button
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={confirmReassign}
-                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                  className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? translate("处理中...") : selectedHasPendingAssign ? translate("确认指派") : translate("确认转派")}
                   <ArrowRight className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -1763,9 +1763,9 @@ function BatchReassignModal({
               <p className="mt-1 text-sm text-slate-500">
                 {translate("已将 {count} 个任务转派给 {name}，痕迹已记录。", { count: selectedTasks.size, name: targetPerson?.name ?? "" })}
               </p>
-              <button onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">
+              <Button variant="unstyled" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">
                 {translate("关闭")}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -1819,9 +1819,9 @@ function CategoryEditorModal({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <span className="font-semibold text-slate-800">{state.mode === "create" ? translate("新增分类") : translate("编辑分类")}</span>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <Button variant="unstyled" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
         <div className="space-y-4 p-6">
           <div>
@@ -1829,7 +1829,7 @@ function CategoryEditorModal({
             <Input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               placeholder={translate("例如：分子筛系统")}
             />
           </div>
@@ -1839,22 +1839,22 @@ function CategoryEditorModal({
               value={childrenText}
               onChange={(event) => setChildrenText(event.target.value)}
               rows={8}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               placeholder={translate("每行一个子项，也可以用逗号分隔")}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <Button variant="unstyled" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               {translate("取消")}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={submit}
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all active:scale-[0.98] disabled:opacity-50"
             >
               {saving ? translate("保存中...") : translate("保存分类")}
               <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </div>
         </div>
       </motion.div>
@@ -1908,16 +1908,16 @@ function CategoryDeleteDialog({
             {translate("确认删除「{name}」？该分类下有 {count} 条未归档任务，删除后分类和其中任务都会从驾驶舱移除。", { name: category.label, count: taskCount })}
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            <Button variant="unstyled" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               {translate("取消")}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               onClick={submit}
               disabled={saving}
               className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-all hover:bg-red-700 disabled:opacity-50"
             >
               {saving ? translate("删除中...") : translate("确认删除")}
-            </button>
+            </Button>
           </div>
         </div>
       </motion.div>
@@ -2021,9 +2021,9 @@ function CreateTaskModal({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <span className="font-semibold text-slate-800">{translate("新建任务")}</span>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <Button variant="unstyled" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-4 p-6">
@@ -2034,7 +2034,7 @@ function CreateTaskModal({
               value={form.title}
               onChange={(e) => setField("title", e.target.value)}
               placeholder={translate("输入任务标题")}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/25"
             />
           </div>
 
@@ -2048,7 +2048,7 @@ function CreateTaskModal({
                   const nextCategory = categories.find((c) => c.id === categoryId);
                   setForm((f) => ({ ...f, categoryId, subProjectId: nextCategory?.children[0]?.id ?? "" }));
                 }}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary"
               >
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
@@ -2061,7 +2061,7 @@ function CreateTaskModal({
                 value={form.subProjectId}
                 onChange={(e) => setField("subProjectId", e.target.value)}
                 disabled={subProjects.length === 0}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 disabled:opacity-50"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-50"
               >
                 <option value="" disabled>{translate("请选择子项目")}</option>
                 {subProjects.map((s) => (
@@ -2074,7 +2074,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.priority}
                 onChange={(e) => setField("priority", e.target.value as Priority)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary"
               >
                 <option value="high">{translate("高")}</option>
                 <option value="medium">{translate("中")}</option>
@@ -2086,7 +2086,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setField("status", e.target.value as TaskStatus)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary"
               >
                 {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                   <option key={s} value={s}>{translate(TASK_STATUS_CONFIG[s].label)}</option>
@@ -2098,7 +2098,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.ownerKey || "待指派"}
                 onChange={(e) => setField("ownerKey", e.target.value === "待指派" ? "" : e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary"
               >
                 <option value="待指派">{translate("待指派")}</option>
                 {people.map((person) => (
@@ -2114,7 +2114,7 @@ function CreateTaskModal({
                 type="date"
                 value={form.due_date}
                 onChange={(e) => setField("due_date", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary"
               />
             </div>
           </div>
@@ -2126,27 +2126,27 @@ function CreateTaskModal({
               onChange={(e) => setField("description", e.target.value)}
               rows={3}
               placeholder={translate("可选")}
-              className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+              className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/25"
             />
           </div>
         </div>
 
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
-          <button
+          <Button variant="unstyled"
             onClick={onClose}
             disabled={saving}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
             {translate("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleCreate}
             disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-sm font-semibold shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors disabled:opacity-50"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {translate("创建任务")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -2325,7 +2325,7 @@ function CreateTaskModalV2({
               <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("截止日期")}</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" className={cn("h-9 w-full justify-between rounded-md px-3 text-left font-normal", !form.due_date && "text-slate-400")}>
+                  <Button type="button" variant="outline" className={cn("h-9 w-full justify-between rounded-md px-3 text-left font-normal", !form.due_date && "text-muted-foreground")}>
                     <span>{form.due_date ? form.due_date.replace(/-/g, "/") : translate("年 / 月 / 日")}</span>
                     <CalendarDays className="h-4 w-4 text-slate-500" />
                   </Button>
@@ -2352,7 +2352,7 @@ function CreateTaskModalV2({
 
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
           <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="flex-1 rounded-md">{translate("取消")}</Button>
-          <Button type="button" onClick={handleCreate} disabled={saving} className="flex-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+          <Button type="button" onClick={handleCreate} disabled={saving} className="flex-1 rounded-md bg-primary text-white hover:bg-primary-hover">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {translate("创建任务")}
           </Button>
@@ -2432,21 +2432,21 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         </div>
 
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
-          <button
+          <Button variant="unstyled"
             onClick={onClose}
             disabled={clearing}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
             {translate("取消")}
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             onClick={handleClear}
             disabled={!ready || clearing}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {translate("确认清空")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -2522,9 +2522,9 @@ function PersonEditModal({
             </div>
             <h3 className="text-base font-semibold text-slate-900">{translate("编辑研发成员信息")}</h3>
           </div>
-          <button type="button" disabled={saving} onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
+          <Button variant="unstyled" type="button" disabled={saving} onClick={onClose} className="rounded p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         <div className="grid grid-cols-2 gap-3 px-6 py-5">
@@ -2534,7 +2534,7 @@ function PersonEditModal({
               autoFocus
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2542,7 +2542,7 @@ function PersonEditModal({
             <Input
               value={form.position}
               onChange={(e) => setForm({ ...form, position: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2550,7 +2550,7 @@ function PersonEditModal({
             <Input
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2559,7 +2559,7 @@ function PersonEditModal({
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2567,7 +2567,7 @@ function PersonEditModal({
             <Input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2578,7 +2578,7 @@ function PersonEditModal({
               max={50}
               value={form.max_tasks}
               onChange={(e) => setForm({ ...form, max_tasks: Number(e.target.value) || 1 })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="col-span-2 flex items-center gap-2 text-sm text-slate-700">
@@ -2593,23 +2593,23 @@ function PersonEditModal({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={saving}
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {translate("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={saving}
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {translate("保存")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -2675,9 +2675,9 @@ function SendMessageModal({
               {translate("发消息给")} <span className="text-violet-700">{recipient.name}</span>
             </h3>
           </div>
-          <button type="button" disabled={sending} onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
+          <Button variant="unstyled" type="button" disabled={sending} onClick={onClose} className="rounded p-1.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-3 px-6 py-5">
@@ -2687,7 +2687,7 @@ function SendMessageModal({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder={translate("例：本周阻塞跟进")}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
           <label className="block">
@@ -2698,32 +2698,32 @@ function SendMessageModal({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={translate("写下要发送的内容…")}
-              className="w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </label>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-muted-foreground">
             {translate("收件人：")}{recipient.name}{recipient.position ? ` · ${recipient.position}` : ""}{recipient.email ? ` · ${recipient.email}` : ""}
           </p>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={sending}
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {translate("取消")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={sending}
             onClick={handleSend}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
           >
             {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {translate("发送")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>
@@ -3191,66 +3191,66 @@ export function RDDirectorDashboardPage() {
               </span>
             )}
             {loadError && !loading && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={loadDashboard}
                 className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
               >
                 {translate("接口读取失败，点击重试")}
-              </button>
+              </Button>
             )}
             {canReassignTasks && (
-              <button
+              <Button variant="unstyled"
                 onClick={() => {
                   setReassignInitialTaskId(null);
                   setCategoryReassignTasks(null);
                   setShowReassign(true);
                 }}
-                className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50/60 hover:text-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.08)] active:translate-y-0 active:scale-[0.98]"
+                className="flex items-center gap-2 rounded-xl border border-primary/25 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-accent/60 hover:text-primary-hover hover:shadow-[0_12px_24px_rgba(79,70,229,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Users className="h-4 w-4" />
                 {translate("批量转派")}
-              </button>
+              </Button>
             )}
             {canCreateTask && (
-              <button
+              <Button variant="unstyled"
                 onClick={() => setShowCreateTask(true)}
                 className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/60 hover:text-emerald-700 hover:shadow-[0_12px_24px_rgba(5,150,105,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Plus className="h-4 w-4" />
                 {translate("新建任务")}
-              </button>
+              </Button>
             )}
             {canClearData && (
-              <button
+              <Button variant="unstyled"
                 onClick={() => setShowClearData(true)}
                 className="flex items-center gap-2 rounded-xl border border-red-100 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50/60 hover:shadow-[0_12px_24px_rgba(220,38,38,0.08)] active:translate-y-0 active:scale-[0.98]"
                 title={translate("需要清空研发任务数据权限")}
               >
                 <Trash2 className="h-4 w-4" />
                 {translate("清空数据")}
-              </button>
+              </Button>
             )}
             {canDirectProject && (
-              <button
+              <Button
                 onClick={() => setShowProposalDialog(true)}
-                className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.32)] active:translate-y-0 active:scale-[0.98]"
+                className="group flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-[0_10px_22px_rgba(79,70,229,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(79,70,229,0.32)] active:translate-y-0 active:scale-[0.98]"
                 title={translate("拥有直接立项权限时可绕过审核流程")}
               >
                 <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
                 {translate("AI 立项")}
                 <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-              </button>
+              </Button>
             )}
             {canManagePeople && (
-              <button
+              <Button
                 onClick={() => navigate("/rd-people-management")}
-                className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.28)] active:translate-y-0 active:scale-[0.98]"
+                className="group flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(79,70,229,0.28)] active:translate-y-0 active:scale-[0.98]"
               >
                 <UserCog className="h-4 w-4" />
                 {translate("人员管理")}
                 <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -3290,7 +3290,7 @@ export function RDDirectorDashboardPage() {
                   {kpi.label}
                   {active && <span className="text-[10px] font-semibold text-indigo-600">{translate("· 已筛选")}</span>}
                 </div>
-                <div className="text-xs text-slate-400">{kpi.sub}</div>
+                <div className="text-xs text-muted-foreground">{kpi.sub}</div>
               </motion.button>
             );
           })}
@@ -3304,7 +3304,7 @@ export function RDDirectorDashboardPage() {
             <div className="mt-3 text-sm font-semibold text-slate-800">
               {loading ? translate("正在读取研发负责人看板") : translate("暂无负责人看板数据")}
             </div>
-            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-muted-foreground">
               {loading
                 ? translate("正在从后端接口同步分类进度、人员负载、阻塞任务和待指派任务。")
                 : translate("后端当前返回空数据，页面已保留完整结构，新增任务或导入研发数据后会自动呈现看板内容。")}
@@ -3313,13 +3313,13 @@ export function RDDirectorDashboardPage() {
               <p className="mt-2 text-xs text-amber-600">{loadError}</p>
             )}
             {!loading && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={loadDashboard}
                 className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
                 {translate("重新读取")}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -3337,23 +3337,23 @@ export function RDDirectorDashboardPage() {
                       {filteredTasks.length}
                     </span>
                     {kpiFilter !== "all" && (
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => setKpiFilter("all")}
-                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-accent"
                       >
                         {translate(kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : kpiFilter === "pending_review" ? "待审核" : "阻塞")}
                         <X className="h-3 w-3" />
-                      </button>
+                      </Button>
                     )}
                   </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {translate("待审核与待人工指派已合并到此列表 · 操作列可直接审核、指派或转派")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {pendingReviewTasks.length > 0 && (
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => {
                         setKpiFilter("pending_review");
@@ -3363,10 +3363,10 @@ export function RDDirectorDashboardPage() {
                     >
                       {translate("待审核")} {pendingReviewTasks.length}
                       <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   )}
                   {PENDING_ASSIGN.length > 0 && (
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => {
                         setKpiFilter("all");
@@ -3376,22 +3376,22 @@ export function RDDirectorDashboardPage() {
                     >
                       {translate("待指派")} {PENDING_ASSIGN.length}
                       <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
               <div className="mb-3 grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[minmax(220px,1fr)_130px_130px_120px_auto]">
                 <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                    className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                     placeholder={translate("搜索任务、编号、负责人、系统")}
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
                 </label>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                   value={taskPriorityFilter}
                   onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                 >
@@ -3401,7 +3401,7 @@ export function RDDirectorDashboardPage() {
                   <option value="low">{translate("低优先级")}</option>
                 </NativeSelect>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                   value={taskStatusFilter}
                   onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                 >
@@ -3411,7 +3411,7 @@ export function RDDirectorDashboardPage() {
                   ))}
                 </NativeSelect>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                   value={taskDueFilter}
                   onChange={(event) => setTaskDueFilter(event.target.value as DirectorDueFilter)}
                 >
@@ -3422,7 +3422,7 @@ export function RDDirectorDashboardPage() {
                   <option value="7d">{translate("7 天内")}</option>
                   <option value="no_due">{translate("无截止日")}</option>
                 </NativeSelect>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => {
                     setTaskKeyword("");
@@ -3431,10 +3431,10 @@ export function RDDirectorDashboardPage() {
                     setTaskDueFilter("all");
                     setKpiFilter("all");
                   }}
-                  className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover"
                 >
                   {translate("清空")}
-                </button>
+                </Button>
               </div>
               {filteredTasks.length === 0 ? (
                 <DashboardEmptyPanel
@@ -3486,19 +3486,19 @@ export function RDDirectorDashboardPage() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="mt-0.5 truncate text-[11px] text-slate-400">{task.category_path}</div>
+                                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{task.category_path}</div>
                               </td>
                               <td className="px-3 py-3 text-sm text-slate-700">
                                 {isPendingAssign || task.owner === "外部机构" ? (
                                   <span className={cn("font-medium", isPendingAssign ? "text-violet-600" : "text-slate-500")}>{translate(task.owner)}</span>
                                 ) : (
-                                  <button
+                                  <Button variant="unstyled"
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); openPersonByName(task.owner); }}
-                                    className="hover:text-indigo-600 hover:underline"
+                                    className="hover:text-primary-hover hover:underline"
                                   >
                                     {task.owner}
-                                  </button>
+                                  </Button>
                                 )}
                               </td>
                               <td className="px-3 py-3">
@@ -3528,7 +3528,7 @@ export function RDDirectorDashboardPage() {
                               <td className="px-3 py-3 text-[11px] tabular-nums text-slate-500">{task.due_date || "—"}</td>
                               <td className="px-3 py-3 text-right">
                                 {isPendingReview && canEditTasks ? (
-                                  <button
+                                  <Button variant="unstyled"
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3538,9 +3538,9 @@ export function RDDirectorDashboardPage() {
                                   >
                                     <CheckCircle2 className="h-3.5 w-3.5" />
                                     {translate("通过")}
-                                  </button>
+                                  </Button>
                                 ) : canReassignTasks && task.status !== "completed" && task.status !== "archived" ? (
-                                  <button
+                                  <Button variant="unstyled"
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3549,15 +3549,15 @@ export function RDDirectorDashboardPage() {
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-95",
                                       isPendingAssign
-                                        ? "bg-indigo-600 text-white shadow-[0_8px_16px_rgba(79,70,229,0.18)] hover:bg-indigo-700"
-                                        : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700",
+                                        ? "bg-primary text-white shadow-[0_8px_16px_rgba(79,70,229,0.18)] hover:bg-primary-hover"
+                                        : "border border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover",
                                     )}
                                   >
                                     <UserCog className="h-3.5 w-3.5" />
                                     {isPendingAssign ? translate("指派") : translate("转派")}
-                                  </button>
+                                  </Button>
                                 ) : (
-                                  <span className="text-[11px] text-slate-300">—</span>
+                                  <span className="text-[11px] text-muted-foreground">—</span>
                                 )}
                               </td>
                             </tr>
@@ -3567,11 +3567,11 @@ export function RDDirectorDashboardPage() {
                     </table>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white/80 px-3 py-2.5">
-                    <span className="text-[11px] tabular-nums text-slate-400">
+                    <span className="text-[11px] tabular-nums text-muted-foreground">
                       {taskListRangeStart}
                       {" - "}
                       {Math.min(taskListSafePage * TASK_LIST_PAGE_SIZE, filteredTasks.length)}
-                      <span className="mx-1 text-slate-300">/</span>
+                      <span className="mx-1 text-muted-foreground">/</span>
                       {filteredTasks.length}
                     </span>
                     <MiniPagination page={taskListSafePage} totalPages={taskListTotalPages} onChange={setTaskListPage} />
@@ -3589,13 +3589,13 @@ export function RDDirectorDashboardPage() {
                     {translate("系统进度矩阵")}
                     <span className="rounded-full bg-slate-100 px-1.5 text-xs font-medium text-slate-600">{CATEGORY_PROGRESS.length}</span>
                   </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-400">{translate("按系统查看进度、阻塞和完成量，点击进入分类详情")}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{translate("按系统查看进度、阻塞和完成量，点击进入分类详情")}</p>
                 </div>
-                <span className="text-[11px] tabular-nums text-slate-400">
+                <span className="text-[11px] tabular-nums text-muted-foreground">
                   {categoryRangeStart}
                   {" - "}
                   {Math.min(categorySafePage * CATEGORY_PAGE_SIZE, CATEGORY_PROGRESS.length)}
-                  <span className="mx-1 text-slate-300">/</span>
+                  <span className="mx-1 text-muted-foreground">/</span>
                   {CATEGORY_PROGRESS.length}
                 </span>
               </div>
@@ -3610,16 +3610,16 @@ export function RDDirectorDashboardPage() {
                     const rate = category.total > 0 ? Math.round((category.completed / category.total) * 100) : 0;
                     const barColor = getCategoryColorClass(category.color, "bg-blue-500");
                     return (
-                      <button
+                      <Button variant="unstyled"
                         key={category.id}
                         type="button"
                         onClick={() => setSelectedCategory(category)}
-                        className="group rounded-xl border border-slate-100 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_24px_rgba(15,23,42,0.07)]"
+                        className="group rounded-xl border border-slate-100 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_12px_24px_rgba(15,23,42,0.07)]"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-slate-900">{category.label}</div>
-                            <div className="mt-1 text-[11px] text-slate-400">
+                            <div className="mt-1 text-[11px] text-muted-foreground">
                               {category.completed} / {category.total} {translate("已完成")}
                             </div>
                           </div>
@@ -3640,7 +3640,7 @@ export function RDDirectorDashboardPage() {
                           <span className="rounded-lg bg-emerald-50 px-2 py-1 text-emerald-700">{translate("完成")} {category.completed}</span>
                           <span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-600">{translate("总计")} {category.total}</span>
                         </div>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -3705,7 +3705,7 @@ export function RDDirectorDashboardPage() {
                         <TabsTrigger
                           key={p.id}
                           value={p.id}
-                          className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600"
+                          className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-primary"
                         >
                           <span className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)} />
                           {p.name}
@@ -3742,7 +3742,7 @@ export function RDDirectorDashboardPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs text-slate-400">{t.task_id}</span>
+                              <span className="font-mono text-xs text-muted-foreground">{t.task_id}</span>
                               <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
                             </div>
                             <div className="mt-0.5 text-xs text-slate-500">
@@ -3750,7 +3750,7 @@ export function RDDirectorDashboardPage() {
                             </div>
                           </div>
                           {canReassignTasks && (
-                            <button
+                            <Button variant="unstyled"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setReassignInitialTaskId(t.task_id);
@@ -3761,7 +3761,7 @@ export function RDDirectorDashboardPage() {
                             >
                               {translate("转派")}
                               <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                            </button>
+                            </Button>
                           )}
                         </div>
                       ))
@@ -3789,11 +3789,11 @@ export function RDDirectorDashboardPage() {
                           const textColor =
                             ratio >= 1 ? "text-red-600" : ratio >= 0.75 ? "text-orange-600" : "text-slate-700";
                           return (
-                            <button
+                            <Button variant="unstyled"
                               key={p.id}
                               type="button"
                               onClick={() => setPersonTabId(p.id)}
-                              className="rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-all hover:border-indigo-200 hover:shadow-sm active:scale-[0.98]"
+                              className="rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-all hover:border-primary/25 hover:shadow-sm active:scale-[0.98]"
                             >
                               <div className="flex items-center justify-between gap-1">
                                 <span className="truncate text-xs font-semibold text-slate-700">{p.name}</span>
@@ -3810,12 +3810,12 @@ export function RDDirectorDashboardPage() {
                                   style={{ width: `${Math.min(100, ratio * 100)}%` }}
                                 />
                               </div>
-                            </button>
+                            </Button>
                           );
                         })}
                       </div>
                       {/* Legend */}
-                      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-slate-400">
+                      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
                         {[
                           { color: "bg-emerald-400", label: translate("< 50% 负载") },
                           { color: "bg-amber-400", label: "50–75%" },
@@ -3863,7 +3863,7 @@ export function RDDirectorDashboardPage() {
                               </span>
                             )}
                           </div>
-                          <div className="mt-0.5 text-xs text-slate-400">
+                          <div className="mt-0.5 text-xs text-muted-foreground">
                             {person.position} · {translate("任务")} {person.task_count}/{person.max_tasks}
                             {typeof person.avg_completion === "number" && <> · {translate("平均完成 {progress}%", { progress: person.avg_completion })}</>}
                           </div>
@@ -3916,11 +3916,11 @@ export function RDDirectorDashboardPage() {
                                 key={task.task_id}
                                 style={{ contentVisibility: "auto", containIntrinsicSize: "180px" }}
                                 onClick={() => openTask(task.task_id, person.name)}
-                                className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_8px_20px_rgba(79,70,229,0.07)] active:translate-y-0"
+                                className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_20px_rgba(79,70,229,0.07)] active:translate-y-0"
                               >
                                 {/* Top row: id + badges + due date */}
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="font-mono text-[11px] text-slate-400">{task.task_id}</span>
+                                  <span className="font-mono text-[11px] text-muted-foreground">{task.task_id}</span>
                                   <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
                                     {translate(sCfg.label)}
                                   </span>
@@ -3928,7 +3928,7 @@ export function RDDirectorDashboardPage() {
                                     {translate("{level}优先", { level: translate(pCfg.label) })}
                                   </span>
                                   {task.due_date && (
-                                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400">
+                                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
                                       {translate("截止")} {task.due_date}
                                     </span>
                                   )}
@@ -3939,7 +3939,7 @@ export function RDDirectorDashboardPage() {
                                 </div>
                                 {/* Description */}
                                 {task.description && (
-                                  <div className="mt-0.5 line-clamp-1 text-xs text-slate-400">{task.description}</div>
+                                  <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{task.description}</div>
                                 )}
                                 {/* Progress bar */}
                                 <div className="mt-2.5 flex items-center gap-2">
@@ -3967,7 +3967,7 @@ export function RDDirectorDashboardPage() {
                             );
                           })}
                           {visiblePersonTasks.length < personTasks.length && (
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() =>
                                 setPersonVisibleCounts((current) => ({
@@ -3975,13 +3975,13 @@ export function RDDirectorDashboardPage() {
                                   [person.id]: personVisibleCount + PERSON_TASK_PAGE_SIZE,
                                 }))
                               }
-                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-2.5 text-xs font-semibold text-indigo-600 transition hover:border-indigo-300 hover:bg-indigo-50"
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/25 bg-accent/40 px-4 py-2.5 text-xs font-semibold text-primary transition hover:border-primary/25 hover:bg-accent"
                             >
                               {translate("继续加载")}
-                              <span className="font-normal text-slate-400">
+                              <span className="font-normal text-muted-foreground">
                                 {visiblePersonTasks.length}/{personTasks.length}
                               </span>
-                            </button>
+                            </Button>
                           )}
                         </div>
                       )}

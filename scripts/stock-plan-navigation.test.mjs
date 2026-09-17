@@ -9,6 +9,8 @@ function load(path, dependencies = {}, globals = {}) {
   const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
   new Function('exports', 'require', ...Object.keys(globals), code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name];
     if (name === 'lucide-react' || name === 'recharts' || name.startsWith('../../components/') || name.startsWith('./')) return primitives;
     assert.fail(`Unexpected dependency ${name}`);
@@ -224,7 +226,7 @@ test('模块 URL 恢复备货栏目和相同产品模块；用户切到库存或
   const view = fixture(t, { initial, props: scope }); await view.ready();
   view.dateCheck('plan-2').props.onOpenOrderLine('PO-1', 'line-2');
   assert.equal(new URL(view.calls.navigate[0][0], 'http://local').searchParams.get('moduleTab'), 'plans');
-  module.find((node) => node.type === 'button' && text(node) === '生产与质量').props.onClick(); module.render();
+  module.find((node) => node.type === "Button" && text(node) === '生产与质量').props.onClick(); module.render();
   assert.equal(module.query().get('moduleTab'), 'operations'); assert.equal(module.query().get('stockOpen'), null); assert.equal(module.query().get('stockFocus'), null);
   assert.equal(module.query().get('product'), 'P'); assert.equal(module.query().get('module'), 'M');
 });

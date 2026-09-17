@@ -91,6 +91,9 @@ import {
 } from '../../../app/components/horizon/HorizonPage';
 import { t as translate, useI18n } from '../../../app/lib/i18n';
 import { toast } from 'sonner';
+import { Input } from "../../../app/components/ui/input";
+import { NativeSelect } from "../../../app/components/ui/native-select";
+import { Textarea } from "../../../app/components/ui/textarea";
 
 type ExpenseVoucherView = {
   id: string;
@@ -648,7 +651,7 @@ function EmailChipSelector({
 }) {
   if (options.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-400">
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-muted-foreground">
         {emptyHint}
       </div>
     );
@@ -658,19 +661,19 @@ function EmailChipSelector({
       {options.map((mailbox) => {
         const active = selected.includes(mailbox.email);
         return (
-          <button
+          <Button variant="unstyled"
             key={mailbox.id}
             type="button"
             onClick={() => onToggle(mailbox.email)}
             aria-pressed={active}
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               active
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
-                : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-blue-50 hover:text-blue-700'
+                ? 'bg-primary text-white shadow-sm shadow-blue-500/30'
+                : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-accent hover:text-primary-hover'
             }`}>
             {active ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
             <span className="max-w-[180px] truncate">{mailbox.email}</span>
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -693,7 +696,7 @@ function ExpenseMetricButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       className="hz-stat text-left hover:bg-[#f7f9ff]"
       data-tone={tone}
@@ -705,7 +708,7 @@ function ExpenseMetricButton({
         <span className="hz-stat-note block text-pretty">{note}</span>
       </span>
       <span className="hz-stat-icon" aria-hidden="true"><Icon className="size-4" /></span>
-    </button>
+    </Button>
   );
 }
 
@@ -1799,7 +1802,7 @@ export function ExpenseModule() {
 
   return (
     <div className="horizon-theme hz-page flex min-h-full w-full min-w-0 flex-col gap-3 overflow-x-hidden px-3 py-3 sm:px-4 lg:px-5 xl:h-full xl:min-h-0 xl:overflow-hidden">
-      <input
+      <Input
         ref={expenseUploadInputRef}
         type="file"
         multiple
@@ -1811,7 +1814,7 @@ export function ExpenseModule() {
           void handleExpenseUpload(files);
         }}
       />
-      <input
+      <Input
         ref={invoiceUploadInputRef}
         type="file"
         multiple
@@ -1857,39 +1860,39 @@ export function ExpenseModule() {
           ) : hasViewAll ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2">
               <label htmlFor="expense-department-filter" className="text-xs font-semibold text-slate-500">{t('部门')}</label>
-              <select
+              <NativeSelect
                 id="expense-department-filter"
                 value={departmentFilter}
                 onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               >
                 <option value="all">{t('全部部门')}</option>
                 <option value="unassigned">{t('未分配')}</option>
                 {departmentOptions.map((d) => (
                   <option key={d.code} value={d.code}>{t(d.name.trim())}</option>
                 ))}
-              </select>
-              <span className="ml-1 text-[11px] text-slate-400">{t('跨部门查看权 · 数据已按部门隔离')}</span>
+              </NativeSelect>
+              <span className="ml-1 text-[11px] text-muted-foreground">{t('跨部门查看权 · 数据已按部门隔离')}</span>
               {/* 批量改派：把当前筛选下的发票/报销单归到目标部门 */}
               <div className="ml-auto flex flex-wrap items-center gap-1.5">
                 <label htmlFor="expense-reassign-department" className="sr-only">{t('改派目标部门')}</label>
-                <select
+                <NativeSelect
                   id="expense-reassign-department"
                   value={reassignTargetCode}
                   onChange={(e) => setReassignTargetCode(e.target.value)}
-                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
                 >
                   <option value="">{t('改派到…')}</option>
                   {departmentOptions.map((d) => (
                     <option key={d.code} value={d.code}>{t(d.name.trim())}</option>
                   ))}
-                </select>
+                </NativeSelect>
                 <Button
                   type="button"
                   size="sm"
                   disabled={!reassignTargetCode || reassigning}
                   onClick={() => void handleReassignDepartment()}
-                  className="h-8 bg-[#002fa7] text-xs hover:bg-[#002581]"
+                  className="h-8 bg-primary text-xs hover:bg-primary-hover"
                 >
                   {reassigning ? t('改派中…') : t('批量改派当前列表')}
                 </Button>
@@ -1898,19 +1901,19 @@ export function ExpenseModule() {
           ) : ownDeptName ? (
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-500">
               <span className="font-semibold text-slate-600">{t('当前部门：')}<AutoTranslatedText text={ownDeptName} /></span>
-              <span className="text-slate-400">{t('· 仅展示本部门费用数据')}</span>
+              <span className="text-muted-foreground">{t('· 仅展示本部门费用数据')}</span>
             </div>
           ) : null}
           {dataLoadError ? (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs text-rose-700">
               <span>{t('费用数据加载失败：{message}', { message: dataLoadError })}</span>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => void reloadExpenseData()}
                 className="shrink-0 rounded-md bg-white px-2 py-1 font-medium text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100"
               >
                 {t('重试')}
-              </button>
+              </Button>
             </div>
           ) : null}
           {integrationRequirementsError ? (
@@ -1968,7 +1971,7 @@ export function ExpenseModule() {
                 <TabsTrigger
                   key={tab.id}
                   value={tab.id}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg border-0 bg-transparent px-3.5 py-1.5 text-sm font-medium text-slate-500 shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none hover:text-slate-700 data-[state=active]:bg-white data-[state=active]:text-[#002fa7] data-[state=active]:shadow-sm">
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border-0 bg-transparent px-3.5 py-1.5 text-sm font-medium text-slate-500 shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none hover:text-slate-700 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm">
                   <Icon className="w-4 h-4" />
                   {t(tab.label)}
                 </TabsTrigger>);
@@ -1987,7 +1990,7 @@ export function ExpenseModule() {
                   title={integrationRequirements?.storage.ready === false ? t('请先完成 OSS 文件存储配置') : undefined}
                   className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
                   <Upload className="h-3.5 w-3.5" /> {t('上传')}
-                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40 rounded-2xl p-2">
@@ -2039,7 +2042,7 @@ export function ExpenseModule() {
                   disabled={archiveActionItems.length === 0}
                   className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
                     {archiveSelectedIds.size ? `${t('已选')} ${archiveSelectedIds.size}` : t('本组操作')}
-                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48 rounded-2xl p-2">
@@ -2104,7 +2107,7 @@ export function ExpenseModule() {
                   disabled={filteredInvoices.length === 0}
                   className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
                     {t('导出')}
-                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-36 rounded-2xl p-2">
@@ -2129,7 +2132,7 @@ export function ExpenseModule() {
               size="sm"
               onClick={() => openReimbursementDialog()}
               disabled={loading}
-              className="h-8 bg-[#002fa7] text-white hover:bg-[#002581]">
+              className="h-8 bg-primary text-white hover:bg-primary-hover">
               <Plus className="h-3.5 w-3.5" /> {t('新建报销单')}
             </Button>
           </div>
@@ -2155,34 +2158,34 @@ export function ExpenseModule() {
                     { id: 'matched' as const, label: t('已关联'), count: matched, active: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300', idle: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70' },
                     { id: 'unmatched' as const, label: t('待关联'), count: unmatched, active: 'bg-amber-100 text-amber-700 ring-1 ring-amber-300', idle: 'bg-amber-50 text-amber-700 hover:bg-amber-100/70' },
                   ].map((chip) => (
-                    <button
+                    <Button variant="unstyled"
                       key={chip.id}
                       type="button"
                       onClick={() => setVoucherStatusFilter(chip.id)}
                       aria-pressed={voucherStatusFilter === chip.id}
                       className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${voucherStatusFilter === chip.id ? chip.active : chip.idle}`}>
                       {chip.label} {chip.count}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="flex min-w-0 items-center gap-2 sm:ml-auto">
                   <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                    <input
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <Input
                     type="text"
                     aria-label={t('搜索凭证、发票或供应商')}
                     value={voucherKeyword}
                     onChange={(e) => setVoucherKeyword(e.target.value)}
                     placeholder={t('搜索凭证 / 发票 / 供应商')}
-                    className="w-full pl-10 pr-8 py-1 bg-slate-100 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    className="w-full pl-10 pr-8 py-1 bg-slate-100 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     {voucherKeyword &&
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       aria-label={t('清空凭证搜索')}
                       onClick={() => setVoucherKeyword('')}
-                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-slate-200 hover:text-slate-700">
                       <X className="w-3 h-3" />
-                    </button>
+                    </Button>
                     }
                   </div>
                   <DropdownMenu>
@@ -2192,7 +2195,7 @@ export function ExpenseModule() {
                         variant="ghost"
                         size="icon"
                         aria-label={t('筛选凭证')}
-                        className={`hover:bg-slate-100 ${voucherFilterActive ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}>
+                        className={`hover:bg-slate-100 ${voucherFilterActive ? 'bg-accent text-primary' : 'text-slate-500'}`}>
                         <Filter className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -2251,21 +2254,21 @@ export function ExpenseModule() {
                       <span className="text-amber-600 font-medium">
                         {unmatched}
                       </span>
-                      <span className="ml-1 text-slate-400">({voucherFilterActive ? `${filteredExpenseVouchers.length}/${expenseVouchers.length}` : expenseVouchers.length})</span>
+                      <span className="ml-1 text-muted-foreground">({voucherFilterActive ? `${filteredExpenseVouchers.length}/${expenseVouchers.length}` : expenseVouchers.length})</span>
                     </div>}
                   />
                   <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     {filteredExpenseVouchers.length === 0 ?
-                    <div className="flex h-full flex-col items-center justify-center py-10 text-center text-slate-400">
-                      <Receipt className="mb-2 h-9 w-9 text-slate-300" />
+                    <div className="flex h-full flex-col items-center justify-center py-10 text-center text-muted-foreground">
+                      <Receipt className="mb-2 h-9 w-9 text-muted-foreground" />
                       <p className="text-sm">{voucherFilterActive ? t('没有符合条件的报销凭证') : t('暂无报销凭证')}</p>
                       {voucherFilterActive &&
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => { setVoucherStatusFilter('all'); setVoucherKeyword(''); }}
-                        className="mt-2 text-xs text-blue-600 hover:underline">
+                        className="mt-2 text-xs text-primary hover:underline">
                         {t('清空筛选条件')}
-                      </button>
+                      </Button>
                       }
                     </div> :
                     filteredExpenseVouchers.map((v) => {
@@ -2323,7 +2326,7 @@ export function ExpenseModule() {
                               </div>
                           }
                           </div>
-                          <button
+                          <Button variant="unstyled"
                           type="button"
                           title={t('查看原始凭证')}
                           aria-label={t('查看原始凭证')}
@@ -2331,10 +2334,10 @@ export function ExpenseModule() {
                             e.stopPropagation();
                             setDocPreview({ kind: 'voucher', data: v });
                           }}
-                          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary-hover hover:bg-accent transition-colors">
 
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </div>);
 
                   })}
@@ -2344,15 +2347,15 @@ export function ExpenseModule() {
                 {/* CENTER: Association indicator */}
                 <div className="flex h-14 w-full shrink-0 items-center justify-center gap-2 xl:h-auto xl:w-16 xl:flex-col">
                   <div
-                  className={`flex size-12 items-center justify-center rounded-full transition-colors ${aiMatching ? 'bg-[#002fa7] shadow-sm' : 'border-2 border-slate-200 bg-white'}`}>
+                  className={`flex size-12 items-center justify-center rounded-full transition-colors ${aiMatching ? 'bg-primary shadow-sm' : 'border-2 border-slate-200 bg-white'}`}>
                   
                     {aiMatching ?
                   <Sparkles className="w-5 h-5 text-white animate-pulse" /> :
 
-                  <Link2 className="w-5 h-5 text-slate-400" />
+                  <Link2 className="w-5 h-5 text-muted-foreground" />
                   }
                   </div>
-                  <div className="text-center text-[10px] leading-tight text-slate-400 xl:mt-2">
+                  <div className="text-center text-[10px] leading-tight text-muted-foreground xl:mt-2">
                     {aiMatching ? t('AI 匹配中') : t('智能关联')}
                   </div>
                 </div>
@@ -2376,16 +2379,16 @@ export function ExpenseModule() {
                   />
                   <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     {filteredVoucherInvoices.length === 0 ?
-                    <div className="flex h-full flex-col items-center justify-center py-10 text-center text-slate-400">
-                      <FileText className="mb-2 h-9 w-9 text-slate-300" />
+                    <div className="flex h-full flex-col items-center justify-center py-10 text-center text-muted-foreground">
+                      <FileText className="mb-2 h-9 w-9 text-muted-foreground" />
                       <p className="text-sm">{voucherFilterActive ? t('没有符合条件的发票凭证') : t('暂无发票凭证')}</p>
                       {voucherFilterActive &&
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => { setVoucherStatusFilter('all'); setVoucherKeyword(''); }}
-                        className="mt-2 text-xs text-blue-600 hover:underline">
+                        className="mt-2 text-xs text-primary hover:underline">
                         {t('清空筛选条件')}
-                      </button>
+                      </Button>
                       }
                     </div> :
                     filteredVoucherInvoices.map((iv) => {
@@ -2427,7 +2430,7 @@ export function ExpenseModule() {
                               <span>·</span>
                               <span>{iv.date}</span>
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                            <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
                               {t(iv.type)} {t('· 税额 ¥{amount}', { amount: iv.taxAmount.toFixed(2) })}
                             </div>
                           </div>
@@ -2446,7 +2449,7 @@ export function ExpenseModule() {
                               </div>
                           }
                           </div>
-                          <button
+                          <Button variant="unstyled"
                           type="button"
                           title={t('查看原始凭证')}
                           aria-label={t('查看原始凭证')}
@@ -2454,10 +2457,10 @@ export function ExpenseModule() {
                             e.stopPropagation();
                             setDocPreview({ kind: 'invoice', data: iv });
                           }}
-                          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary-hover hover:bg-accent transition-colors">
 
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </div>);
 
                   })}
@@ -2550,21 +2553,21 @@ export function ExpenseModule() {
                     }}>
                     
                       {hasChildren ?
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       aria-label={t(isExpanded ? '收起分类' : '展开分类')}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleArchiveExpanded(node.id);
                       }}
-                      className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-700 shrink-0">
+                      className="w-4 h-4 flex items-center justify-center text-muted-foreground hover:text-slate-700 shrink-0">
                       
                           {isExpanded ?
                       <ChevronDown className="w-3.5 h-3.5" /> :
 
                       <ChevronRight className="w-3.5 h-3.5" />
                       }
-                        </button> :
+                        </Button> :
 
                     <span className="w-4 h-4 shrink-0"></span>
                     }
@@ -2591,7 +2594,7 @@ export function ExpenseModule() {
                         className="hidden group-hover:flex items-center gap-0.5 shrink-0"
                         onClick={(e) => e.stopPropagation()}>
                           {depth === 0 &&
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           title={t('添加子类')}
                           aria-label={t('添加子类')}
@@ -2599,19 +2602,19 @@ export function ExpenseModule() {
                             e.stopPropagation();
                             setCategoryEditor({ mode: 'add-child', parentId: node.id, name: '', icon: '', withIcon: false });
                           }}
-                          className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-600 hover:bg-blue-100/60">
+                          className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-primary-hover hover:bg-accent/60">
                             <Plus className="w-3 h-3" />
-                          </button>
+                          </Button>
                         }
                           {hasData ?
                         <span
                           title={t('该分类下已有归档数据，不可修改 / 删除')}
-                          className="w-5 h-5 flex items-center justify-center text-slate-300">
+                          className="w-5 h-5 flex items-center justify-center text-muted-foreground">
                             <Lock className="w-3 h-3" />
                           </span> :
 
                         <>
-                            <button
+                            <Button variant="unstyled"
                             type="button"
                             title={t('重命名')}
                             aria-label={t('重命名')}
@@ -2619,10 +2622,10 @@ export function ExpenseModule() {
                               e.stopPropagation();
                               setCategoryEditor({ mode: 'rename', nodeId: node.id, name: node.name, icon: node.icon ?? '', withIcon: depth === 0 });
                             }}
-                            className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-600 hover:bg-blue-100/60">
+                            className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-primary-hover hover:bg-accent/60">
                               <Pencil className="w-3 h-3" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button variant="unstyled"
                             type="button"
                             title={t('删除')}
                             aria-label={t('删除分类')}
@@ -2630,9 +2633,9 @@ export function ExpenseModule() {
                               e.stopPropagation();
                               setCategoryDeleteTarget(node);
                             }}
-                            className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-100/60">
+                            className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-100/60">
                               <Trash2 className="w-3 h-3" />
-                            </button>
+                            </Button>
                           </>
                         }
                         </div>
@@ -2658,33 +2661,33 @@ export function ExpenseModule() {
                           <Archive className="w-4 h-4 text-blue-500" /> {t('分类导航')}
                         </h3>
                         {canManageArchive &&
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             title={t('新增费用类别')}
                             aria-label={t('新增费用类别')}
                             onClick={() => setCategoryEditor({ mode: 'add-root', name: '', icon: '📁', withIcon: true })}
-                            className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                            className="w-6 h-6 flex items-center justify-center text-muted-foreground hover:text-primary-hover hover:bg-accent rounded transition-colors">
                             <Plus className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         }
                       </div>
                       <div className="relative">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Input
                         type="text"
                         aria-label={t('搜索归档分类')}
                         value={archiveKeyword}
                         onChange={(e) => setArchiveKeyword(e.target.value)}
                         placeholder={t('搜索分类')}
-                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border-none rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border-none rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
                         {archiveKeyword &&
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           aria-label={t('清空分类搜索')}
                           onClick={() => setArchiveKeyword('')}
-                          className="absolute right-2 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                          className="absolute right-2 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-slate-200 hover:text-slate-700">
                           <X className="w-3 h-3" />
-                        </button>
+                        </Button>
                         }
                       </div>
                     </div>
@@ -2704,7 +2707,7 @@ export function ExpenseModule() {
                       className={`flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 transition-colors ${archiveSelected === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100/60'}`}>
                       
                         <FolderOpen
-                        className={`w-4 h-4 shrink-0 ${archiveSelected === 'all' ? 'text-blue-600' : 'text-slate-400'}`} />
+                        className={`w-4 h-4 shrink-0 ${archiveSelected === 'all' ? 'text-blue-600' : 'text-muted-foreground'}`} />
                       
                         <span
                         className={`text-sm flex-1 ${archiveSelected === 'all' ? 'font-medium' : ''}`}>
@@ -2722,18 +2725,18 @@ export function ExpenseModule() {
                       </div>
 
                       <div className="px-2 pt-3 pb-1 flex items-center justify-between">
-                        <span className="text-[10px] font-medium uppercase text-slate-400">
+                        <span className="text-[10px] font-medium uppercase text-muted-foreground">
                           {t('费用类别')}
                         </span>
                         <span
-                        className="inline-flex items-center gap-0.5 text-[9px] text-[#002fa7]"
+                        className="inline-flex items-center gap-0.5 text-[9px] text-primary"
                         title={t('发票首次导入时由 AI 自动分组生成；已有归档数据的分类不可修改 / 删除')}>
                           <Sparkles className="w-2.5 h-2.5" /> {t('AI 自动分组')}
                         </span>
                       </div>
                       {visibleTree.length ?
                       visibleTree.map((node) => renderTreeNode(node, 0)) :
-                      <div className="px-2 py-4 text-center text-xs text-slate-400">{t('未找到匹配的分类')}</div>
+                      <div className="px-2 py-4 text-center text-xs text-muted-foreground">{t('未找到匹配的分类')}</div>
                       }
                     </div>
 
@@ -2766,24 +2769,24 @@ export function ExpenseModule() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
-                            <button
+                            <Button variant="unstyled"
                             type="button"
-                            className="cursor-pointer hover:text-blue-600"
+                            className="cursor-pointer hover:text-primary-hover"
                             onClick={() => setArchiveSelected('all')}>
                             
                               {t('全部归档')}
-                            </button>
+                            </Button>
                             {breadcrumb.map((b, idx) =>
                           <Fragment key={b.id}>
                                 <ChevronRight className="w-3 h-3" />
-                                <button
+                                <Button variant="unstyled"
                               type="button"
                               aria-current={idx === breadcrumb.length - 1 ? 'page' : undefined}
-                              className={`${idx === breadcrumb.length - 1 ? 'font-medium text-slate-700' : 'cursor-pointer hover:text-blue-600'}`}
+                              className={`${idx === breadcrumb.length - 1 ? 'font-medium text-slate-700' : 'cursor-pointer hover:text-primary-hover'}`}
                               onClick={() => setArchiveSelected(b.id)}>
                               
                                   {t(b.name)}
-                                </button>
+                                </Button>
                               </Fragment>
                           )}
                           </div>
@@ -2798,17 +2801,17 @@ export function ExpenseModule() {
                           (currentNode ? t(currentNode.name) : '')}
                           </h3>
                         </div>
-                        <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                           {archiveSelectedIds.size > 0 &&
                           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-blue-600">
                             {t('已选')} {archiveSelectedIds.size}
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               aria-label={t('清除归档选择')}
                               onClick={() => setArchiveSelectedIds(new Set())}
-                              className="text-blue-400 hover:text-blue-700">
+                              className="text-primary hover:text-primary-hover">
                               <X className="h-3 w-3" />
-                            </button>
+                            </Button>
                           </span>
                           }
                           <span>{currentItems.length} {t('项')}</span>
@@ -2855,8 +2858,8 @@ export function ExpenseModule() {
                     {/* Items table */}
                     <div className="flex-1 overflow-auto">
                       {currentItems.length === 0 ?
-                    <div className="flex h-full flex-col items-center justify-center p-6 text-center text-slate-400">
-                          <Archive className="w-12 h-12 mb-3 text-slate-300" />
+                    <div className="flex h-full flex-col items-center justify-center p-6 text-center text-muted-foreground">
+                          <Archive className="w-12 h-12 mb-3 text-muted-foreground" />
                           <p className="text-balance text-sm font-semibold text-slate-700">{t('该分类下暂无归档凭证')}</p>
                           <p className="mt-1 text-pretty text-xs">
                             {t('在「凭证管理」中关联后将自动归档至此')}
@@ -2882,7 +2885,7 @@ export function ExpenseModule() {
                               checked={archiveAllSelected ? true : archiveSomeSelected ? 'indeterminate' : false}
                               aria-label={t('全选当前分类')}
                               onCheckedChange={toggleArchiveSelectAll}
-                              className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=indeterminate]:border-blue-500 data-[state=indeterminate]:bg-blue-500" />
+                              className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary" />
                               </th>
                               <th className="px-3 py-2.5 text-left font-medium">
                                 {t('报销凭证')}
@@ -2916,13 +2919,13 @@ export function ExpenseModule() {
                                   checked={archiveSelectedIds.has(v.id)}
                                   aria-label={`选择 ${v.id}`}
                                   onCheckedChange={() => toggleArchiveItem(v.id)}
-                                  className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500" />
+                                  className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-primary data-[state=checked]:bg-primary" />
                                   </td>
                                   <td className="px-3 py-3">
                                     <div className="truncate font-medium text-slate-800" title={v.vendor}>
                                       {v.vendor}
                                     </div>
-                                    <div className="mt-0.5 truncate text-[10px] text-slate-400">
+                                    <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
                                       <span className="font-mono">{v.id}</span>
                                       <span className="mx-1">·</span>
                                       <span>{v.date}</span>
@@ -2937,13 +2940,13 @@ export function ExpenseModule() {
                                   
                                       {iv?.issuer || '-'}
                                     </div>
-                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                    <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
                                       {iv?.invoiceNumber || '-'}
                                     </div>
                                   </td>
                                   <td className="px-3 py-3 text-right whitespace-nowrap">
                                     <div className="font-medium text-slate-800 tabular-nums">¥{v.amount.toFixed(2)}</div>
-                                    <div className="mt-0.5 text-[10px] text-slate-400">
+                                    <div className="mt-0.5 text-[10px] text-muted-foreground">
                                       {t('税')} ¥{iv?.taxAmount.toFixed(2) || '0.00'}
                                     </div>
                                   </td>
@@ -2954,32 +2957,32 @@ export function ExpenseModule() {
                                   </td>
                                   <td className="px-3 py-3">
                                     <div className="flex items-center justify-center gap-1">
-                                      <button
+                                      <Button variant="unstyled"
                                     type="button"
                                     title={t('查看原始凭证')}
                                     aria-label={t('查看原始凭证')}
                                     onClick={() => setDocPreview({ kind: 'voucher', data: v })}
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600">
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-primary-hover">
                                         <Eye className="h-3.5 w-3.5" />
-                                      </button>
+                                      </Button>
                                       {canManageArchive &&
                                         <>
-                                          <button
+                                          <Button variant="unstyled"
                                         type="button"
                                         title={t('移动到其他类目')}
                                         aria-label={t('移动到其他类目')}
                                         onClick={() => setMoveItemTarget(v)}
-                                        className="flex size-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-[#002fa7]">
+                                        className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-primary">
                                             <FolderOpen className="h-3.5 w-3.5" />
-                                          </button>
-                                          <button
+                                          </Button>
+                                          <Button variant="unstyled"
                                         type="button"
                                         title={t('移出归档')}
                                         aria-label={t('移出归档')}
                                         onClick={() => setDeleteItemTarget(v)}
-                                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600">
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-rose-50 hover:text-rose-600">
                                             <Trash2 className="h-3.5 w-3.5" />
-                                          </button>
+                                          </Button>
                                         </>
                                       }
                                     </div>
@@ -2994,35 +2997,35 @@ export function ExpenseModule() {
                     {/* 分页栏 */}
                     {currentItems.length > 0 &&
                   <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-5 py-2.5">
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-muted-foreground">
                           {t('共')} {currentItems.length} {t('项')} · {t('每页')} {ARCHIVE_PAGE_SIZE} {t('条')}
                         </span>
                         <div className="flex items-center gap-1">
-                          <button
+                          <Button variant="unstyled"
                         type="button"
                         aria-label={t('上一页')}
                         disabled={safeArchivePage <= 1}
                         onClick={() => setArchivePage(safeArchivePage - 1)}
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
                             <ChevronLeft className="h-4 w-4" />
-                          </button>
+                          </Button>
                           {Array.from({ length: archiveTotalPages }, (_, i) => i + 1).map((p) =>
-                        <button
+                        <Button variant="unstyled"
                           key={p}
                           type="button"
                           onClick={() => setArchivePage(p)}
-                          className={`h-7 min-w-[28px] rounded-lg px-1.5 text-xs font-medium transition-colors ${p === safeArchivePage ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+                          className={`h-7 min-w-[28px] rounded-lg px-1.5 text-xs font-medium transition-colors ${p === safeArchivePage ? 'bg-primary text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
                               {p}
-                            </button>
+                            </Button>
                         )}
-                          <button
+                          <Button variant="unstyled"
                         type="button"
                         aria-label={t('下一页')}
                         disabled={safeArchivePage >= archiveTotalPages}
                         onClick={() => setArchivePage(safeArchivePage + 1)}
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
                             <ChevronRight className="h-4 w-4" />
-                          </button>
+                          </Button>
                         </div>
                       </div>
                   }
@@ -3106,7 +3109,7 @@ export function ExpenseModule() {
                       <div className="mt-3">
                             <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
                               <div
-                            className="h-full rounded-full bg-[#002fa7]"
+                            className="h-full rounded-full bg-primary"
                             style={{
                               width: `${a.currentStep / a.totalSteps * 100}%`
                             }} />
@@ -3122,8 +3125,8 @@ export function ExpenseModule() {
 
                 })}
                   {approvals.length === 0 &&
-                    <div className="flex h-full min-h-64 flex-col items-center justify-center px-6 text-center text-slate-400">
-                      <ClipboardCheck className="mb-3 h-11 w-11 text-slate-300" />
+                    <div className="flex h-full min-h-64 flex-col items-center justify-center px-6 text-center text-muted-foreground">
+                      <ClipboardCheck className="mb-3 h-11 w-11 text-muted-foreground" />
                       <p className="text-balance text-sm font-medium text-slate-600">{t('暂无报销申请')}</p>
                       <p className="mt-1 text-pretty text-xs">{t('关联发票与凭证后即可创建报销单')}</p>
                       <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setActiveTab('vouchers')}>{t('前往凭证管理')}</Button>
@@ -3187,39 +3190,39 @@ export function ExpenseModule() {
                       </div>
                       <div className="grid grid-cols-1 gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
                         <div>
-                          <p className="text-slate-400 mb-0.5 flex items-center gap-1"><Hash className="h-3 w-3" />{t('审批单号 SpNo')}</p>
+                          <p className="text-muted-foreground mb-0.5 flex items-center gap-1"><Hash className="h-3 w-3" />{t('审批单号 SpNo')}</p>
                           <p className="font-mono font-medium text-slate-700 truncate">{meta.spNo}</p>
                         </div>
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('审批模板')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('审批模板')}</p>
                           <p className="font-medium text-slate-700">{t(meta.template)}</p>
                         </div>
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('申请人')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('申请人')}</p>
                           <p className="font-medium text-slate-700">{selectedApproval.applicant} · {t(selectedApproval.department)}</p>
                         </div>
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('审批方式')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('审批方式')}</p>
                           <p className="font-medium text-slate-700">{t(meta.method)}</p>
                         </div>
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('当前节点')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('当前节点')}</p>
                           <p className="font-medium text-slate-700">{t(meta.currentNode)}</p>
                         </div>
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('提交时间')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('提交时间')}</p>
                           <p className="font-medium text-slate-700">{selectedApproval.submitDate}</p>
                         </div>
                         {selectedApproval.project &&
                         <div>
-                          <p className="text-slate-400 mb-0.5">{t('项目 / 成本归属')}</p>
+                          <p className="text-muted-foreground mb-0.5">{t('项目 / 成本归属')}</p>
                           <p className="font-medium text-slate-700"><AutoTranslatedText text={selectedApproval.project} /></p>
                         </div>
                         }
                       </div>
                       {(selectedApproval.notifyEmails?.length ?? 0) > 0 &&
                       <div className="mt-3.5 pt-3 border-t border-blue-100/70 flex items-start gap-2 flex-wrap">
-                        <span className="flex items-center gap-1 text-xs text-slate-400">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Send className="h-3.5 w-3.5" />{t('邮件通知')}
                         </span>
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -3232,7 +3235,7 @@ export function ExpenseModule() {
                       </div>
                       }
                       <div className="mt-3.5 pt-3 border-t border-blue-100/70 flex items-center gap-2 flex-wrap">
-                        <span className="flex items-center gap-1 text-xs text-slate-400">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Users className="h-3.5 w-3.5" />{t('抄送人')}
                         </span>
                         {meta.carbonCopy.length ?
@@ -3243,11 +3246,11 @@ export function ExpenseModule() {
                                   {cc.name.charAt(0)}
                                 </span>
                                 {cc.name}
-                                {cc.department && <span className="text-slate-400">{t(cc.department)}</span>}
+                                {cc.department && <span className="text-muted-foreground">{t(cc.department)}</span>}
                               </span>
                         )}
                           </div> :
-                      <span className="text-xs text-slate-400">{t('无')}</span>
+                      <span className="text-xs text-muted-foreground">{t('无')}</span>
                       }
                       </div>
                     </div>
@@ -3265,7 +3268,7 @@ export function ExpenseModule() {
                         <p className="text-xl font-bold text-slate-800 tabular-nums">
                           {selectedApproval.materials?.length ? `${selectedApproval.materials.length} ${t('笔')}` : `${selectedApproval.items} ${t('项')}`}
                           {selectedApproval.materials?.length ?
-                        <span className="text-xs font-normal text-slate-400 ml-1">{selectedApproval.materials.length * 2} {t('份附件')}</span> :
+                        <span className="text-xs font-normal text-muted-foreground ml-1">{selectedApproval.materials.length * 2} {t('份附件')}</span> :
                         null}
                         </p>
                       </div>
@@ -3273,10 +3276,10 @@ export function ExpenseModule() {
                         <p className="text-xs text-slate-500 mb-1">{t('审批进度')}</p>
                         <p className="text-xl font-bold text-slate-800 tabular-nums">
                           {selectedApproval.currentStep}
-                          <span className="text-sm font-normal text-slate-400">/{selectedApproval.totalSteps}</span>
+                          <span className="text-sm font-normal text-muted-foreground">/{selectedApproval.totalSteps}</span>
                         </p>
                         <div className="mt-2 h-1 bg-slate-200 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${selectedApproval.currentStep / selectedApproval.totalSteps * 100}%` }} />
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${selectedApproval.currentStep / selectedApproval.totalSteps * 100}%` }} />
                         </div>
                       </div>
                     </div>
@@ -3286,7 +3289,7 @@ export function ExpenseModule() {
                         <h4 className="mb-3 flex items-center gap-2 text-balance text-sm font-semibold text-slate-800">
                           <Archive className="w-4 h-4 text-emerald-500" />
                           {t('提交材料')}
-                          <span className="ml-auto text-xs font-normal text-slate-400">{t('合计')} {formatMoney(materialTotal)}</span>
+                          <span className="ml-auto text-xs font-normal text-muted-foreground">{t('合计')} {formatMoney(materialTotal)}</span>
                         </h4>
                         <div className="overflow-x-auto rounded-2xl border border-slate-100">
                           <div className="min-w-[620px]">
@@ -3300,13 +3303,13 @@ export function ExpenseModule() {
                         <div key={`${material.invoiceId}-${material.voucherId}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px] gap-3 px-4 py-3 text-sm">
                                 <div className="min-w-0">
                                   <div className="truncate font-medium text-slate-800">{material.invoiceIssuer}</div>
-                                  <div className="mt-0.5 truncate text-xs text-slate-400">
+                                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
                                     {material.invoiceNo} · {material.invoiceDate}
                                   </div>
                                 </div>
                                 <div className="min-w-0">
                                   <div className="truncate font-medium text-slate-700">{material.voucherVendor}</div>
-                                  <div className="mt-0.5 truncate text-xs text-slate-400">
+                                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
                                     {material.voucherNo} · {material.category}
                                   </div>
                                 </div>
@@ -3324,7 +3327,7 @@ export function ExpenseModule() {
                       <h4 className="mb-4 flex items-center gap-2 text-balance text-sm font-semibold text-slate-800">
                         <TrendingUp className="w-4 h-4 text-blue-500" />
                         {t('审批流程')}
-                        <span className="ml-auto text-xs font-normal text-slate-400">{t('共')} {selectedApproval.flow.length} {t('个节点')}</span>
+                        <span className="ml-auto text-xs font-normal text-muted-foreground">{t('共')} {selectedApproval.flow.length} {t('个节点')}</span>
                       </h4>
                       <div className="space-y-4">
                         {selectedApproval.flow.map((step: any, idx: number) => {
@@ -3337,7 +3340,7 @@ export function ExpenseModule() {
                       'bg-blue-500 text-white animate-pulse' :
                       step.status === 'rejected' ?
                       'bg-rose-500 text-white' :
-                      'bg-slate-200 text-slate-400';
+                      'bg-slate-200 text-muted-foreground';
                       const stepIcon =
                       step.status === 'done' ?
                       <Check className="w-4 h-4" /> :
@@ -3371,7 +3374,7 @@ export function ExpenseModule() {
                                     <span className="text-sm font-medium text-slate-800">
                                       {step.name}
                                     </span>
-                                    <span className="text-xs text-slate-400">
+                                    <span className="text-xs text-muted-foreground">
                                       {t(step.role)}
                                     </span>
                                     {!step.role.includes('申请') &&
@@ -3381,7 +3384,7 @@ export function ExpenseModule() {
                                 }
                                   </div>
                                   {step.time &&
-                              <span className="text-xs text-slate-400 font-mono shrink-0">
+                              <span className="text-xs text-muted-foreground font-mono shrink-0">
                                       {step.time}
                                     </span>
                               }
@@ -3399,7 +3402,7 @@ export function ExpenseModule() {
                                   </p>
                             }
                                 {step.status === 'pending' &&
-                            <p className="text-xs text-slate-400 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                                     {t('待审批')}
                                   </p>
                             }
@@ -3415,11 +3418,11 @@ export function ExpenseModule() {
                 <div className="hz-surface flex min-h-[320px] flex-1 flex-col items-center justify-center p-6 text-center">
                   <ClipboardCheck className="mb-3 h-14 w-14 text-slate-200" />
                   <p className="text-balance text-sm font-medium text-slate-600">{t('暂无可查看的报销申请')}</p>
-                  <p className="mt-1 text-pretty text-xs text-slate-400">{t('请先在凭证管理中完成关联，再新建报销单')}</p>
+                  <p className="mt-1 text-pretty text-xs text-muted-foreground">{t('请先在凭证管理中完成关联，再新建报销单')}</p>
                   <Button
                     type="button"
                     size="sm"
-                    className="mt-4 bg-[#002fa7] text-white hover:bg-[#002581]"
+                    className="mt-4 bg-primary text-white hover:bg-primary-hover"
                     onClick={() => openReimbursementDialog()}>
                     <Plus className="h-3.5 w-3.5" /> {t('新建报销单')}
                   </Button>
@@ -3437,7 +3440,7 @@ export function ExpenseModule() {
                 <div className="flex flex-wrap items-center gap-4 p-4">
                   <div className="flex items-center gap-2">
                     <label htmlFor="buyback-start-date" className="text-xs font-medium text-slate-500">{t('开始日期')}</label>
-                    <input
+                    <Input
                     id="buyback-start-date"
                     type="date"
                     value={dateRange.start}
@@ -3447,13 +3450,13 @@ export function ExpenseModule() {
                       start: e.target.value
                     })
                     }
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm tabular-nums outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm tabular-nums outline-none transition-colors focus:border-primary/25 focus:ring-2 focus:ring-primary/25" />
                   
                   </div>
-                  <span className="text-slate-400">{t('至')}</span>
+                  <span className="text-muted-foreground">{t('至')}</span>
                   <div className="flex items-center gap-2">
                     <label htmlFor="buyback-end-date" className="text-xs font-medium text-slate-500">{t('结束日期')}</label>
-                    <input
+                    <Input
                     id="buyback-end-date"
                     type="date"
                     value={dateRange.end}
@@ -3463,7 +3466,7 @@ export function ExpenseModule() {
                       end: e.target.value
                     })
                     }
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm tabular-nums outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm tabular-nums outline-none transition-colors focus:border-primary/25 focus:ring-2 focus:ring-primary/25" />
                   
                   </div>
                   <div className="flex p-1 bg-slate-100 rounded-full">
@@ -3475,7 +3478,7 @@ export function ExpenseModule() {
                     ...getCurrentQuarterRange()
                   }].
                   map((p) =>
-                  <button
+                  <Button variant="unstyled"
                     key={p.l}
                     type="button"
                     onClick={() =>
@@ -3484,10 +3487,10 @@ export function ExpenseModule() {
                       end: p.end
                     })
                     }
-                    className="rounded-lg px-3 py-1 text-xs text-slate-600 transition-colors hover:bg-white hover:text-[#002fa7]">
+                    className="rounded-lg px-3 py-1 text-xs text-slate-600 transition-colors hover:bg-white hover:text-primary">
                     
                         {t(p.l)}
-                      </button>
+                      </Button>
                   )}
                   </div>
                   {invalidDateRange &&
@@ -3501,8 +3504,8 @@ export function ExpenseModule() {
               {/* Summary cards */}
               <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="hz-surface bg-blue-50/70 p-5">
-                  <p className="mb-1 text-xs text-[#002fa7]">{t('日期区间内发票数')}</p>
-                  <p className="text-3xl font-bold text-[#002fa7] tabular-nums">
+                  <p className="mb-1 text-xs text-primary">{t('日期区间内发票数')}</p>
+                  <p className="text-3xl font-bold text-primary tabular-nums">
                     {filteredInvoices.length} {t('张')}
                   </p>
                   <p className="mt-2 text-xs text-blue-700 tabular-nums">
@@ -3514,14 +3517,14 @@ export function ExpenseModule() {
                   <p className="text-3xl font-bold text-slate-800 tabular-nums">
                     ¥{buybackTotal.toFixed(2)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-2">{t('含税金额')}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{t('含税金额')}</p>
                 </div>
                 <div className="hz-surface p-5">
                   <p className="text-xs text-slate-500 mb-1">{t('可抵扣税额')}</p>
                   <p className="text-3xl font-bold text-emerald-600 tabular-nums">
                     ¥{buybackTax.toFixed(2)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-2">
+                  <p className="text-xs text-muted-foreground mt-2">
                     {t('占比')} {(buybackTax / buybackTotal * 100 || 0).toFixed(1)}%
                   </p>
                 </div>
@@ -3584,24 +3587,24 @@ export function ExpenseModule() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <button
+                            <Button variant="unstyled"
                           type="button"
                           onClick={() => setDocPreview({ kind: 'invoice', data: iv })}
-                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 transition-colors whitespace-nowrap">
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-primary hover:bg-accent transition-colors whitespace-nowrap">
 
                               <Eye className="h-3.5 w-3.5" />{t('原始票据')}
-                            </button>
+                            </Button>
                             {(() => {
                           const linkedVoucher = findVoucherForInvoice(iv, expenseVouchers);
                           return linkedVoucher ?
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => setDocPreview({ kind: 'voucher', data: linkedVoucher })}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-emerald-600 hover:bg-emerald-50 transition-colors whitespace-nowrap">
 
                                   <Link2 className="h-3.5 w-3.5" />{t('关联凭证')}
-                                </button> :
-                          <span className="inline-flex items-center rounded-lg px-2 py-1 text-xs text-slate-300 whitespace-nowrap">{t('未关联')}</span>;
+                                </Button> :
+                          <span className="inline-flex items-center rounded-lg px-2 py-1 text-xs text-muted-foreground whitespace-nowrap">{t('未关联')}</span>;
                         })()}
                           </div>
                         </td>
@@ -3611,7 +3614,7 @@ export function ExpenseModule() {
                   <tr>
                         <td
                       colSpan={9}
-                      className="px-5 py-10 text-center text-sm text-slate-400">
+                      className="px-5 py-10 text-center text-sm text-muted-foreground">
 
                           <div className="flex flex-col items-center gap-3">
                             <span>{t('所选日期区间内暂无发票')}</span>
@@ -3692,49 +3695,49 @@ export function ExpenseModule() {
               <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">{t('报销标题')}</span>
-                  <input
+                  <Input
                     value={reimbursementTitle}
                     onChange={(event) => setReimbursementTitle(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25"
                     placeholder={t('例如：6 月费用报销申请')} />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">{t('申请人')}</span>
-                  <input
+                  <Input
                     value={reimbursementApplicant}
                     onChange={(event) => setReimbursementApplicant(event.target.value)}
                     disabled={!canSubmitOnBehalf}
                     title={!canSubmitOnBehalf ? t('申请人由当前登录账号确定') : undefined}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-500"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:text-slate-500"
                     placeholder={t('申请人姓名')} />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">{t('项目 / 成本归属')}</span>
-                  <input
+                  <Input
                     value={reimbursementProject}
                     onChange={(event) => setReimbursementProject(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25"
                     placeholder={t('留空则取发票所属项目')} />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">
                     {t('申请人企微 UserID')}
-                    <span className="ml-1 font-normal text-slate-400">{t('（企业微信提单人）')}</span>
+                    <span className="ml-1 font-normal text-muted-foreground">{t('（企业微信提单人）')}</span>
                   </span>
-                  <input
+                  <Input
                     value={reimbursementCreatorUserid}
                     onChange={(event) => setReimbursementCreatorUserid(event.target.value)}
                     disabled={!canSubmitOnBehalf}
                     title={!canSubmitOnBehalf ? t('仅具有代提交权限的用户可以指定企业微信提单人') : undefined}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-500"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:text-slate-500"
                     placeholder={t('留空则用系统默认提单人')} />
                 </label>
                 <label className="block md:col-span-2">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">{t('报销事由')}</span>
-                  <textarea
+                  <Textarea
                     value={reimbursementReason}
                     onChange={(event) => setReimbursementReason(event.target.value)}
-                    className="min-h-[78px] w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    className="min-h-[78px] w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25"
                     placeholder={t('填写本次报销用途、项目或说明')} />
                 </label>
                 <div className="md:col-span-2">
@@ -3795,8 +3798,8 @@ export function ExpenseModule() {
                     <div className="space-y-3 border-b border-slate-100 bg-white px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="relative w-full min-w-0 max-w-[540px] flex-[1_1_360px]">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                          <input
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
                             aria-label={t('搜索待报销的发票或凭证')}
                             value={reimbursementKeyword}
                             onChange={(event) => {
@@ -3804,10 +3807,10 @@ export function ExpenseModule() {
                               setReimbursementPage(1);
                               setReimbursementInspector(null);
                             }}
-                            className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm text-slate-800 outline-none transition-colors focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                            className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm text-slate-800 outline-none transition-colors focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/25"
                             placeholder={t('搜索发票号码、开票方或凭证')} />
                           {reimbursementKeyword &&
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           aria-label={t('清空待报销票据搜索')}
                           onClick={() => {
@@ -3815,9 +3818,9 @@ export function ExpenseModule() {
                             setReimbursementPage(1);
                             setReimbursementInspector(null);
                           }}
-                          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-slate-200 hover:text-slate-700">
                               <X className="h-3.5 w-3.5" />
-                            </button>
+                            </Button>
                         }
                         </div>
                         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -3828,7 +3831,7 @@ export function ExpenseModule() {
                               setReimbursementPage(1);
                               setReimbursementInspector(null);
                             }}>
-                            <SelectTrigger aria-label={t('筛选报销类别')} className="h-9 w-[136px] rounded-xl border-slate-200 bg-white text-sm text-slate-700 focus:ring-blue-100">
+                            <SelectTrigger aria-label={t('筛选报销类别')} className="h-9 w-[136px] rounded-xl border-slate-200 bg-white text-sm text-slate-700 focus:ring-primary/25">
                               <SelectValue placeholder={t('全部类别')} />
                             </SelectTrigger>
                             <SelectContent className="z-50">
@@ -3857,47 +3860,47 @@ export function ExpenseModule() {
                           <ToggleGroupItem
                             key={option.id}
                             value={option.id}
-                            className="h-7 min-w-11 !rounded-full border-0 px-3 text-xs font-medium text-slate-500 shadow-none hover:bg-white/50 data-[state=on]:bg-blue-50 data-[state=on]:text-blue-700 data-[state=on]:shadow-none">
+                            className="h-7 min-w-11 !rounded-full border-0 px-3 text-xs font-medium text-slate-500 shadow-none hover:bg-white/50 data-[state=on]:bg-accent data-[state=on]:text-primary data-[state=on]:shadow-none">
                                 {t(option.label)}
                               </ToggleGroupItem>
                           )}
                           </ToggleGroup>
                           {reimbursementFilterActive &&
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={resetReimbursementFilters}
                           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
                               <Filter className="h-3.5 w-3.5" /> {t('重置')}
-                            </button>
+                            </Button>
                         }
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={selectFilteredReimbursementItems}
                         disabled={filteredReimbursementItems.length === 0}
                         className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100">
                         <Check className="h-3.5 w-3.5" /> {t('全选结果')}
-                      </button>
-                      <button
+                      </Button>
+                      <Button variant="unstyled"
                         type="button"
                         onClick={clearFilteredReimbursementItems}
                         disabled={filteredReimbursementItems.length === 0}
                         className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
                         <X className="h-3.5 w-3.5" /> {t('清空结果')}
-                      </button>
+                      </Button>
                       {reimbursementDraftGroups.map((group) => {
                         const allSelected = group.selectedCount === group.items.length;
                         const partiallySelected = group.selectedCount > 0 && !allSelected;
                         return (
-                          <button
+                          <Button variant="unstyled"
                             key={group.category}
                             type="button"
                             onClick={() => toggleReimbursementCategory(group.category)}
-                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${allSelected ? 'border-blue-200 bg-blue-50 text-blue-700' : partiallySelected ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}>
+                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${allSelected ? 'border-primary/25 bg-accent text-primary' : partiallySelected ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}>
                             {t(group.category)} {group.selectedCount}/{group.items.length}
-                          </button>
+                          </Button>
                         );
                       })}
                       </div>
@@ -3925,7 +3928,7 @@ export function ExpenseModule() {
                                   aria-label={t('选择{category}分类', { category: t(group.category) })}
                                   onClick={(event) => event.stopPropagation()}
                                   onCheckedChange={() => toggleReimbursementCategory(group.category)}
-                                  className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=indeterminate]:border-blue-500 data-[state=indeterminate]:bg-blue-500" />
+                                  className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary" />
                                 <span className="truncate">{t(group.category)}</span>
                               </div>
                               <span className="shrink-0 text-xs text-slate-500">
@@ -3960,12 +3963,12 @@ export function ExpenseModule() {
                                       <span className="block truncate font-medium text-slate-800" title={invoice?.issuer ?? item.vendor}>
                                         {invoice?.issuer ?? item.vendor}
                                       </span>
-                                      <span className="mt-0.5 block truncate text-xs text-slate-400">
+                                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                                         {t('发票')} {invoice?.invoiceNumber ?? item.matchedTo ?? '-'} {t('· 凭证')} {item.id} · {item.vendor}
                                       </span>
                                     </span>
                                     <span className="flex items-center justify-end gap-1">
-                                      <button
+                                      <Button variant="unstyled"
                                         type="button"
                                         title={t('查看发票详情')}
                                         aria-label={t('查看发票详情')}
@@ -3973,10 +3976,10 @@ export function ExpenseModule() {
                                           event.stopPropagation();
                                           setReimbursementInspector({ itemId: item.id, kind: 'invoice' });
                                         }}
-                                        className="flex h-7 w-7 items-center justify-center rounded-full text-blue-600 transition-colors hover:bg-blue-50">
+                                        className="flex h-7 w-7 items-center justify-center rounded-full text-primary transition-colors hover:bg-accent">
                                         <FileText className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
+                                      </Button>
+                                      <Button variant="unstyled"
                                         type="button"
                                         title={t('查看关联详情')}
                                         aria-label={t('查看关联详情')}
@@ -3986,7 +3989,7 @@ export function ExpenseModule() {
                                         }}
                                         className="flex h-7 w-7 items-center justify-center rounded-full text-emerald-600 transition-colors hover:bg-emerald-50">
                                         <Link2 className="h-3.5 w-3.5" />
-                                      </button>
+                                      </Button>
                                     </span>
                                     <span className="text-right font-semibold text-slate-900">{formatMoney(item.amount)}</span>
                                   </div>
@@ -3996,7 +3999,7 @@ export function ExpenseModule() {
                           </div>
                         );
                       }) :
-                      <div className="px-4 py-10 text-center text-sm text-slate-400">
+                      <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                         {t('没有匹配的发票/凭证，请调整筛选条件。')}
                       </div>
                       }
@@ -4006,28 +4009,28 @@ export function ExpenseModule() {
                         {reimbursementPageStart}-{reimbursementPageEnd} / {filteredReimbursementItems.length} {t('项')}
                       </span>
                       <div className="flex items-center gap-2">
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => setReimbursementPage((page) => Math.max(1, page - 1))}
                           disabled={reimbursementCurrentPage <= 1}
                           className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-40">
                           <ChevronLeft className="h-3.5 w-3.5" /> {t('上一页')}
-                        </button>
+                        </Button>
                         <span className="min-w-12 text-center text-xs font-medium text-slate-600">
                           {reimbursementCurrentPage} / {reimbursementTotalPages}
                         </span>
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => setReimbursementPage((page) => Math.min(reimbursementTotalPages, page + 1))}
                           disabled={reimbursementCurrentPage >= reimbursementTotalPages}
                           className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-40">
                           {t('下一页')} <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="px-4 py-10 text-center text-sm text-slate-400">
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                     {t('暂无可提交凭证，请先完成发票关联；已审批成功的票据不会重复展示。')}
                   </div>
                 )}
@@ -4045,48 +4048,48 @@ export function ExpenseModule() {
                       <h4 className="truncate text-balance text-sm font-semibold text-slate-900">
                         {t(reimbursementInspector?.kind === 'invoice' ? '发票详情' : '关联详情')}
                       </h4>
-                      <p className="truncate text-xs text-slate-400">
+                      <p className="truncate text-xs text-muted-foreground">
                         {inspectedReimbursementInvoice?.invoiceNumber ?? inspectedReimbursementItem.id}
                       </p>
                     </div>
                   </div>
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     aria-label={t('关闭票据详情')}
                     onClick={() => setReimbursementInspector(null)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700">
                     <X className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </div>
 
                 {reimbursementInspector?.kind === 'invoice' ?
             <div className="space-y-4 p-4">
                     <div>
-                      <div className="text-xs text-slate-400">{t('开票方')}</div>
+                      <div className="text-xs text-muted-foreground">{t('开票方')}</div>
                       <div className="mt-1 text-sm font-semibold text-slate-900">
                         {inspectedReimbursementInvoice?.issuer ?? '-'}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                       <div>
-                        <div className="text-xs text-slate-400">{t('发票号码')}</div>
+                        <div className="text-xs text-muted-foreground">{t('发票号码')}</div>
                         <div className="mt-1 font-mono text-slate-800">{inspectedReimbursementInvoice?.invoiceNumber ?? '-'}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-400">{t('开票日期')}</div>
+                        <div className="text-xs text-muted-foreground">{t('开票日期')}</div>
                         <div className="mt-1 text-slate-800">{inspectedReimbursementInvoice?.date ?? inspectedReimbursementItem.date}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-400">{t('价税合计')}</div>
+                        <div className="text-xs text-muted-foreground">{t('价税合计')}</div>
                         <div className="mt-1 font-semibold text-slate-900">{formatMoney(inspectedReimbursementInvoice?.amount ?? inspectedReimbursementItem.amount)}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-400">{t('税额')}</div>
+                        <div className="text-xs text-muted-foreground">{t('税额')}</div>
                         <div className="mt-1 text-emerald-700">{formatMoney(inspectedReimbursementInvoice?.taxAmount ?? 0)}</div>
                       </div>
                     </div>
                     <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                      <div className="text-xs text-slate-400">{t('审批状态')}</div>
+                      <div className="text-xs text-muted-foreground">{t('审批状态')}</div>
                       <div className="mt-1 text-sm font-medium text-slate-800">
                         {t(inspectedReimbursementInvoice?.status ?? inspectedReimbursementItem.sourceInvoiceStatus ?? '未审批成功')}
                       </div>
@@ -4143,7 +4146,7 @@ export function ExpenseModule() {
                   type="button"
                   onClick={() => void handleConfirmCreateApproval()}
                   disabled={submittingReimbursement || selectedReimbursementItems.length === 0}
-                  className="rounded-xl bg-[#002fa7] text-white hover:bg-[#002581]">
+                  className="rounded-xl bg-primary text-white hover:bg-primary-hover">
                   {submittingReimbursement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {t(submittingReimbursement ? '创建中...' : '确认创建')}
                 </Button>
@@ -4187,23 +4190,23 @@ export function ExpenseModule() {
                     <Link2 className="h-3.5 w-3.5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] text-slate-400">{label}</p>
+                    <p className="text-[11px] text-muted-foreground">{label}</p>
                     {counterpart ?
                     <p className="truncate text-xs font-medium text-slate-700">{cpName} · <span className="font-mono text-slate-500">{cpNo}</span></p> :
-                    <p className="text-xs text-slate-400">{t('暂无{label}', { label })}</p>
+                    <p className="text-xs text-muted-foreground">{t('暂无{label}', { label })}</p>
                     }
                   </div>
                   {counterpart &&
                   <>
                     <span className="shrink-0 text-xs font-semibold text-slate-700 tabular-nums">¥{counterpart.amount.toFixed(2)}</span>
-                    <button
+                    <Button variant="unstyled"
                     type="button"
                     onClick={() => setDocPreview(isInvoice
                       ? { kind: 'voucher', data: counterpart as ExpenseVoucherView }
                       : { kind: 'invoice', data: counterpart as InvoiceVoucherView })}
-                    className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-600 ring-1 ring-slate-200 transition-colors hover:bg-blue-50">
+                    className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-primary ring-1 ring-slate-200 transition-colors hover:bg-accent">
                       <Eye className="h-3 w-3" />{t('查看')}
-                    </button>
+                    </Button>
                   </>
                   }
                 </div>);
@@ -4223,11 +4226,11 @@ export function ExpenseModule() {
                     </div>
                     <div className="px-5 py-4 text-xs text-slate-700">
                       <div className="flex items-start justify-between py-1">
-                        <span className="text-slate-400">{t('开票日期')}</span>
+                        <span className="text-muted-foreground">{t('开票日期')}</span>
                         <span className="font-mono">{iv.date}</span>
                       </div>
                       <div className="flex items-start justify-between py-1">
-                        <span className="shrink-0 text-slate-400">{t('销售方')}</span>
+                        <span className="shrink-0 text-muted-foreground">{t('销售方')}</span>
                         <span className="ml-4 text-right font-medium text-slate-800">{iv.issuer}</span>
                       </div>
                       <div className="my-2.5 border-t border-slate-100" />
@@ -4245,7 +4248,7 @@ export function ExpenseModule() {
                       </div>
                     </div>
                     <div className="flex items-center justify-between px-5 pb-5">
-                      <span className="text-[10px] text-slate-300">{t('收款人：系统 · 复核：系统 · 开票人：系统')}</span>
+                      <span className="text-[10px] text-muted-foreground">{t('收款人：系统 · 复核：系统 · 开票人：系统')}</span>
                       <div className="flex h-[72px] w-[72px] rotate-[-14deg] items-center justify-center rounded-full border-[2.5px] border-rose-400/70 text-center">
                         <span className="px-1 text-[8px] font-semibold leading-tight text-rose-500/80">{t('发票')}<br />{t('专用章')}<br />★</span>
                       </div>
@@ -4260,20 +4263,20 @@ export function ExpenseModule() {
                   <div className="mx-auto w-full max-w-[300px] bg-white px-6 py-6 font-mono text-xs text-slate-700 shadow-sm">
                     <div className="text-center">
                       <div className="text-sm font-bold text-slate-800">{v.vendor}</div>
-                      <div className="mt-1 text-[11px] text-slate-400">{t('消费凭据')} · {t(v.type)}</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{t('消费凭据')} · {t(v.type)}</div>
                     </div>
                     <div className="my-3 border-t border-dashed border-slate-300" />
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">{t('凭证编号')}</span>
+                        <span className="text-muted-foreground">{t('凭证编号')}</span>
                         <span>{v.id}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">{t('消费类别')}</span>
+                        <span className="text-muted-foreground">{t('消费类别')}</span>
                         <span>{t(v.category)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">{t('消费日期')}</span>
+                        <span className="text-muted-foreground">{t('消费日期')}</span>
                         <span>{v.date}</span>
                       </div>
                     </div>
@@ -4282,21 +4285,21 @@ export function ExpenseModule() {
                       <span className="text-sm font-semibold text-slate-700">{t('消费金额')}</span>
                       <span className="text-lg font-bold text-slate-900 tabular-nums">¥{v.amount.toFixed(2)}</span>
                     </div>
-                    <div className="mt-5 text-center text-[10px] text-slate-300">— {t('凭据底部')} —</div>
+                    <div className="mt-5 text-center text-[10px] text-muted-foreground">— {t('凭据底部')} —</div>
                   </div>);
 
               })()}
             </div>
 
             <DialogFooter className="flex-row items-center justify-between border-t border-slate-100 bg-slate-50 px-5 py-3 sm:justify-between">
-              <p className="text-[11px] text-slate-400">{t('影像在凭证上传时由系统留存')}</p>
-              <button
+              <p className="text-[11px] text-muted-foreground">{t('影像在凭证上传时由系统留存')}</p>
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setDocPreview(null)}
                 className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-100">
 
                 {t('关闭')}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -4338,23 +4341,23 @@ export function ExpenseModule() {
               <div>
                 <label htmlFor="expense-category-icon" className="mb-1.5 block text-xs font-medium text-slate-500">{t('图标')}</label>
                 <div className="flex items-center gap-2">
-                  <input
+                  <Input
                     id="expense-category-icon"
                     type="text"
                     value={categoryEditor.icon}
                     maxLength={2}
                     onChange={(e) => setCategoryEditor((prev) => prev ? { ...prev, icon: e.target.value } : prev)}
-                    className="h-10 w-12 rounded-xl border-none bg-slate-50 text-center text-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    className="h-10 w-12 rounded-xl border-none bg-slate-50 text-center text-lg focus:outline-none focus:ring-2 focus:ring-primary/20" />
                   <div className="flex flex-wrap gap-1">
                     {['📁', '🍜', '🚗', '📦', '🏨', '✈️', '💼', '🎫', '🏷️', '📄'].map((emo) =>
-                    <button
+                    <Button variant="unstyled"
                       key={emo}
                       type="button"
                       aria-label={t('选择图标 {icon}', { icon: emo })}
                       onClick={() => setCategoryEditor((prev) => prev ? { ...prev, icon: emo } : prev)}
                       className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-slate-100">
                         {emo}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -4362,7 +4365,7 @@ export function ExpenseModule() {
               }
               <div>
                 <label htmlFor="expense-category-name" className="mb-1.5 block text-xs font-medium text-slate-500">{t('分类名称')}</label>
-                <input
+                <Input
                   id="expense-category-name"
                   type="text"
                   autoFocus
@@ -4372,23 +4375,23 @@ export function ExpenseModule() {
                     if (e.key === 'Enter') submitCategoryEditor();
                   }}
                   placeholder={t('请输入分类名称')}
-                  className="w-full rounded-xl border-none bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  className="w-full rounded-xl border-none bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               </div>
             </div>
             <DialogFooter className="flex-row items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setCategoryEditor(null)}
                 className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-100">
                 {t('取消')}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={submitCategoryEditor}
                 disabled={!categoryEditor?.name.trim()}
-                className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
+                className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50">
                 <Check className="h-4 w-4" /> {t('保存')}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -4441,12 +4444,12 @@ export function ExpenseModule() {
                 const current = moveItemTarget ? manualCategory[moveItemTarget.id] : undefined;
                 const renderOption = (node: TreeNode, depth: number) =>
                   <Fragment key={node.id}>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => {
                         if (moveItemTarget) moveVoucherToNode(moveItemTarget.id, node.id);
                       }}
-                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${current === node.id ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100/70'}`}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${current === node.id ? 'bg-accent text-primary' : 'text-slate-700 hover:bg-slate-100/70'}`}
                       style={{ paddingLeft: `${depth * 16 + 8}px` }}>
                       {node.icon ?
                       <span className="text-base">{node.icon}</span> :
@@ -4456,19 +4459,19 @@ export function ExpenseModule() {
                       {current === node.id &&
                       <span className="shrink-0 text-[10px] text-blue-500">{t('当前')}</span>
                       }
-                    </button>
+                    </Button>
                     {node.children?.map((c) => renderOption(c, depth + 1))}
                   </Fragment>;
                 return archiveTree.map((node) => renderOption(node, 0));
               })()}
             </div>
             <DialogFooter className="flex-row items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setMoveItemTarget(null)}
                 className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-100">
                 {t('取消')}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

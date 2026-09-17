@@ -431,26 +431,22 @@ test('non-main product UI renders the server-confirmed tree instead of an optimi
     /requestJson<\{ ok: boolean; categories\?: RdCategory\[\] \}>\(`/,
   );
 
-  const childRenameAction = pageSource.lastIndexOf('mode: "edit-sub"');
-  const childRenameButton = pageSource.slice(
-    pageSource.lastIndexOf('<button', childRenameAction),
-    pageSource.indexOf('</button>', childRenameAction),
-  );
+  function actionButton(mode: string) {
+    const action = pageSource.lastIndexOf(`mode: "${mode}"`);
+    const start = pageSource.lastIndexOf('<Button', action);
+    const end = pageSource.indexOf('</Button>', action);
+    assert.ok(action >= 0 && start >= 0 && end > action, `${mode} must have a rendered Button`);
+    assert.equal(pageSource.indexOf('</Button>', start), end, `${mode} must belong to the selected Button`);
+    return pageSource.slice(start, end);
+  }
+  const childRenameButton = actionButton('edit-sub');
   assert.doesNotMatch(childRenameButton, /disabled=/, 'a populated child must remain renameable');
 
-  const childDeleteAction = pageSource.lastIndexOf('mode: "delete-sub"');
-  const childDeleteButton = pageSource.slice(
-    pageSource.lastIndexOf('<button', childDeleteAction),
-    pageSource.indexOf('</button>', childDeleteAction),
-  );
+  const childDeleteButton = actionButton('delete-sub');
   assert.match(childDeleteButton, /aria-disabled=\{subTaskTotal > 0\}/);
   assert.match(childDeleteButton, /if \(subTaskTotal === 0\)/);
 
-  const systemDeleteAction = pageSource.lastIndexOf('mode: "delete-system"');
-  const systemDeleteButton = pageSource.slice(
-    pageSource.lastIndexOf('<button', systemDeleteAction),
-    pageSource.indexOf('</button>', systemDeleteAction),
-  );
+  const systemDeleteButton = actionButton('delete-system');
   assert.match(systemDeleteButton, /aria-disabled=\{subTaskCount > 0\}/);
   assert.match(systemDeleteButton, /if \(subTaskCount === 0\)/);
 });

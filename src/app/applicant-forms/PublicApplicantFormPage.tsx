@@ -3,6 +3,7 @@ import { useParams } from 'react-router';
 import { CheckCircle2, FileQuestion, Loader2 } from 'lucide-react';
 import { ApplicantFormsError, getPublicApplicantForm, submitPublicApplicantForm, uploadPublicApplicantFile, type FormAnswers, type FormField, type PublicForm, type SubmitReceipt } from '../lib/applicantFormsApi';
 import { ApplicantFormRenderer } from './ApplicantFormRenderer';
+import { Button } from "../components/ui/button";
 
 function newSubmissionKey() {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -59,7 +60,7 @@ export function PublicApplicantFormPage() {
     <div className="af-public-sheet">
       {receipt ? <section className="af-public-feedback" role="status"><CheckCircle2 size={48} /><h1>登记已提交</h1><p>感谢填写，我们已收到你的资料。<br />请保持联系电话畅通，行政会按招聘安排与你联系。</p>
         <dl className="af-receipt"><div><dt>登记编号</dt><dd>{receipt.id}</dd></div><div><dt>表单版本</dt><dd>V{receipt.version}</dd></div><div><dt>提交时间</dt><dd>{new Date(receipt.submittedAt).toLocaleString('zh-CN')}</dd></div></dl>
-      </section> : error ? <section className="af-public-feedback" role="alert"><FileQuestion size={44} /><h1>暂时无法填写</h1><p>{error}</p><button className="af-secondary" onClick={() => setReload((count) => count + 1)}>重新加载</button></section>
+      </section> : error ? <section className="af-public-feedback" role="alert"><FileQuestion size={44} /><h1>暂时无法填写</h1><p>{error}</p><Button variant="unstyled" className="af-secondary" onClick={() => setReload((count) => count + 1)}>重新加载</Button></section>
         : form ? <><ApplicantFormRenderer key={form.fillToken} schema={form.schema} onUpload={upload} onSubmit={submit} /><div className="af-public-meta"><span>INOGI · 应聘登记</span><span>表单版本 V{form.version}</span></div></>
           : <section className="af-public-feedback" role="status"><Loader2 className="af-spin" size={30} /><p>正在加载登记表…</p></section>}
     </div>

@@ -29,6 +29,7 @@ import {
   type TaskImageTransform,
   type TaskImageViewport,
 } from "../lib/taskImageGesture";
+import { Button } from "./ui/button";
 
 type MobileZoomableImageProps = {
   src: string;
@@ -296,7 +297,7 @@ export function MobileZoomableImage({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => zoomTo(transformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
         className={cn("flex size-11 items-center justify-center rounded-full", controlsBelow ? "hover:bg-slate-100 active:bg-slate-200" : "transition active:bg-white/20")}
@@ -304,9 +305,9 @@ export function MobileZoomableImage({
         title="缩小图片"
       >
         <ZoomOut className="size-4" aria-hidden="true" />
-      </button>
+      </Button>
       <span ref={zoomLabelRef} className={cn("w-11 text-center text-[11px] tabular-nums", controlsBelow ? "text-slate-500" : "text-white/85")} aria-live="polite">100%</span>
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => zoomTo(transformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
         className={cn("flex size-11 items-center justify-center rounded-full", controlsBelow ? "hover:bg-slate-100 active:bg-slate-200" : "transition active:bg-white/20")}
@@ -314,7 +315,7 @@ export function MobileZoomableImage({
         title="放大图片"
       >
         <ZoomIn className="size-4" aria-hidden="true" />
-      </button>
+      </Button>
     </div>
   ) : null;
 
@@ -479,7 +480,7 @@ export function MobileImageLightbox({
             </a>
           ) : null}
           <DialogClose asChild>
-            <button
+            <Button variant="unstyled"
               type="button"
               autoFocus
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
@@ -487,7 +488,7 @@ export function MobileImageLightbox({
               title="关闭图片预览"
             >
               <X className="h-4 w-4" aria-hidden="true" />
-            </button>
+            </Button>
           </DialogClose>
         </div>
       </div>

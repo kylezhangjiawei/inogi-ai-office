@@ -11,6 +11,7 @@ import { PROC_STATUS_META } from "../components/common";
 import { isSampleTask } from "../sampleWorkspaceModel";
 import { personTaskNeedDate, personTaskNext, personTaskView, type PersonTaskBusiness, type PersonTaskFilters, type PersonTaskPeriod, type PersonTaskState } from "./personTaskModel";
 import "./personTasks.css";
+import { NativeSelect } from "../../components/ui/native-select";
 
 function localMonth() {
   const date = new Date();
@@ -57,19 +58,19 @@ export function PersonTasksDrawer({ person, loading, error, onClose, onRetry, on
       </SheetHeader>
       <div className="proc-person-tasks-body">
         <div className="proc-person-reminders" aria-label={t("人员任务独立提醒")}>
-          {([["carryover", "跨月未完成", view.carryover.length], ["undated", "无有效需求日期", view.undated.length]] as const).map(([period, label, count]) => <button type="button" key={period} disabled={blocked} onClick={() => showReminder(period)} className="proc-person-reminder">
+          {([["carryover", "跨月未完成", view.carryover.length], ["undated", "无有效需求日期", view.undated.length]] as const).map(([period, label, count]) => <Button variant="unstyled" type="button" key={period} disabled={blocked} onClick={() => showReminder(period)} className="proc-person-reminder">
             <span>{t(label)}</span><strong>{blocked ? "—" : count}</strong><span className="text-xs">{t("查看未完任务")} <ArrowUpRight className="inline size-3.5" /></span>
-          </button>)}
+          </Button>)}
         </div>
         <p className="text-xs leading-5 text-slate-500">{t("以上提醒按该人员全部任务计算，搜索、业务分类和列表状态筛选不会隐藏。仓管与质量人员任务尚未纳入此采购来源。")}</p>
         <div className="proc-person-filters">
           <label>{t("需求月份")}<Input type="month" aria-label={t("人员任务需求月份")} value={filters.month} onChange={(event) => { if (/^\d{4}-(?:0[1-9]|1[0-2])$/.test(event.target.value)) patch({ month: event.target.value }); }} /></label>
-          <label>{t("查看范围")}<select aria-label={t("人员任务查看范围")} value={filters.period} onChange={(event) => patch({ period: event.target.value as PersonTaskPeriod })}><option value="month">{t("所选月任务")}</option><option value="all">{t("全部月份")}</option><option value="carryover">{t("跨月未完成")}</option><option value="undated">{t("无需求日期未完成")}</option></select></label>
-          <label>{t("任务状态")}<select aria-label={t("人员任务状态")} value={filters.state} onChange={(event) => patch({ state: event.target.value as PersonTaskState })}><option value="all">{t("全部状态")}</option><option value="active">{t("进行中")}</option><option value="closed">{t("已结束")}</option></select></label>
+          <label>{t("查看范围")}<NativeSelect aria-label={t("人员任务查看范围")} value={filters.period} onChange={(event) => patch({ period: event.target.value as PersonTaskPeriod })}><option value="month">{t("所选月任务")}</option><option value="all">{t("全部月份")}</option><option value="carryover">{t("跨月未完成")}</option><option value="undated">{t("无需求日期未完成")}</option></NativeSelect></label>
+          <label>{t("任务状态")}<NativeSelect aria-label={t("人员任务状态")} value={filters.state} onChange={(event) => patch({ state: event.target.value as PersonTaskState })}><option value="all">{t("全部状态")}</option><option value="active">{t("进行中")}</option><option value="closed">{t("已结束")}</option></NativeSelect></label>
         </div>
         <div className="flex flex-wrap gap-2" role="group" aria-label={t("人员任务业务分类")}>{([["all", "全部业务"], ["purchase", "普通采购"], ["sample", "样品相关"]] as const).map(([value, label]) => <Button type="button" key={value} aria-pressed={filters.business === value} variant={filters.business === value ? "default" : "outline"} onClick={() => patch({ business: value as PersonTaskBusiness })}>{t(label)}</Button>)}</div>
         <p className="text-xs leading-5 text-slate-500">{t("样品相关指有样品要求或记录的原采购任务，包含历史测试，不等于当前待测试。")}</p>
-        <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-slate-400" /><Input aria-label={t("搜索该人员任务")} value={filters.query} placeholder={t("任务编号 / 物料 / 供应商 / 订单…")} onChange={(event) => patch({ query: event.target.value })} className="min-h-10 pl-9" /></div>
+        <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><Input aria-label={t("搜索该人员任务")} value={filters.query} placeholder={t("任务编号 / 物料 / 供应商 / 订单…")} onChange={(event) => patch({ query: event.target.value })} className="min-h-10 pl-9" /></div>
         {loading ? <p role="status" className="proc-person-task-notice">{t("正在读取人员任务，暂不计算数量…")}</p> : error ? <div role="alert" className="proc-person-task-notice"><p>{error}</p><p className="mt-1 text-xs">{t("来源读取失败，不能判断为零；重新读取成功后再查看任务。")}</p><Button type="button" variant="outline" onClick={onRetry} className="mt-3">{t("重新读取人员与任务")}</Button></div> : !person ? <p role="status" className="proc-person-task-notice">{t("此人员已不在当前可见范围，请关闭后重新选择。")}</p> : <>
           {detailId && !detail && <p role="status" className="proc-person-task-notice">{t("原任务已不在此人员名下或当前可见范围，请重新选择。")}</p>}
           <p role="status" className="text-xs tabular-nums text-slate-500">{t("筛选结果 {count} 项 · 该人员共 {total} 项，其中 {active} 项进行中", { count: view.tasks.length, total: view.total, active: view.active })}</p>

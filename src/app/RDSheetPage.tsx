@@ -50,6 +50,7 @@ import { clearRdSheetDraft, loadRdSheetDraft, saveRdSheetDraft } from "./lib/rdS
 import { xlsxToUniverSnapshot } from "./lib/xlsxToUniver";
 import { t, useI18n } from "./lib/i18n";
 import type { RDSheetUniverHandle } from "./RDSheetUniver";
+import { Input } from "./components/ui/input";
 
 // Univer 编辑器体积大：惰性加载（含 CSS）。本页自身已是懒加载路由 chunk，
 // 在模块顶层就发起编辑器 chunk 预取 → 与工作簿数据请求并行下载，省掉一次串行等待。
@@ -539,7 +540,7 @@ export function RDSheetPage() {
       className="horizon-theme hz-page rd-horizon-module rd-horizon-sheet relative flex min-h-full min-w-0 flex-col bg-transparent text-slate-900"
       aria-busy={loading || saving || importing || converting}
     >
-      <input
+      <Input
         ref={fileInputRef}
         type="file"
         accept=".xlsx,.xls"
@@ -619,7 +620,7 @@ export function RDSheetPage() {
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing || saving || loading}
-                className="rd-horizon-sheet-action rd-horizon-sheet-import h-9 gap-2 rounded-lg border-[#002fa7]/20 bg-white px-3 text-sm font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
+                className="rd-horizon-sheet-action rd-horizon-sheet-import h-9 gap-2 rounded-lg border-primary/20 bg-white px-3 text-sm font-semibold text-primary hover:bg-accent"
               >
                 {importing ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />}
                 {importing ? t("解析中…") : t("导入 xlsx")}
@@ -630,7 +631,7 @@ export function RDSheetPage() {
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={saving || importing || loading || !dirty}
-                className="rd-horizon-sheet-primary hz-primary-action h-9 gap-2 rounded-lg bg-[#002fa7] px-4 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rd-horizon-sheet-primary hz-primary-action h-9 gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
                 {saving ? t("保存中…") : t("保存")}
@@ -645,7 +646,7 @@ export function RDSheetPage() {
         <div className="rd-horizon-sheet-guidance flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-pretty text-xs text-slate-600">
           {canEdit ? (
             <>
-              <Info className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />
+              <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
               <span>
                 {t("已接入 Univer Sheets 编辑器，支持多工作表、合并单元格、图片与样式。")}{" "}
                 <strong className="text-slate-700">{t("「导入 xlsx」会整簿替换")}</strong>{" "}{t("当前数据；编辑或导入后点「保存」生效。")}{" "}
@@ -654,13 +655,13 @@ export function RDSheetPage() {
             </>
           ) : (
             <>
-              <Lock className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+              <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span>{t("你拥有")} {" "}<strong className="text-slate-700">{t("只读")}</strong>{" "}{t("查看权限。如需编辑 / 导入 / 保存，请联系管理员分配「编辑研发数据表」权限。")}</span>
             </>
           )}
         </div>
         {notice && (
-          <div className="rd-horizon-sheet-notice rounded-xl border border-[#002fa7]/15 bg-[#eef3ff] px-3 py-2 text-xs font-medium text-[#002fa7]" role="status" aria-live="polite">{notice}</div>
+          <div className="rd-horizon-sheet-notice rounded-xl border border-primary/15 bg-accent px-3 py-2 text-xs font-medium text-primary" role="status" aria-live="polite">{notice}</div>
         )}
         {error && snapshot && (
           <div className="rd-horizon-sheet-error rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600" role="alert">{error}</div>
@@ -689,7 +690,7 @@ export function RDSheetPage() {
         ) : (
           <Suspense
             fallback={
-              <div className="rd-horizon-sheet-state flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400" role="status">
+              <div className="rd-horizon-sheet-state flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-muted-foreground" role="status">
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" /> {t("编辑器加载中…")}
                 </span>
@@ -755,7 +756,7 @@ export function RDSheetPage() {
                     size="sm"
                     disabled={restoringId !== null}
                     onClick={() => void handleRestoreVersion(v)}
-                    className="rd-horizon-sheet-restore h-8 shrink-0 rounded-lg border-[#002fa7]/20 px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
+                    className="rd-horizon-sheet-restore h-8 shrink-0 rounded-lg border-primary/20 px-3 text-xs font-semibold text-primary hover:bg-accent"
                   >
                     {restoringId === v.id ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : t("恢复")}
                   </Button>
@@ -790,7 +791,7 @@ export function RDSheetPage() {
                 "text-white",
                 confirmation?.tone === "danger"
                   ? "bg-red-600 hover:bg-red-700"
-                  : "bg-[#002fa7] hover:bg-[#002581]",
+                  : "bg-primary hover:bg-primary-hover",
               )}
               onClick={() => settleConfirmation(true)}
             >

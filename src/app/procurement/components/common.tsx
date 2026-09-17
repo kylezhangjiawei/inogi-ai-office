@@ -222,7 +222,7 @@ export function MainDateBadge({ task, big = false }: { task: ProcurementTask; bi
   }
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[11px] text-slate-400">{translate(info.label)}</span>
+      <span className="text-[11px] text-muted-foreground">{translate(info.label)}</span>
       <span className={cn("font-bold tabular-nums text-slate-900", big ? "text-lg" : "text-sm")}>{info.date ?? "—"}</span>
       {text && <span className={cn("inline-flex items-center rounded-full border px-1.5 py-0.5 text-[11px] font-medium", pill)}>{text}</span>}
     </div>
@@ -275,7 +275,7 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
     <>
       <span className={cn("proc-horizon-kpi-accent absolute inset-y-0 left-0 w-1", t.bar)} />
       <div className="min-w-0">
-        <div className="proc-horizon-kpi-label flex items-center gap-1 text-xs text-slate-400">
+        <div className="proc-horizon-kpi-label flex items-center gap-1 text-xs text-muted-foreground">
           {label}
           {badge && <span className="inline-block size-1.5 rounded-full bg-rose-500" />}
         </div>
@@ -317,7 +317,7 @@ export function PageHeader({ Icon, badge, title, description, right }: { Icon?: 
 /** 灰色圆角占位图（代替真实图纸/附件）。 */
 export function PlaceholderImage({ label, className }: { label: string; className?: string }) {
   return (
-    <div role="img" aria-label={label} className={cn("flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50 text-slate-400", className)}>
+    <div role="img" aria-label={label} className={cn("flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50 text-muted-foreground", className)}>
       <span aria-hidden="true" className="text-lg">🖼️</span>
       <span className="px-1 text-center text-[10px] leading-tight">{label}</span>
     </div>
@@ -404,7 +404,7 @@ export function ComboInput({
                 onSelect={() => { onChange(opt.value); setOpen(false); }}
               >
                 <span className="truncate">{opt.value}</span>
-                {opt.hint && <span className="ml-auto shrink-0 text-xs text-slate-400">{opt.hint}</span>}
+                {opt.hint && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{opt.hint}</span>}
               </CommandItem>
             ))}
           </CommandList>
@@ -447,12 +447,12 @@ export function DateInput({
           disabled={disabled}
           className={cn(
             "flex h-9 w-full justify-between rounded-lg border-slate-200 bg-input-background px-3 text-left text-sm font-normal hover:bg-input-background hover:text-inherit",
-            !value && "text-slate-400",
+            !value && "text-muted-foreground",
             className,
           )}
         >
           <span className="tabular-nums">{value || placeholder || translate("选择日期")}</span>
-          <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" />
+          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent

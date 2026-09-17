@@ -348,7 +348,7 @@ function ApproveDialog({
               <div><dt className="inline font-medium text-slate-500">{t("截止日期：")}</dt><dd className="inline tabular-nums">{currentDueDate || t("未设置")} → {pendingDueDate}</dd></div>
             ) : null}
           </dl>
-          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-pretty text-xs leading-5 text-[#002fa7]">
+          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-pretty text-xs leading-5 text-primary">
             {reviewType === "procurement_transfer"
               ? t("通过后申请才会进入采购驾驶舱，并按采购部门负载分配采购负责人。")
               : reviewType === "collaboration"
@@ -366,7 +366,7 @@ function ApproveDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={submitting}>{t("再看看")}</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-[#002fa7] text-white hover:bg-[#002581]"
+            className="bg-primary text-white hover:bg-primary-hover"
             disabled={submitting}
             onClick={(event) => {
               event.preventDefault();
@@ -455,7 +455,7 @@ function MessageCard({
     return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" onClick={() => onOpen(msg)}>
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <SourceChip source={msg.source} />
-        {!msg.read && <span className="font-medium text-[#002fa7]">{t("未读")}</span>}
+        {!msg.read && <span className="font-medium text-primary">{t("未读")}</span>}
         {msg.handled && <span>{t("通知已归档")}</span>}
         <span className="ml-auto">{timeLabel}</span>
       </div>
@@ -472,19 +472,19 @@ function MessageCard({
     return (
       <article className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-[#002fa7] bg-[#002fa7] text-white")}>
+          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-primary bg-primary text-white")}>
             {msg.read ? t("已读") : t("提及你")}
           </span>
-          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-white text-[#002fa7]")}>{t("受邀参与")}</span>
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-white text-primary")}>{t("受邀参与")}</span>
           {msg.handled && <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已处理")}</span>}
-          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
+          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
           </span>
         </div>
         <div className="mt-2 text-sm font-bold text-slate-900">{body.task_title}</div>
         <p className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700">
-          <span className="font-semibold text-[#002fa7]">{body.actor_name}</span>
+          <span className="font-semibold text-primary">{body.actor_name}</span>
           {t(" 在讨论中提到了你：")}
           {body.excerpt}
         </p>
@@ -492,23 +492,23 @@ function MessageCard({
           {t("进入原消息所在讨论；打开即标为已读。你只会加入当前线程。")}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
+          <Button
             type="button"
             onClick={openDiscussion}
-            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-4 text-xs font-bold shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
           >
             {t("查看并回复")}
             <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+          </Button>
           {!msg.handled && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => onHandle(msg)}
-              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("标记已处理")}
-            </button>
+            </Button>
           )}
         </div>
       </article>
@@ -531,8 +531,8 @@ function MessageCard({
               {msg.read ? t("已读") : t("未读")}
             </span>
             <SourceChip source={msg.source} />
-            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("审核申请")}</span>
-            <span className={cn(MESSAGE_CHIP_CLASS, rb.review_type === "abandon" ? "border-red-200 bg-red-50 text-red-700" : rb.review_type === "procurement_transfer" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-white text-[#002fa7]")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-primary")}>{t("审核申请")}</span>
+            <span className={cn(MESSAGE_CHIP_CLASS, rb.review_type === "abandon" ? "border-red-200 bg-red-50 text-red-700" : rb.review_type === "procurement_transfer" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-white text-primary")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (
@@ -542,7 +542,7 @@ function MessageCard({
               <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已处理")}</span>
             )}
           </div>
-          <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
           </span>
@@ -583,10 +583,10 @@ function MessageCard({
 
         {canReview && !isHandled && (
           <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-100 pt-4">
-            <button
+            <Button
               type="button"
               disabled={isApproving}
-              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg px-5 py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60"
               onClick={(event) => {
                 event.stopPropagation();
                 onApprove(msg, rb, event.currentTarget);
@@ -596,8 +596,8 @@ function MessageCard({
                 ? <><Loader2 className="size-4" aria-hidden="true" />{t("处理中")}</>
                 : <><ThumbsUp className="h-4 w-4" />{t("批准")}</>
               }
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50"
               onClick={(event) => {
@@ -607,13 +607,13 @@ function MessageCard({
             >
               <ThumbsDown className="h-4 w-4" />
               {t("打回")}
-            </button>
+            </Button>
           </div>
         )}
         {!msg.read && (
-          <button
+          <Button variant="unstyled"
             type="button"
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#002fa7] hover:underline"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
             onClick={(event) => {
               event.stopPropagation();
               onOpen(msg);
@@ -621,16 +621,16 @@ function MessageCard({
           >
             <CheckCircle2 className="size-3.5" aria-hidden="true" />
             {t("标记为已读")}
-          </button>
+          </Button>
         )}
         {rb.review_type === "procurement_transfer" && rb.rd_task_id && (
-          <button
+          <Button variant="unstyled"
             type="button"
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#002fa7] hover:underline"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
             onClick={(event) => { event.stopPropagation(); onOpen(msg); navigate(`/rd-task/${encodeURIComponent(rb.rd_task_id!)}`); }}
           >
             {t("查看原研发任务")}<ArrowRight className="size-3.5" />
-          </button>
+          </Button>
         )}
       </article>
     );
@@ -668,14 +668,14 @@ function MessageCard({
           </span>
           <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-600")}>{t("转采购审核")}</span>
           {msg.handled && <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-500")}>{t("已处理")}</span>}
-          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
+          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" />
             {timeLabel}
           </span>
         </div>
 
         <div className="mt-4 border-b border-slate-100 pb-4">
-          <p className="font-mono text-xs tabular-nums text-slate-400">{body.procurement_code}</p>
+          <p className="font-mono text-xs tabular-nums text-muted-foreground">{body.procurement_code}</p>
           <AutoTranslatedText as="div" className="mt-1 text-balance text-base font-semibold text-slate-900" text={body.material_name} />
           {body.rd_task_title && (
             <p className="mt-1 text-pretty text-xs text-slate-500">
@@ -687,7 +687,7 @@ function MessageCard({
         <dl className="grid gap-x-6 gap-y-3 py-4 sm:grid-cols-2 lg:grid-cols-3">
           {facts.map((item) => (
             <div key={item.label} className="min-w-0">
-              <dt className="text-xs text-slate-400">{item.label}</dt>
+              <dt className="text-xs text-muted-foreground">{item.label}</dt>
               <dd className="mt-0.5 text-pretty text-sm font-medium text-slate-700">
                 <AutoTranslatedText text={String(item.value)} />
               </dd>
@@ -709,7 +709,7 @@ function MessageCard({
 
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
           {body.route?.startsWith("/") && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={openRelatedTask}
               className={cn(
@@ -719,17 +719,17 @@ function MessageCard({
             >
               {t(body.action_label || (approved ? "查看采购任务" : "查看原研发任务"))}
               <ArrowRight className="size-3.5" />
-            </button>
+            </Button>
           )}
           {!msg.handled && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => onHandle(msg)}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
             >
               <CheckCircle2 className="size-3.5" />
               {t("标记已处理")}
-            </button>
+            </Button>
           )}
         </div>
       </article>
@@ -746,21 +746,21 @@ function MessageCard({
         <div className="flex flex-wrap items-center gap-2">
           <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>{msg.read ? t("已读") : t("未读")}</span>
           <SourceChip source={msg.source} />
-          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("新任务分配")}</span>
-          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400"><Clock3 className="size-3.5" />{timeLabel}</span>
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-primary")}>{t("新任务分配")}</span>
+          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3.5" />{timeLabel}</span>
         </div>
         <div className="mt-4 border-b border-slate-100 pb-4">
-          <p className="font-mono text-xs text-slate-400">{body.procurement_code}</p>
+          <p className="font-mono text-xs text-muted-foreground">{body.procurement_code}</p>
           <AutoTranslatedText as="div" className="mt-1 text-base font-semibold text-slate-900" text={body.material_name} />
           {body.rd_task_title && <p className="mt-1 text-xs text-slate-500">{t("来源研发任务：")}<AutoTranslatedText text={body.rd_task_title} /></p>}
         </div>
         <dl className="grid gap-x-6 gap-y-3 py-4 sm:grid-cols-2">
-          <div><dt className="text-xs text-slate-400">{t("采购方式")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.procurement_method_label}</dd></div>
-          <div><dt className="text-xs text-slate-400">{t("数量")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.quantity} {body.unit ?? ""}</dd></div>
-          {body.specification && <div><dt className="text-xs text-slate-400">{t("规格")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700"><AutoTranslatedText text={body.specification} /></dd></div>}
-          <div><dt className="text-xs text-slate-400">{t("分配人")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.assigned_by}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t("采购方式")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.procurement_method_label}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t("数量")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.quantity} {body.unit ?? ""}</dd></div>
+          {body.specification && <div><dt className="text-xs text-muted-foreground">{t("规格")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700"><AutoTranslatedText text={body.specification} /></dd></div>}
+          <div><dt className="text-xs text-muted-foreground">{t("分配人")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.assigned_by}</dd></div>
         </dl>
-        <AutoTranslatedText as="p" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-[#002fa7]" text={body.next_action} />
+        <AutoTranslatedText as="p" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-primary" text={body.next_action} />
         <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
           {body.route?.startsWith("/") && <Button type="button" size="sm" onClick={openTask}>{t(body.action_label || "打开采购任务")}<ArrowRight className="size-3.5" /></Button>}
           {!msg.handled && <Button type="button" size="sm" variant="outline" onClick={() => onHandle(msg)}><CheckCircle2 className="size-3.5" />{t("标记已处理")}</Button>}
@@ -802,7 +802,7 @@ function MessageCard({
               <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
             )}
           </div>
-          <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
           </span>
@@ -846,11 +846,11 @@ function MessageCard({
               {msg.read ? t("已读") : t("未读")}
             </span>
             <SourceChip source={msg.source} />
-            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("绩效自评")}</span>
+            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-primary")}>{t("绩效自评")}</span>
             {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />}
             {isHandled && <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已提交")}</span>}
           </div>
-          <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
           </span>
@@ -858,16 +858,16 @@ function MessageCard({
         <div className="mb-1 font-semibold text-slate-900">{pb.period_label}{t("月度绩效自评")}</div>
         <div className="mb-3 text-sm text-slate-600">{t("你的 {p} 月度绩效已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。", { p: pb.period_label })}</div>
         <div className="mt-2 flex border-t border-slate-100 pt-4">
-          <button
+          <Button
             type="button"
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#002581]"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-5 py-2.5 text-sm font-bold"
             onClick={(event) => {
               event.stopPropagation();
               onSelfAssess(msg, pb, event.currentTarget);
             }}
           >
             {isHandled ? t("查看 / 修改自评") : t("去自评")}
-          </button>
+          </Button>
         </div>
       </article>
     );
@@ -879,7 +879,7 @@ function MessageCard({
     <article
       className={cn(
         "cursor-pointer rounded-xl border bg-white p-4",
-        videoJump ? "border-blue-200 hover:bg-blue-50/40" : "border-slate-200",
+        videoJump ? "border-blue-200 hover:bg-accent/40" : "border-slate-200",
       )}
       onClick={() => (videoJump ? openVideo() : onOpen(msg))}
       onKeyDown={(event) => {
@@ -903,7 +903,7 @@ function MessageCard({
             <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
           )}
         </div>
-        <span className="flex items-center gap-1 text-xs text-slate-400">
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock3 className="h-3.5 w-3.5" />
           {timeLabel}
         </span>
@@ -911,9 +911,9 @@ function MessageCard({
       {msg.subject && <AutoTranslatedText as="div" className="mb-1 font-semibold text-slate-900" text={msg.subject} />}
       <AutoTranslatedText as="p" className="text-sm text-slate-600" text={rb.raw || msg.body} />
       {videoJump && (
-        <button
+        <Button
           type="button"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#002581]"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold"
           onClick={(event) => {
             event.stopPropagation();
             openVideo();
@@ -921,7 +921,7 @@ function MessageCard({
         >
           <PlayCircle className="h-4 w-4" />
           {t("查看视频")}
-        </button>
+        </Button>
       )}
     </article>
   );
@@ -960,34 +960,34 @@ function FilterChipRow<T extends string>({
   return (
     <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
       <legend className="mr-1 w-10 shrink-0 text-xs font-semibold text-slate-600">{label}</legend>
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onClear}
         aria-pressed={selected.length === 0}
         className={cn(
-          "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+          "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           selected.length === 0
-            ? "border-blue-200 bg-blue-50 font-semibold text-[#002fa7]"
+            ? "border-primary/25 bg-accent font-semibold text-primary"
             : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
         )}
       >
         {t("全部")}
-      </button>
+      </Button>
       {options.map((option) => (
-        <button
+        <Button variant="unstyled"
           key={option.value}
           type="button"
           aria-pressed={selected.includes(option.value)}
           onClick={() => onToggle(option.value)}
           className={cn(
-            "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
             selected.includes(option.value)
-              ? "border-blue-200 bg-blue-50 font-semibold text-[#002fa7]"
+              ? "border-primary/25 bg-accent font-semibold text-primary"
               : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
           )}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </fieldset>
   );
@@ -1402,7 +1402,7 @@ export function MessageCenterPage() {
         </HorizonMetricGrid>
 
         {selfAssessLoading ? (
-          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-[#002fa7]" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-primary" role="status" aria-live="polite">
             <Loader2 className="size-4" aria-hidden="true" />
             <span>{t("正在读取绩效报表，完成后将打开自评窗口…")}</span>
           </div>
@@ -1425,7 +1425,7 @@ export function MessageCenterPage() {
             <div className="min-w-0">
               <Label htmlFor="message-center-search" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("搜索消息")}</Label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   ref={searchInputRef}
                   id="message-center-search"
@@ -1547,7 +1547,7 @@ export function MessageCenterPage() {
 
         {canReview ? (
           <aside className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#002fa7]" aria-hidden="true" />
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
             <p className="text-pretty text-sm leading-6 text-slate-700">{t("作为审核员，您可以直接批准或打回研发及转采购审核申请。打回时必须填写原因，申请人会收到处理结果。")}</p>
           </aside>
         ) : null}

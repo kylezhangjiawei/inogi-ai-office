@@ -16,6 +16,7 @@ import "../sampleWorkspace.css";
 import { Textarea } from "../../components/ui/textarea";
 import { i18nLocale, useI18n } from "../../lib/i18n";
 import { confirmProcSampleTest, getProcSampleTest, type ProcSampleTestDetail, type ProcSampleTestResult } from "../../lib/procurementApi";
+import { NativeSelect } from "../../components/ui/native-select";
 
 export const SAMPLE_TEST_RESULT_LABELS: Record<ProcSampleTestResult, string> = {
   passed: "测试通过",
@@ -173,10 +174,10 @@ export function ProcSampleTestDialog({ taskId, onClose, onConfirmed, onRecordsSa
           <p className="text-pretty text-xs text-slate-600">{t("测试结论已确认，已通知采购负责人。")}</p>
         </div> : detail.canConfirm ? <>
           <div><label htmlFor="sample-test-result" className="mb-1.5 block text-sm font-medium">{t("测试结果")}</label>
-            <select id="sample-test-result" value={result} onChange={(event) => setResult(event.target.value as ProcSampleTestResult | "")} disabled={inputsDisabled} className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base">
+            <NativeSelect id="sample-test-result" value={result} onChange={(event) => setResult(event.target.value as ProcSampleTestResult | "")} disabled={inputsDisabled} className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base">
               <option value="">{t("请选择测试结果")}</option>
               {Object.entries(SAMPLE_TEST_RESULT_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
-            </select>
+            </NativeSelect>
           </div>
           <div><label htmlFor="sample-test-conclusion" className="mb-1.5 block text-sm font-medium">{t("测试结论（必填）")}</label><Textarea id="sample-test-conclusion" value={note} onChange={(event) => setNote(event.target.value)} disabled={inputsDisabled} maxLength={500} rows={4} className="text-base" placeholder={t("请填写测试内容、结果及需要跟进的问题")} /></div>
           <p className="text-pretty text-xs leading-5 text-slate-500">{t("请确认测试已完成。提交后将保存本人确认记录、通知采购负责人，并按测试结果推进流程。")}</p>

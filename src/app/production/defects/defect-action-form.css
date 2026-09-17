@@ -1,5 +1,5 @@
-.defect-action-form, .defect-action-confirm, .defect-action-select { --primary:#002fa7; --primary-foreground:#fff; --ring:#002fa7; }
-.defect-action-select { --accent:#eef3ff; --accent-foreground:#002fa7; }
+.defect-action-form, .defect-action-confirm, .defect-action-select {  --primary-foreground:#fff; --ring:var(--primary); }
+.defect-action-select { --accent-foreground:var(--primary); }
 .defect-action-form [data-slot='select-value'] { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .defect-action-form [data-slot='select-trigger'] > svg { flex-shrink:0; }
 .defect-action-form input, .defect-action-form textarea { max-width:100%; }

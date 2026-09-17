@@ -22,6 +22,7 @@ import {
   type ProcurementTask,
 } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
+import { Button } from "../../components/ui/button";
 
 export const MAX_TASK_CRITICAL_MATERIALS = 4;
 const MAX_LEAD_TIME_DAYS = 36_500;
@@ -151,7 +152,7 @@ export function TaskCriticalMaterials({
                 <Truck aria-hidden="true" className="mr-0.5 inline size-2.5" />{t("在途")} {formatQuantity(material.inTransitQty)}
               </span>
               {setting.leadTimeDays != null ? (
-                <span className="shrink-0 tabular-nums text-slate-400">
+                <span className="shrink-0 tabular-nums text-muted-foreground">
                   {setting.leadTimeDays}{t("天")}
                 </span>
               ) : null}
@@ -294,14 +295,14 @@ export function TaskCriticalMaterialsEditor({
                   className="pr-9"
                 />
                 {search && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     aria-label={t("清空重点物料搜索")}
                     onClick={() => setSearch("")}
-                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-slate-100 hover:text-slate-600"
                   >
                     <X aria-hidden="true" className="size-3.5" />
-                  </button>
+                  </Button>
                 )}
               </span>
             </label>
@@ -329,7 +330,7 @@ export function TaskCriticalMaterialsEditor({
                       <AutoTranslatedText
                         as="span"
                         text={[material.spec, material.erpCode].filter(Boolean).join(" · ") || "—"}
-                        className="block truncate text-[11px] text-slate-400"
+                        className="block truncate text-[11px] text-muted-foreground"
                       />
                     </span>
                   </label>
@@ -359,9 +360,9 @@ export function TaskCriticalMaterialsEditor({
                     : "没有可配置的物料，请先到物料库完成 T+ 关联和库存同步")}
                 </p>
                 {search.trim() && (
-                  <button type="button" onClick={() => setSearch("")} className="material-button-secondary px-3 py-2 text-xs">
+                  <Button variant="unstyled" type="button" onClick={() => setSearch("")} className="material-button-secondary px-3 py-2 text-xs">
                     {t("清除搜索")}
-                  </button>
+                  </Button>
                 )}
               </div>
             ) : null}
@@ -372,22 +373,22 @@ export function TaskCriticalMaterialsEditor({
           ) : null}
 
           <DialogFooter>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setEditorOpen(false)}
               disabled={saving}
               className="material-button-secondary px-4 py-2 text-sm"
             >
               {t("取消")}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => void saveConfig()}
               disabled={saving}
               className="material-button-primary px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60"
             >
               {saving ? t("保存中") : t("保存设置")}
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

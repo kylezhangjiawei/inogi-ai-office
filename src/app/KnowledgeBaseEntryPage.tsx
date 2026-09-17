@@ -141,11 +141,11 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
   if (accessible.length === 0) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-muted-foreground">
           <Lock className="h-5 w-5" aria-hidden="true" />
         </div>
         <p className="text-base font-medium">{t("你还没有任何知识库的访问权限")}</p>
-        <p className="text-sm text-slate-400">{t("如需开通，请联系系统管理员")}</p>
+        <p className="text-sm text-muted-foreground">{t("如需开通，请联系系统管理员")}</p>
       </div>
     );
   }
@@ -165,7 +165,7 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
       value={activeValue}
       onValueChange={(value) => goTo(value)}
       aria-label={t("切换知识库")}
-      className="rd-kb-switcher h-9 w-auto min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-shadow focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/10"
+      className="rd-kb-switcher h-9 w-auto min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-shadow focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>{t(option.label)}</option>

@@ -5,6 +5,8 @@ import { useAuth } from "./auth";
 import { authFetch } from "./lib/authSession";
 import { SiteRecordFooter } from "./components/SiteRecordFooter";
 import logo from "../assets/logo.png";
+import { Input } from "./components/ui/input";
+import { Button } from "./components/ui/button";
 
 const DEFAULT_LOGIN_BG = "https://matechat.gitcode.com/png/home/bgHome.png";
 
@@ -76,7 +78,7 @@ export function LoginPage() {
 
   return (
     <div
-      className="flex min-h-[100dvh] flex-col items-center bg-center bg-cover bg-no-repeat px-4 py-6"
+      className="horizon-theme flex min-h-[100dvh] flex-col items-center bg-background bg-center bg-cover bg-no-repeat px-4 py-6"
       style={{
         backgroundImage: `url(${bgUrl})`,
         paddingLeft: "max(1rem, env(safe-area-inset-left))",
@@ -85,13 +87,13 @@ export function LoginPage() {
         paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
       }}
     >
-      <div className="my-auto grid w-full max-w-sm overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] backdrop-blur-md lg:max-w-5xl lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="my-auto grid w-full max-w-sm overflow-hidden rounded-3xl border border-transparent bg-card shadow-[var(--shadow-focal)] lg:max-w-5xl lg:grid-cols-[1.1fr_0.9fr]">
         {/* 品牌区：桌面为左栏大图文，手机不渲染（改用卡片内的紧凑品牌头，见下） */}
-        <div className="hidden bg-[linear-gradient(145deg,#4338ca_0%,#6366f1_55%,#a5b4fc_100%)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+        <div className="hidden bg-primary p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
             <div className="inline-flex rounded-full bg-white/16 px-4 py-2 text-sm font-semibold">INOGI AI Office System</div>
-            <h1 className="mt-8 text-4xl font-bold leading-tight">内部管理系统一体化工作台</h1>
-            <p className="mt-4 max-w-md text-sm leading-7 text-white/85">
+            <h1 className="mt-8 text-balance text-4xl font-bold leading-tight">内部管理系统一体化工作台</h1>
+            <p className="mt-4 max-w-md text-pretty text-sm leading-7 text-white/85">
               覆盖售后、研发、注册、质量、人事、法务与系统管理。
             </p>
           </div>
@@ -113,7 +115,7 @@ export function LoginPage() {
             </div>
 
             <div>
-              <div className="hidden text-sm font-semibold uppercase tracking-[0.24em] text-slate-400 lg:block">Welcome Back</div>
+              <div className="hidden text-sm font-semibold text-muted-foreground lg:block">Welcome Back</div>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 lg:mt-2 lg:text-3xl">登录 INOGI 系统</h2>
               <p className="mt-2 text-sm text-slate-500">请使用管理员分配的账号登录。</p>
             </div>
@@ -122,8 +124,8 @@ export function LoginPage() {
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-600">账号</span>
                 <div className="relative">
-                  <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
+                  <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
                     value={account}
                     onChange={(e) => setAccount(e.target.value)}
                     placeholder="请输入账号"
@@ -141,8 +143,8 @@ export function LoginPage() {
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-600">密码</span>
                 <div className="relative">
-                  <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
+                  <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -155,16 +157,16 @@ export function LoginPage() {
                     className="material-input min-h-[48px] pl-11 pr-12 text-base lg:min-h-0 lg:text-sm"
                   />
                   {/* 明文切换：手机软键盘易输错，无切换时只能清空重输 */}
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "隐藏密码" : "显示密码"}
                     aria-pressed={showPassword}
                     // 44px 触控目标（低于此值手机上易点空）；桌面收回 40px 以贴合输入框高度
-                    className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 lg:h-10 lg:w-10"
+                    className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-600 lg:h-10 lg:w-10"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                  </Button>
                 </div>
               </label>
 
@@ -172,13 +174,13 @@ export function LoginPage() {
                 <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
               ) : null}
 
-              <button
+              <Button variant="unstyled"
                 type="submit"
                 disabled={loading}
                 className="material-button-primary min-h-[48px] w-full text-base disabled:opacity-60 lg:min-h-0 lg:text-sm"
               >
                 {loading ? "登录中..." : "登录系统"}
-              </button>
+              </Button>
             </form>
 
             {/* 桌面的这两句在左栏，手机没有左栏 → 补在表单下方 */}

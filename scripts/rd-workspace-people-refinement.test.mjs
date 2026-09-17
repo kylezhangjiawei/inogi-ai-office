@@ -48,7 +48,7 @@ test("研发工作台搜索筛选、失败和空态都提供明确下一步", ()
   assert.match(workspaceSource, /t\("重新加载"\)/);
   assert.match(workspaceSource, /taskFiltersActive \? t\("清空筛选"\) : t\("刷新工作台"\)/);
   assert.match(workspaceSource, /role="status" aria-label=\{t\("正在加载任务"\)\}/);
-  assert.match(workspaceSource, /focus-visible:ring-2 focus-visible:ring-\[#002fa7\]/);
+  assert.match(workspaceSource, /focus-visible:ring-2 focus-visible:ring-primary/);
 });
 
 test("研发审核通知在任务已处理后独立收敛消息状态", () => {

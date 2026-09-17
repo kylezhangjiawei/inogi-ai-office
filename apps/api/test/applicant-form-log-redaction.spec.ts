@@ -6,6 +6,7 @@ import { APPLICANT_FORM_LOG_OMITTED, applicantFormLogPath } from '../src/common/
 import { GlobalExceptionFilter } from '../src/common/global-exception.filter';
 import { AuditInterceptor } from '../src/modules/audit/audit.interceptor';
 import { ApiRequestLogInterceptor } from '../src/modules/ops-center/api-request-log.interceptor';
+import { OpsCenterService } from '../src/modules/ops-center/ops-center.service';
 
 const sensitive = 'synthetic-applicant-private-value';
 function request(path: string, route?: string) {
@@ -107,12 +108,120 @@ test('其他业务的现有请求内容、响应、审计及请求ID保持不变
   const response = { status: 'completed', password: 'should-redact' };
   await h.run({ handle: () => of(response) });
   assert.equal(h.headers['x-request-id'], sensitive);
-  assert.equal(h.apiRows[0].path, req.originalUrl.replace(/^\/api/, ''));
+  assert.equal(h.apiRows[0].path, req.path.replace(/^\/api/, ''));
   assert.equal(h.apiRows[0].requestMeta.body.note, '正常操作');
   assert.equal(h.apiRows[0].responseMeta.body.status, 'completed');
   assert.equal(h.apiRows[0].responseMeta.body.password, '[redacted]');
   assert.equal(h.auditRows[0].meta.note, '正常操作');
   assert.equal(h.auditRows[0].resource, 'procurement');
+});
+
+const capability = 'synthetic-log-capability-secret';
+const previewPath = '/research-development/oss-preview';
+const previewUrl = `/api${previewPath}?key=drawings%2Fa.pdf&exp=1999999999&sig=${capability}`;
+const ossUrl = `https://files.example.invalid/a.pdf?OSSAccessKeyId=public-id&Expires=1999999999&Signature=${capability}`;
+const cdnUrl = `https://cdn.example.invalid/a.pdf?auth_key=${capability}&download=1`;
+
+test('能力链接的路径、签名字段和请求/响应URL均脱敏，业务原值与普通诊断保持不变', async () => {
+  const req = Object.assign(request(`/api${previewPath}`), {
+    method: 'GET', originalUrl: previewUrl, url: previewUrl,
+    query: { key: 'drawings/a.pdf', exp: '1999999999', sig: capability, page: '2' },
+    body: { note: '正常操作', design: '设计说明', url: ossUrl, nested: { auth_key: capability },
+      longUrl: `${'x'.repeat(470)} ${previewUrl}` },
+  });
+  const before = JSON.stringify(req);
+  const response = { url: cdnUrl, attachments: [previewUrl, { Signature: capability, url: ossUrl }] };
+  const h = harness(req);
+  assert.equal(await h.run({ handle: () => of(response) }), response);
+  assert.equal(JSON.stringify(req), before);
+  assert.equal(response.url, cdnUrl);
+  const row = h.apiRows[0];
+  assert.equal(row.path, previewPath);
+  assert.equal(row.requestMeta.query.sig, '[redacted]');
+  assert.equal(row.requestMeta.query.key, 'drawings/a.pdf');
+  assert.equal(row.requestMeta.query.page, '2');
+  assert.equal(row.requestMeta.body.design, '设计说明');
+  assert.equal(row.requestMeta.body.note, '正常操作');
+  assert.equal(row.responseMeta.body.url, 'https://cdn.example.invalid/a.pdf?auth_key=[redacted]&download=1');
+  assert.ok(!JSON.stringify(row).includes(capability));
+
+  const textHarness = harness(req);
+  assert.equal(await textHarness.run({ handle: () => of(`Preview: ${previewUrl}`) }), `Preview: ${previewUrl}`);
+  assert.ok(!JSON.stringify(textHarness.apiRows).includes(capability));
+});
+
+test('能力URL出现在异常message/stack和错误响应时仍脱敏，业务异常保持原样', async () => {
+  const req = Object.assign(request('/api/files/access-failures'), { method: 'GET' });
+  for (const error of [new HttpException({ message: `Preview: ${previewUrl}`, url: ossUrl }, 400),
+    new Error(`Cannot fetch ${cdnUrl}`)]) {
+    const h = harness(req);
+    const originalMessage = error.message;
+    await assert.rejects(h.run({ handle: () => throwError(() => error) }), (actual: unknown) => actual === error);
+    assert.equal(error.message, originalMessage);
+    assert.ok(!JSON.stringify(h.apiRows).includes(capability));
+  }
+});
+
+function historicalLog() {
+  return {
+    id: 'historical-log', requestId: 'historical-request', createdAt: new Date('2026-09-16T00:00:00Z'),
+    userId: null, method: 'GET', path: previewUrl.replace(/^\/api/, ''), statusCode: 500, durationMs: 12,
+    ip: '127.0.0.1', userAgent: 'Test Browser', errorName: 'FetchError',
+    errorMessage: `Cannot fetch ${previewUrl}`, errorStack: `FetchError: ${ossUrl}`,
+    requestMeta: { query: { sig: capability, page: '2' }, body: { url: cdnUrl, design: '保留诊断' } },
+    responseMeta: { body: [{ url: previewUrl }, ossUrl] },
+  };
+}
+
+test('历史日志列表、错误分组、慢接口与接口统计均不重新暴露能力凭据', async () => {
+  const row = historicalLog();
+  const before = JSON.stringify(row);
+  const prisma = { apiRequestLog: {
+    count: async () => 1,
+    findMany: async () => [row],
+    groupBy: async () => [{ method: row.method, path: row.path, _count: { _all: 1 },
+      _avg: { durationMs: 12 }, _max: { durationMs: 12, createdAt: row.createdAt } }],
+  } };
+  const service = new OpsCenterService(prisma as never, { isReady: async () => false } as never);
+  const logs = await service.getApiErrors();
+  assert.equal(logs.api_logs[0].path, previewPath);
+  assert.equal((logs.api_logs[0].requestMeta as any).query.page, '2');
+  const stats = await service.getEndpointStats();
+  const slow = await (service as any).getSlowApis(new Date(0));
+  assert.equal(stats.endpoints[0].path, previewPath);
+  assert.equal(slow[0].path, previewPath);
+  assert.ok(!JSON.stringify([logs, stats, slow]).includes(capability));
+  assert.equal(JSON.stringify(row), before, '读取脱敏不能改写历史数据库对象');
+});
+
+test('历史日志交给AI分析前脱敏，缓存和新分析结果也不能返回能力凭据', async () => {
+  const row = historicalLog();
+  const before = JSON.stringify(row);
+  const cachedAnalysis = { summary: `Inspect ${previewUrl}`, generated_by: 'ai' as const,
+    probable_causes: [ossUrl], impact: '', investigation_steps: [cdnUrl], fix_suggestions: [] };
+  for (const cached of [false, true]) {
+    let context: any;
+    const writes: any[] = [];
+    const prisma = {
+      apiRequestLog: { findUnique: async () => row, findMany: async () => [row] },
+      systemSetting: { findUnique: async () => cached ? { value: { analysis: cachedAnalysis } } : null,
+        upsert: async (value: unknown) => { writes.push(value); } },
+    };
+    const service = new OpsCenterService(prisma as never, {
+      analyze: async (value: unknown) => { context = value; return cachedAnalysis; },
+    } as never);
+    const result = await service.analyzeApiError({ request_id: row.requestId });
+    assert.equal(result.cached, cached);
+    if (!cached) {
+      assert.equal(context.path, previewPath);
+      assert.equal(context.requestMeta.query.page, '2');
+      assert.ok(!JSON.stringify(context).includes(capability));
+      assert.equal(writes.length, 1);
+    } else assert.equal(context, undefined);
+    assert.ok(!JSON.stringify([result, writes]).includes(capability));
+    assert.equal(JSON.stringify(row), before);
+    assert.ok(cachedAnalysis.summary.includes(capability), '不能修改AI缓存原对象');
+  }
 });
 
 test('全局500与流式异常日志同样省略应聘内容，其他模块仍保留原诊断', () => {

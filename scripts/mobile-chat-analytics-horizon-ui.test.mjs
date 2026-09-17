@@ -24,7 +24,7 @@ test("移动端使用分析保持真实路由、Shell 入口和权限守卫", ()
 
 test("页面使用 Horizon 蓝灰层级并清除旧视觉模式", () => {
   assert.match(page, /className="horizon-theme hz-page/);
-  assert.match(page, /#002fa7/);
+  assert.match(page, /primary/);
 
   const forbidden = [
     [/gradient/i, "渐变"],
@@ -91,5 +91,5 @@ test("360px 宽度下只有阶段筛选局部滚动，主交互触控目标不�
   assert.match(page, /aria-label="关闭人员详情"[^>]*size-11/);
   assert.match(page, /aria-pressed=\{days === option\.value\}/);
   assert.match(page, /aria-current=\{tab === value \? 'page' : undefined\}/);
-  assert.ok((page.match(/<select aria-label=/g) ?? []).length >= 6);
+  assert.ok((page.match(/<NativeSelect aria-label=/g) ?? []).length >= 6);
 });

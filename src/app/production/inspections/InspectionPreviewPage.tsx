@@ -18,6 +18,7 @@ import { applyInspectionAction, buildInspectionCsv, canOperateInspection, create
 import { inspectionActionLabels, inspectionViewLabels, type InspectionAction, type InspectionActionContext, type InspectionPhoto, type InspectionTask, type InspectionView } from './inspectionTypes';
 import '../../order-processing/horizon.css';
 import './inspection-preview.css';
+import { Checkbox } from "../../components/ui/checkbox";
 
 type Scenario = 'normal' | 'readonly' | 'empty' | 'error';
 const viewKeys = Object.keys(inspectionViewLabels) as InspectionView[];
@@ -150,7 +151,7 @@ export function InspectionPreviewPage() {
   return <main className="order-horizon inspection-preview">
     <OrderPageHeader Icon={ClipboardCheck} eyebrow={t('生产管理 / 生产检验 / P03')} title={t('生产检验与复验')} description={t('逐次登记检验结论，沿原不良记录追踪复验与质量放行。')} actions={<><Button variant="outline" onClick={() => requestChange(() => setResetOpen(true))}><RotateCcw className="size-4" aria-hidden="true" />{t('重置演示')}</Button><Button variant="outline" disabled={!task || scenario === 'error'} onClick={exportTask}><Download className="size-4" aria-hidden="true" />{t('导出当前任务')}</Button></>} />
     <div className="ip-preview-note"><strong>{t('前端演示')}</strong><span>{t('检验、处置依据和 QA 角色均为独立样例；新增记录与照片仅在本页保留，刷新恢复。')}</span></div>
-    <details className="ip-scenarios"><summary>{t('预览状态')}</summary><div>{(['normal','readonly','empty','error'] as Scenario[]).map((item) => <Button key={item} size="sm" variant={scenario === item ? 'default' : 'outline'} onClick={() => filter(() => setScenario(item))}>{t(({normal:'正常',readonly:'只读',empty:'空数据',error:'读取失败'})[item])}</Button>)}<label><input type="checkbox" checked={failNext} onChange={(event) => setFailNext(event.target.checked)} />{t('下次保存失败')}</label></div></details>
+    <details className="ip-scenarios"><summary>{t('预览状态')}</summary><div>{(['normal','readonly','empty','error'] as Scenario[]).map((item) => <Button key={item} size="sm" variant={scenario === item ? 'default' : 'outline'} onClick={() => filter(() => setScenario(item))}>{t(({normal:'正常',readonly:'只读',empty:'空数据',error:'读取失败'})[item])}</Button>)}<label><Checkbox checked={failNext} onCheckedChange={(checkedValue) => setFailNext((checkedValue === true))} />{t('下次保存失败')}</label></div></details>
     <section className="ip-filters" aria-label={t('检验任务筛选')}>
       <div><Label htmlFor="inspection-actor">{t('演示操作人')}</Label><Select value={actorId} onValueChange={changeActor}><SelectTrigger id="inspection-actor"><SelectValue /></SelectTrigger><SelectContent>{state.actors.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {t(item.role === 'qc' ? '检验' : item.role === 'qa' ? '放行授权' : '只读')}</SelectItem>)}</SelectContent></Select></div>
       <div><Label htmlFor="inspection-status">{t('任务状态')}</Label><Select value={statusFilter} onValueChange={(value) => filter(() => setStatusFilter(value))}><SelectTrigger id="inspection-status"><SelectValue /></SelectTrigger><SelectContent>{[['all','全部状态'],['pending','待接收'],['active','执行中'],['closed','已结束']].map(([value,label]) => <SelectItem key={value} value={value}>{t(label)}</SelectItem>)}</SelectContent></Select></div>
@@ -163,7 +164,7 @@ export function InspectionPreviewPage() {
       <section className="ip-context" aria-label={t('报检来源与版本')}>
         <div><span>{t('生产批次 / 产品工序')}</span><strong>{task.batchCode}</strong><p>{task.product} · {task.process}</p></div>
         <div><span>{t('报检来源 / 数量')}</span><strong>{task.reportCode} · {task.quantity} {task.unit}</strong><p>{task.date} · {t(task.stage === 'final' ? '终检' : '过程检')} · {t(statusName(task))}</p></div>
-        <div className="ip-source-links"><span>{t('本任务受控版本')}</span><div>{task.documents.map((doc) => <button key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</button>)}</div></div>
+        <div className="ip-source-links"><span>{t('本任务受控版本')}</span><div>{task.documents.map((doc) => <Button variant="unstyled" key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</Button>)}</div></div>
       </section>
       <div className="ip-workflow" aria-label={t('质量跟进状态')}>
         <span className={cn(task.acceptedAt && 'ip-complete')}>{t('报检')}{' · '}{t(task.acceptedAt ? '已接受' : '待接受')}</span>
@@ -171,7 +172,7 @@ export function InspectionPreviewPage() {
         <span className={cn(progress.unresolved > 0 && 'ip-attention')}>{t('尚未解决不良')}{' · '}{progress.unresolved} {task.unit}</span>
         <span>{t('QA 已放行')}{' · '}{progress.released} {task.unit}</span>
       </div>
-      <div className="ip-mobile-jump"><button onClick={() => scrollToRegion('inspection-records')}>{t('查看检验记录')}</button><button onClick={() => scrollToRegion('inspection-actions')}>{t('前往检验操作')}</button></div>
+      <div className="ip-mobile-jump"><Button variant="unstyled" onClick={() => scrollToRegion('inspection-records')}>{t('查看检验记录')}</Button><Button variant="unstyled" onClick={() => scrollToRegion('inspection-actions')}>{t('前往检验操作')}</Button></div>
       <div className="ip-workspace">
         <section id="inspection-records" className="ip-main">
           <div className="ip-progress-card"><div className="ip-heading"><h2>{t('首次检验结果')}</h2><span className="ip-badge">{t(task.stage === 'final' ? '终检' : '过程检')} · {t('当前任务')}</span></div>
@@ -182,7 +183,7 @@ export function InspectionPreviewPage() {
           <div className="ip-related">{task.archiveId ? <Link to={`/__preview/batch-archives?tab=inspections&batch=${encodeURIComponent(task.archiveId)}`}>{t('查看该批次历史档案')}<ArrowRight className="size-4" aria-hidden="true" /></Link> : <span>{t('检验记录已按当前批次归集')}</span>}<p>{t('本页与现场报工、批次档案为独立演示。新增检验不会回写档案、库存或出货。')}</p></div>
         </section>
         <aside id="inspection-actions" className="ip-sidebar" aria-label={t('当前检验操作')}>
-          <button className="ip-back" onClick={() => scrollToRegion('inspection-records')}>{t('返回检验记录')}</button>
+          <Button variant="unstyled" className="ip-back" onClick={() => scrollToRegion('inspection-records')}>{t('返回检验记录')}</Button>
           {actionContext ? <InspectionActionForm key={`${generation}:${actorId}:${task.id}:${actionContext.kind}`} state={state} actorId={actorId} context={actionContext} readOnly={readOnly} onSubmit={save} onDirtyChange={markDirty} onCancel={() => requestChange(clearForm)} /> : <>
             <div className="ip-action-card"><div className="ip-heading"><h2>{t('当前检验操作')}</h2><span>{actor?.name}</span></div>
               {readOnly ? <p className="ip-note">{t(task.closed ? '任务已结束，保留原始检验和独立放行记录。' : '当前为只读范围，可以查看资料与导出记录。')}</p> : <><div className="ip-action-buttons">{!task.acceptedAt ? buttonFor('accept') : <>{buttonFor('inspect',progress.uninspected <= 0)}{buttonFor('reinspect',!issues.some((item) => getReinspectable(state,item.id)>0))}{buttonFor('transfer',!records.some((item) => getTransferable(state,item.id)>0))}{buttonFor('release',progress.releasable<=0)}</>}</div><p className="ip-note">{t(actor?.role === 'qa' ? 'QA 放行须有授权依据；仅终检完成且不良已解决的数量可登记。' : !task.acceptedAt ? '先核对报检来源、数量与 SIP 版本，再接受报检。' : '初检与复验分别提交；复验须关联原不良及已完成的处置范围。')}</p></>}

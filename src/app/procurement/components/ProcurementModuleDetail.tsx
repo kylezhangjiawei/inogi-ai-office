@@ -34,6 +34,7 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { removalModeOf, useProcTaskAction } from "./taskActions";
 import { StockPlanPanel } from "./StockPlanPanel";
 import { SubsystemOperationsPanel } from "./SubsystemOperationsPanel";
+import { Button } from "../../components/ui/button";
 
 const QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
 
@@ -145,14 +146,14 @@ export function ProcurementModuleDetail({
     <section className="proc-horizon-module-detail material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
       <header className="proc-horizon-module-header flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="proc-horizon-module-identity flex min-w-0 flex-1 basis-96 items-start gap-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onBack}
             aria-label={t("返回子系统全景")}
             className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-primary/25 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
             <ArrowLeft className="size-4" />
-          </button>
+          </Button>
           <div className="min-w-0">
             <p className="break-words text-pretty text-xs text-slate-500">
               {t(productName)}{parentName ? ` / ${parentName}` : ""}
@@ -167,7 +168,7 @@ export function ProcurementModuleDetail({
         </div>
         <div className="proc-horizon-module-actions flex flex-wrap items-center gap-2">
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs text-slate-600">
-            <Boxes className="size-3.5 text-slate-400" />
+            <Boxes className="size-3.5 text-muted-foreground" />
             {t("全仓现存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
           </span>
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-xs text-primary">
@@ -175,18 +176,18 @@ export function ProcurementModuleDetail({
             {t("任务")} <strong className="tabular-nums">{moduleTasks.length}</strong>
           </span>
           {canCreate && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setNewTaskOpen(true)}
               className="material-button-primary inline-flex h-8 items-center gap-1.5 px-3 text-xs"
             >
               <Plus className="size-3.5" />
               {t("新增任务")}
-            </button>
+            </Button>
           )}
         </div>
       </header>
-      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["plans", "备货计划"], ["operations", "生产与质量"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</button>)}</div>
+      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["plans", "备货计划"], ["operations", "生产与质量"]] as const).map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</Button>)}</div>
       {detailTab === "plans" ? <div className="flex min-h-0 flex-1 flex-col p-4"><StockPlanPanel key={`${node.productId}:${node.id}`} materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} /></div>
         : detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
         : <div className="proc-horizon-module-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
@@ -199,7 +200,7 @@ export function ProcurementModuleDetail({
               </p>
             </div>
             {inventoryCode && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={retryInventory}
                 disabled={inventoryLoading}
@@ -207,7 +208,7 @@ export function ProcurementModuleDetail({
               >
                 <RefreshCw className={cn("size-3.5", inventoryLoading && "animate-spin motion-reduce:animate-none")} />
                 {t("刷新")}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -221,12 +222,12 @@ export function ProcurementModuleDetail({
                 <AlertTriangle className="size-6 text-rose-500" />
                 <p className="mt-2 font-semibold">{t("仓库库存加载失败")}</p>
                 <p className="mt-1 max-w-lg text-pretty text-rose-600">{inventoryError}</p>
-                <button type="button" onClick={retryInventory} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("重新加载")}</button>
+                <Button variant="unstyled" type="button" onClick={retryInventory} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("重新加载")}</Button>
               </div>
             ) : !inventoryCode || !item ? (
               <div className="m-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4">
                 <div className="flex min-w-0 flex-1 basis-64 items-start gap-3">
-                  <Warehouse aria-hidden="true" className="size-7 shrink-0 text-slate-400" />
+                  <Warehouse aria-hidden="true" className="size-7 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-600">{t("暂无仓库库存明细")}</p>
                     <p className="mt-1 text-pretty text-xs text-slate-500">{t("下一步：前往物料库关联 T+ 存货编码，并执行一次库存同步。")}</p>
@@ -286,10 +287,10 @@ export function ProcurementModuleDetail({
           {moduleTasks.length === 0 ? (
             <div className="flex flex-wrap items-center gap-3 p-4">
               <div className="flex min-w-0 flex-1 basis-64 items-center gap-3">
-                <ClipboardList aria-hidden="true" className="size-7 shrink-0 text-slate-400" />
+                <ClipboardList aria-hidden="true" className="size-7 shrink-0 text-muted-foreground" />
                 <p className="text-pretty text-sm font-medium text-slate-600">{t("该模块暂无采购任务")}</p>
               </div>
-              {canCreate && <button type="button" onClick={() => setNewTaskOpen(true)} className="material-button-secondary inline-flex min-h-9 shrink-0 items-center justify-center px-3 py-2 text-xs font-semibold text-primary hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("创建第一条任务")}</button>}
+              {canCreate && <Button variant="unstyled" type="button" onClick={() => setNewTaskOpen(true)} className="material-button-secondary inline-flex min-h-9 shrink-0 items-center justify-center px-3 py-2 text-xs font-semibold text-primary hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("创建第一条任务")}</Button>}
             </div>
           ) : (
             <div className="proc-horizon-module-task-scroll max-h-96 overflow-auto">
@@ -316,10 +317,10 @@ export function ProcurementModuleDetail({
                   {moduleTasks.map((task) => (
                     <tr key={task.id} className="group text-slate-600 hover:bg-slate-50">
                       <td className="proc-horizon-module-task-identity sticky left-0 z-10 border-r border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50">
-                        <button type="button" onClick={() => setOpenTask(task)} className="block w-full min-w-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                        <Button variant="unstyled" type="button" onClick={() => setOpenTask(task)} className="block w-full min-w-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                           <span className="block font-semibold text-slate-900">{task.code}</span>
                           <span className="mt-0.5 line-clamp-2 break-words text-pretty text-xs text-slate-500" title={taskDescription(task)}>{taskDescription(task)}</span>
-                        </button>
+                        </Button>
                       </td>
                       <td className="px-3 py-3"><StatusPill status={task.status} /></td>
                       <td className="break-words px-3 py-3 text-right tabular-nums">{formatQuantity(task.quantity)} {t(task.unit)}</td>
@@ -391,7 +392,7 @@ function TaskActionButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       onClick={onClick}
       aria-label={label}
@@ -402,6 +403,6 @@ function TaskActionButton({
       )}
     >
       <Icon className="size-3.5" />
-    </button>
+    </Button>
   );
 }

@@ -1,7 +1,7 @@
 .arrival-calendar {
   --arrival-ink: var(--foreground, #243256);
-  --arrival-soft: var(--muted-foreground, #526080);
-  --arrival-rule: var(--border, #e0e5f2);
+  --arrival-soft: var(--muted-foreground, var(--muted-foreground));
+  --arrival-rule: var(--border, var(--border));
   --arrival-accent: var(--primary, #4318ff);
   min-width: 0;
   padding: 16px;
@@ -23,12 +23,12 @@
 .arrival-calendar-selections button[aria-pressed="true"] { border-color: var(--arrival-accent); background: var(--accent, #f4f2ff); color: var(--arrival-accent); }
 .arrival-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible; border: 1px solid var(--arrival-rule); border-radius: 7px; background: var(--card, white); }
 .arrival-calendar-weekday { padding: 8px 2px; border-block-end: 1px solid var(--arrival-rule); color: var(--arrival-soft); text-align: center; font-size: 11px; line-height: 16px; }
-.arrival-calendar-weekday.is-weekend { background: var(--muted, #f4f7fe); }
+.arrival-calendar-weekday.is-weekend { background: var(--muted, var(--background)); }
 .arrival-calendar-day, .arrival-calendar-padding { min-width: 0; min-height: 61px; border: 0; border-inline-end: 1px solid var(--arrival-rule); border-block-end: 1px solid var(--arrival-rule); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; }
 .arrival-calendar-day:nth-child(7n), .arrival-calendar-padding:nth-child(7n) { border-inline-end: 0; }
 .arrival-calendar-day:nth-last-child(-n+7), .arrival-calendar-padding:nth-last-child(-n+7) { border-block-end: 0; }
 .arrival-calendar-day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 7px 2px; background: var(--card, white); color: var(--arrival-ink); }
-.arrival-calendar-day.is-weekend { background: color-mix(in srgb, var(--muted, #f4f7fe) 60%, var(--card, white)); }
+.arrival-calendar-day.is-weekend { background: color-mix(in srgb, var(--muted, var(--background)) 60%, var(--card, white)); }
 .arrival-calendar-day:not(:disabled):hover { background: var(--accent, #f4f2ff); }
 .arrival-calendar-date { display: inline-flex; align-items: center; justify-content: center; gap: 3px; line-height: 18px; }
 .arrival-calendar-today { font-size: 9px; line-height: 14px; font-weight: 600; color: var(--arrival-accent); }
@@ -36,7 +36,7 @@
 .arrival-calendar-empty-count { color: var(--arrival-soft); font-size: 10px; line-height: 16px; }
 .arrival-calendar-day[aria-pressed="true"] { z-index: 1; outline: 2px solid var(--arrival-accent); outline-offset: -2px; background: var(--accent, #f4f2ff); }
 .arrival-calendar-day.is-today .arrival-calendar-date { font-weight: 700; }
-.arrival-calendar-padding { display: grid; place-items: start center; padding: 10px 2px; background: var(--muted, #f4f7fe); color: var(--arrival-soft); opacity: .65; }
+.arrival-calendar-padding { display: grid; place-items: start center; padding: 10px 2px; background: var(--muted, var(--background)); color: var(--arrival-soft); opacity: .65; }
 .arrival-calendar-selection-status { min-height: 18px; margin: 12px 0 0; color: var(--arrival-ink); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .arrival-calendar-help, .arrival-calendar-invalid { margin: 6px 0 0; color: var(--arrival-soft, var(--muted-foreground)); font-size: 11px; line-height: 18px; overflow-wrap: anywhere; }
 .arrival-calendar-invalid { padding: 16px; }

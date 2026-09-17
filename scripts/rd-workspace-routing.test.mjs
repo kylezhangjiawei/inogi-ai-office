@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { posix } from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 import { matchPath } from 'react-router';
 
 const source = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const root = new URL('../', import.meta.url).pathname;
 
 // Run the real route cache, API client and approval cache; only HTTP and browser
 // storage are replaced. No requests or writes leave this in-memory fixture.
@@ -33,7 +32,7 @@ function fixture(overrides = {}, pathname = '/rd-task-management') {
     new Function('exports', 'require', 'window', 'localStorage', code)(exports, (id) => {
       if (id === 'react-router') return { matchPath };
       assert.ok(id.startsWith('.'), `Unexpected dependency ${id}`);
-      return load(resolve(root, dirname(path), `${id}.ts`).slice(root.length));
+      return load(posix.join(posix.dirname(path), `${id}.ts`));
     }, window, localStorage);
     return exports;
   }
@@ -44,6 +43,69 @@ function fixture(overrides = {}, pathname = '/rd-task-management') {
     flows: load('src/app/lib/approvalFlowConfig.ts'),
     respond: (payload) => { response = payload; },
   };
+}
+
+function cockpitActions(view, permissions) {
+  const ast = ts.createSourceFile('RDTaskManagementPage.tsx', source('src/app/RDTaskManagementPage.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const page = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'RDTaskManagementPage');
+  assert.ok(page?.body, 'Missing cockpit component');
+  const names = ['usCollab', 'productionWorkspace', 'nativeRdCockpit', 'peopleManagementPath', 'canManagePeople', 'canReassignTasks', 'canViewCombinedMemberTasks', 'canSyncProductionPermission', 'canSyncProduction'];
+  const declarations = page.body.statements.filter(ts.isVariableStatement)
+    .flatMap((node) => [...node.declarationList.declarations])
+    .filter((node) => names.includes(node.name.getText(ast)));
+  assert.equal(declarations.length, names.length, 'Missing cockpit action dependency');
+  let peopleAction;
+  const visit = (node) => {
+    if (ts.isJsxAttribute(node) && node.name.getText(ast) === 'onOpenPeople') {
+      assert.equal(peopleAction, undefined, 'Expected one people-management entry');
+      assert.ok(node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression);
+      peopleAction = node.initializer.expression.getText(ast);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(page);
+  assert.ok(peopleAction, 'Missing people-management entry');
+  // Execute the real page's derived actions and navigation callback, with the
+  // same route/API fixture as above; no rendering or business logic is copied.
+  const code = ts.transpileModule(`${declarations.map((node) => `const ${node.getText(ast)};`).join('\n')}
+    return { nativeRdCockpit, canViewCombinedMemberTasks, canSyncProduction, onOpenPeople: ${peopleAction} };`,
+  { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const navigation = [];
+  const dependencies = {
+    location: view.window.location,
+    isUsCollabWorkspace: view.api.isUsCollabWorkspace,
+    isProductionWorkspace: view.api.isProductionWorkspace,
+    PERMISSIONS: view.load('src/app/lib/permissions.ts').PERMISSIONS,
+    usePermission: (code) => permissions.includes(code),
+    navigate: (path) => navigation.push(path),
+  };
+  return { ...new Function(...Object.keys(dependencies), code)(...Object.values(dependencies)), navigation };
+}
+
+for (const scenario of [
+  { label: '默认研发', path: '/rd-task-management', workspace: null, peoplePath: '/rd-people-management', rdActions: true },
+  { label: '默认协同', path: '/us-collab-cockpit', workspace: 'us-collab', peoplePath: '/us-collab-people-management', rdActions: false },
+  { label: '自定义协同', path: '/collaboration/cockpit', overrides: { 'page:us-collab-cockpit': '/collaboration/cockpit' }, workspace: 'us-collab', peoplePath: '/us-collab-people-management', rdActions: false },
+  { label: '生产', path: '/production-dashboard', workspace: 'production', peoplePath: '/production-people-management', rdActions: false },
+]) {
+  test(`${scenario.label}驾驶舱人员跳转和研发专属动作跟随真实工作区，并保留权限限制`, () => {
+    const view = fixture(scenario.overrides, scenario.path);
+    const permissions = view.load('src/app/lib/permissions.ts').PERMISSIONS;
+    const granted = [permissions.RD_PEOPLE_MANAGE, permissions.RD_TASK_REASSIGN, permissions.RD_TASK_SYNC_PRODUCTION];
+    assert.equal(view.api.currentRdWorkspace(), scenario.workspace);
+    const actions = cockpitActions(view, granted);
+    assert.equal(typeof actions.onOpenPeople, 'function');
+    actions.onOpenPeople();
+    assert.deepEqual(actions.navigation, [scenario.peoplePath]);
+    assert.equal(actions.nativeRdCockpit, scenario.rdActions);
+    assert.equal(actions.canViewCombinedMemberTasks, scenario.rdActions);
+    assert.equal(actions.canSyncProduction, scenario.rdActions);
+    const denied = cockpitActions(view, []);
+    assert.equal(denied.onOpenPeople, undefined);
+    assert.deepEqual(denied.navigation, []);
+    assert.equal(denied.canViewCombinedMemberTasks, false);
+    assert.equal(denied.canSyncProduction, false);
+  });
 }
 
 test('已保存的自定义协同审批流地址读取、保存均请求协同池，离线缓存不读写研发池', async () => {

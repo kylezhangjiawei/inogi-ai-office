@@ -29,6 +29,9 @@ import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
+import { NativeSelect } from "./components/ui/native-select";
+import { RadioGroupItem } from "./components/ui/radio-group";
+import { RadioGroup } from "./components/ui/radio-group";
 
 const steps = [
   { id: 1, name: "填写信息", icon: User },
@@ -59,7 +62,7 @@ const requiredFieldLabels: Record<RequiredField, string> = {
   selfChecked: "是否已自查",
 };
 
-const selectClassName = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/20";
+const selectClassName = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20";
 
 export function AfterSalesForm() {
   const navigate = useNavigate();
@@ -165,11 +168,11 @@ export function AfterSalesForm() {
             const complete = currentStep > step.id;
             const active = currentStep === step.id;
             return (
-              <li key={step.id} className={cn("relative flex items-center gap-3 px-4 py-2 after:absolute after:left-[calc(50%+1.5rem)] after:right-[calc(-50%+1.5rem)] after:top-1/2 after:h-px after:bg-slate-200 last:after:hidden", complete && "after:bg-[#002fa7]")} aria-current={active ? "step" : undefined}>
-                <span className={cn("relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border bg-white", complete || active ? "border-[#002fa7] text-[#002fa7]" : "border-slate-200 text-slate-400")} aria-hidden="true">
+              <li key={step.id} className={cn("relative flex items-center gap-3 px-4 py-2 after:absolute after:left-[calc(50%+1.5rem)] after:right-[calc(-50%+1.5rem)] after:top-1/2 after:h-px after:bg-slate-200 last:after:hidden", complete && "after:bg-primary")} aria-current={active ? "step" : undefined}>
+                <span className={cn("relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full border bg-white", complete || active ? "border-primary text-primary" : "border-slate-200 text-muted-foreground")} aria-hidden="true">
                   {complete ? <Check className="size-4" /> : <step.icon className="size-4" />}
                 </span>
-                <span className="relative z-10 min-w-0 bg-white pr-2"><span className="block text-xs text-slate-500 tabular-nums">步骤 {step.id}</span><span className={cn("block text-sm font-semibold", active || complete ? "text-slate-800" : "text-slate-400")}>{step.name}</span></span>
+                <span className="relative z-10 min-w-0 bg-white pr-2"><span className="block text-xs text-slate-500 tabular-nums">步骤 {step.id}</span><span className={cn("block text-sm font-semibold", active || complete ? "text-slate-800" : "text-muted-foreground")}>{step.name}</span></span>
               </li>
             );
           })}
@@ -185,7 +188,7 @@ export function AfterSalesForm() {
                 <Input id="case-customer" value={formData.customerName} onChange={(event) => setFormData({ ...formData, customerName: event.target.value })} placeholder="请输入客户单位名称" aria-invalid={isMissing("customerName")} className="h-10 rounded-xl" />
               </Field>
               <Field label="产品型号 *" htmlFor="case-product" error={isMissing("productModel") ? "请选择产品型号" : undefined}>
-                <select id="case-product" value={formData.productModel} onChange={(event) => setFormData({ ...formData, productModel: event.target.value })} aria-invalid={isMissing("productModel")} className={selectClassName}><option value="">请选择产品型号</option><option value="OC-3">OC-3</option><option value="OC-5">OC-5</option><option value="OC-10">OC-10</option></select>
+                <NativeSelect id="case-product" value={formData.productModel} onChange={(event) => setFormData({ ...formData, productModel: event.target.value })} aria-invalid={isMissing("productModel")} className={selectClassName}><option value="">请选择产品型号</option><option value="OC-3">OC-3</option><option value="OC-5">OC-5</option><option value="OC-10">OC-10</option></NativeSelect>
               </Field>
               <Field label="序列号 *" htmlFor="case-sn" error={isMissing("serialNumber") ? "请输入设备序列号" : undefined}>
                 <Input id="case-sn" value={formData.serialNumber} onChange={(event) => setFormData({ ...formData, serialNumber: event.target.value })} placeholder="格式：SN12345678" aria-invalid={isMissing("serialNumber")} className="h-10 rounded-xl font-mono" />
@@ -199,13 +202,13 @@ export function AfterSalesForm() {
             <div className="space-y-5 p-4 sm:p-5">
               <fieldset className="space-y-2" aria-invalid={isMissing("issueTypes")}>
                 <legend className="text-sm font-medium text-slate-700">问题类型 *</legend>
-                <div className="flex flex-wrap gap-2">{issueOptions.map((type) => <Button key={type} type="button" size="sm" variant={formData.issueTypes.includes(type) ? "default" : "outline"} className={cn(formData.issueTypes.includes(type) && "bg-[#002fa7] hover:bg-[#002581]")} aria-pressed={formData.issueTypes.includes(type)} onClick={() => toggleIssueType(type)}>{type}</Button>)}</div>
+                <div className="flex flex-wrap gap-2">{issueOptions.map((type) => <Button key={type} type="button" size="sm" variant={formData.issueTypes.includes(type) ? "default" : "outline"} className={cn(formData.issueTypes.includes(type) && "bg-primary hover:bg-primary-hover")} aria-pressed={formData.issueTypes.includes(type)} onClick={() => toggleIssueType(type)}>{type}</Button>)}</div>
                 {isMissing("issueTypes") ? <FieldError>请至少选择一种问题类型</FieldError> : null}
               </fieldset>
 
               <fieldset className="space-y-2" aria-invalid={isMissing("workMode")}>
                 <legend className="text-sm font-medium text-slate-700">工作模式 *</legend>
-                <div className="flex flex-wrap gap-x-6 gap-y-3">{workModes.map((mode) => <label key={mode} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="workMode" value={mode} checked={formData.workMode === mode} onChange={(event) => setFormData({ ...formData, workMode: event.target.value })} className="size-4 accent-[#002fa7]" />{mode}</label>)}</div>
+                <RadioGroup name="workMode" value={formData.workMode} onValueChange={(workMode) => setFormData(prev => ({ ...prev, workMode }))} aria-label="工作模式" className="flex flex-wrap gap-x-6 gap-y-3">{workModes.map((mode) => <label key={mode} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><RadioGroupItem value={mode}   className="size-4 accent-primary" />{mode}</label>)}</RadioGroup>
                 {isMissing("workMode") ? <FieldError>请选择设备当前工作模式</FieldError> : null}
               </fieldset>
 
@@ -215,7 +218,7 @@ export function AfterSalesForm() {
 
               <div className="grid gap-5 md:grid-cols-2">
                 <Field label="是否已自查 *" htmlFor="case-self-check" error={isMissing("selfChecked") ? "请选择自查状态" : undefined}>
-                  <select id="case-self-check" value={formData.selfChecked} onChange={(event) => setFormData({ ...formData, selfChecked: event.target.value })} aria-invalid={isMissing("selfChecked")} className={selectClassName}><option value="">请选择</option><option value="已自查">已自查</option><option value="未自查">未自查</option></select>
+                  <NativeSelect id="case-self-check" value={formData.selfChecked} onChange={(event) => setFormData({ ...formData, selfChecked: event.target.value })} aria-invalid={isMissing("selfChecked")} className={selectClassName}><option value="">请选择</option><option value="已自查">已自查</option><option value="未自查">未自查</option></NativeSelect>
                 </Field>
                 <Field label="环境说明" htmlFor="case-environment">
                   <Input id="case-environment" value={formData.environment} onChange={(event) => setFormData({ ...formData, environment: event.target.value })} placeholder="温度、湿度、电源、现场备注" className="h-10 rounded-xl" />
@@ -226,7 +229,7 @@ export function AfterSalesForm() {
             <HorizonSectionHeader Icon={Upload} title="现场附件" description="附件不是必填项，但能显著缩短首次诊断时间。" trailing={<span className="text-xs text-slate-500 tabular-nums">{totalAttachments} 个文件</span>} />
             <div className="p-4 sm:p-5">
               <div className="grid gap-3 md:grid-cols-3">
-                {uploadSlots.map((slot) => <button key={slot.key} type="button" onClick={() => handleUpload(slot.key)} className="min-w-0 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-left transition-colors hover:border-[#002fa7] hover:bg-[#f7f9ff]"><div className="flex items-center justify-between gap-3"><span className="flex size-9 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true"><slot.icon className="size-4" /></span><span className="text-xs text-slate-500">{slot.badge}</span></div><div className="mt-3 text-sm font-semibold text-slate-800">{slot.title}</div><p className="mt-1 text-xs text-pretty leading-5 text-slate-500">{slot.hint}</p><div className="mt-3 flex items-center gap-1 text-xs font-semibold text-[#002fa7]"><Plus className="size-3.5" />添加示例附件</div></button>)}
+                {uploadSlots.map((slot) => <Button variant="unstyled" key={slot.key} type="button" onClick={() => handleUpload(slot.key)} className="min-w-0 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-left transition-colors hover:border-primary hover:bg-[#f7f9ff]"><div className="flex items-center justify-between gap-3"><span className="flex size-9 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden="true"><slot.icon className="size-4" /></span><span className="text-xs text-slate-500">{slot.badge}</span></div><div className="mt-3 text-sm font-semibold text-slate-800">{slot.title}</div><p className="mt-1 text-xs text-pretty leading-5 text-slate-500">{slot.hint}</p><div className="mt-3 flex items-center gap-1 text-xs font-semibold text-primary"><Plus className="size-3.5" />添加示例附件</div></Button>)}
               </div>
               {totalAttachments > 0 ? <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">{uploadSlots.flatMap((slot) => attachments[slot.key].map((file) => <div key={`${slot.key}-${file}`} className="flex min-w-0 items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><div className="truncate text-sm font-medium text-slate-800">{file}</div><div className="mt-0.5 text-xs text-slate-500">{slot.title}</div></div><Button type="button" variant="ghost" size="icon" aria-label={`移除附件 ${file}`} onClick={() => handleRemoveAttachment(slot.key, file)}><X className="size-4" /></Button></div>))}</div> : null}
             </div>
@@ -237,7 +240,7 @@ export function AfterSalesForm() {
           <div>
             <HorizonSectionHeader Icon={Wand2} title="AI 技术摘要" description="根据表单与附件生成初步分类，最终结论仍需技术人员复核。" trailing={<Button type="button" variant="outline" size="sm" onClick={generateAiSummary} disabled={aiGenerating}><Wand2 className="size-4" />重新生成</Button>} />
             <div className="p-4 sm:p-6">
-              {aiGenerating ? <div className="flex min-h-48 flex-col items-center justify-center text-center"><span className="flex size-11 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]" aria-hidden="true"><Wand2 className="size-5" /></span><div className="mt-4 font-semibold text-slate-800">AI 正在生成摘要</div><p className="mt-1 text-sm text-pretty text-slate-500">正在归纳故障现象、资料完整度和推荐响应级别。</p><div className="mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-slate-100"><div className="h-full w-[92%] rounded-full bg-[#002fa7]" /></div></div> : <div className="space-y-5"><div><div className="text-xs font-semibold text-slate-500">AI 分派建议</div><h2 className="mt-1 text-balance text-lg font-semibold text-slate-900">建议分派给售后二线技术组</h2></div><p className="rounded-xl bg-slate-50 p-4 text-sm text-pretty leading-7 text-slate-700">{aiSummary}</p><dl className="grid divide-y divide-slate-100 border-y border-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">{[{ label: "建议优先级", value: "P2 普通紧急" }, { label: "推荐 SLA", value: "24 小时响应" }, { label: "资料完整度", value: `${Math.min(100, 68 + totalAttachments * 8)}%` }].map((item) => <div key={item.label} className="px-4 py-3"><dt className="text-xs text-slate-500">{item.label}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{item.value}</dd></div>)}</dl></div>}
+              {aiGenerating ? <div className="flex min-h-48 flex-col items-center justify-center text-center"><span className="flex size-11 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden="true"><Wand2 className="size-5" /></span><div className="mt-4 font-semibold text-slate-800">AI 正在生成摘要</div><p className="mt-1 text-sm text-pretty text-slate-500">正在归纳故障现象、资料完整度和推荐响应级别。</p><div className="mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-slate-100"><div className="h-full w-[92%] rounded-full bg-primary" /></div></div> : <div className="space-y-5"><div><div className="text-xs font-semibold text-slate-500">AI 分派建议</div><h2 className="mt-1 text-balance text-lg font-semibold text-slate-900">建议分派给售后二线技术组</h2></div><p className="rounded-xl bg-slate-50 p-4 text-sm text-pretty leading-7 text-slate-700">{aiSummary}</p><dl className="grid divide-y divide-slate-100 border-y border-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">{[{ label: "建议优先级", value: "P2 普通紧急" }, { label: "推荐 SLA", value: "24 小时响应" }, { label: "资料完整度", value: `${Math.min(100, 68 + totalAttachments * 8)}%` }].map((item) => <div key={item.label} className="px-4 py-3"><dt className="text-xs text-slate-500">{item.label}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{item.value}</dd></div>)}</dl></div>}
             </div>
           </div>
         ) : null}
@@ -259,7 +262,7 @@ export function AfterSalesForm() {
       <div className="sticky bottom-0 z-20 -mx-3 border-t border-slate-200 bg-white px-4 pb-3 pt-3 sm:-mx-5 lg:-mx-6">
         <div className="mx-auto flex max-w-[1120px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button type="button" variant="outline" onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))} disabled={currentStep === 1}><ChevronLeft className="size-4" />上一步</Button>
-          <div className="flex flex-col gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={handleSaveDraft}><Save className="size-4" />保存草稿</Button>{currentStep < 3 ? <Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={handleNext}>下一步<ChevronRight className="size-4" /></Button> : <Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={handleSubmit}>提交工单<CheckCircle2 className="size-4" /></Button>}</div>
+          <div className="flex flex-col gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={handleSaveDraft}><Save className="size-4" />保存草稿</Button>{currentStep < 3 ? <Button type="button" className="bg-primary hover:bg-primary-hover" onClick={handleNext}>下一步<ChevronRight className="size-4" /></Button> : <Button type="button" className="bg-primary hover:bg-primary-hover" onClick={handleSubmit}>提交工单<CheckCircle2 className="size-4" /></Button>}</div>
         </div>
       </div>
     </div>

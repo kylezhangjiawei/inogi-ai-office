@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router";
 import { Header } from "./components/header_1";
 import { initI18n, t, useI18n } from "./lib/i18n";
-import { MateChatBubble } from "./components/MateChatBubble";
 import { MateChatReminderModal } from "./components/matechat/MateChatReminderModal";
 import { Toaster } from "./components/ui/sonner";
 import { Sidebar } from "./components/sidebar_1";
@@ -73,7 +72,7 @@ export function Root() {
     <LayoutChromeActionsContext.Provider value={actions}>
       <LayoutChromeStateContext.Provider value={state}>
         <Sheet open={mobileNavigationOpen && !immersive} onOpenChange={setMobileNavigationOpen}>
-          <div className="rd-horizon-app h-dvh min-w-0 bg-transparent">
+          <div data-immersive={immersive} className="rd-horizon-app h-dvh min-w-0 bg-transparent">
             <div className="material-shell flex h-full min-w-0 overflow-hidden">
               <div className="rd-horizon-desktop-navigation hidden h-full shrink-0 lg:block">
                 <Sidebar />
@@ -93,7 +92,6 @@ export function Root() {
                 <SheetDescription className="sr-only">{t("选择要打开的工作页面")}</SheetDescription>
                 <Sidebar mobile onNavigate={() => setMobileNavigationOpen(false)} />
               </SheetContent>
-              <MateChatBubble />
               <MateChatReminderModal />
               <Toaster richColors position="top-right" />
             </div>

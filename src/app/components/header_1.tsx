@@ -1,3 +1,4 @@
+import { MateChatBubble } from "./MateChatBubble";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, ChevronDown, Languages, LogOut, Menu, MessageSquareText, Search, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
@@ -23,6 +24,8 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 /** Parse the message body to a human-readable summary line. */
 function getMsgSummary(msg: RdMessage): string {
@@ -243,13 +246,13 @@ export function Header() {
       <div className="rd-horizon-header-row flex flex-col gap-4 xl:flex-row xl:items-center">
         <div className="rd-horizon-header-heading flex min-w-0 items-start gap-4">
           <SheetTrigger asChild>
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-label={t("打开主导航")}
               className="rd-horizon-mobile-nav-trigger flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden"
             >
               <Menu className="size-5" aria-hidden="true" />
-            </button>
+            </Button>
           </SheetTrigger>
           <div className="rd-horizon-header-heading-copy min-w-0 space-y-2">
             <nav aria-label={t("当前位置")} className="rd-horizon-header-breadcrumb flex min-w-0 items-center gap-2 text-sm text-slate-500">
@@ -268,7 +271,7 @@ export function Header() {
             {rdCockpitSearchEnabled ? (
               <>
                 <Search className="rd-horizon-header-search-icon pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
-                <input
+                <Input
                   type="search"
                   aria-label={t("搜索任务、编号、负责人、路径")}
                   title={t("搜索任务、编号、负责人、路径")}
@@ -294,7 +297,7 @@ export function Header() {
                 if (!nextOpen) setPageSearchText("");
               }}>
                 <DialogTrigger asChild>
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     aria-label={lang === "en" ? "Search work pages" : "搜索工作页面"}
                     title={lang === "en" ? "Search work pages" : "搜索工作页面"}
@@ -302,7 +305,7 @@ export function Header() {
                   >
                     <Search className="size-4 shrink-0" aria-hidden="true" />
                     <span className="truncate">{lang === "en" ? "Search pages" : "搜索页面"}</span>
-                  </button>
+                  </Button>
                 </DialogTrigger>
                 <DialogContent className="horizon-theme horizon-portal rd-horizon-page-search overflow-hidden rounded-2xl p-0 transition-none data-[state=open]:animate-none data-[state=closed]:animate-none sm:max-w-lg">
                   <DialogTitle className="sr-only">{t("搜索工作页面")}</DialogTitle>
@@ -318,13 +321,13 @@ export function Header() {
                     <CommandList className="max-h-[min(24rem,65dvh)] p-2">
                       <CommandEmpty>
                         <p className="text-pretty text-sm text-slate-600">{t("没有找到匹配页面")}</p>
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => setPageSearchText("")}
                           className="mt-3 cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           {t("清除搜索")}
-                        </button>
+                        </Button>
                       </CommandEmpty>
                       {visibleGroups.map((group) => (
                         <CommandGroup key={group.label} heading={t(group.label)}>
@@ -358,8 +361,10 @@ export function Header() {
               <div className="rd-horizon-header-date-value tabular-nums text-sm font-semibold text-slate-700">{today}</div>
             </div>
 
+            <MateChatBubble />
+
             {/* 语言切换（原设置按钮位）：按用户偏好持久化（中方看中文、美方看英文，同页面各看各的） */}
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void setI18nLang(lang === "en" ? "zh" : "en")}
               title={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
@@ -368,11 +373,11 @@ export function Header() {
             >
               <Languages className="size-4" aria-hidden="true" />
               {lang === "en" ? "中文" : "EN"}
-            </button>
+            </Button>
 
             <Popover open={open} onOpenChange={(nextOpen) => setOpen(nextOpen && !immersive)}>
               <PopoverTrigger asChild>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   className="rd-horizon-header-control rd-horizon-header-notification-trigger relative flex size-11 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors duration-150 motion-reduce:transition-none hover:border-primary/20 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                   aria-label={lang === "en" ? "Open notification preview" : "打开通知预览"}
@@ -384,7 +389,7 @@ export function Header() {
                       {unreadCount > 99 ? "99+" : unreadCount}
                     </span>
                   )}
-                </button>
+                </Button>
               </PopoverTrigger>
               <PopoverContent
                 id="header-notification-preview"
@@ -412,7 +417,7 @@ export function Header() {
                     <div className="py-4 text-pretty text-center text-sm text-slate-600">{t("暂无消息")}</div>
                   ) : (
                     previewMessages.map((msg) => (
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         key={msg.id}
                         onClick={() => {
@@ -437,11 +442,11 @@ export function Header() {
                         {!msg.read ? (
                           <span className="mt-2 size-2 shrink-0 rounded-full bg-red-500" aria-hidden="true" />
                         ) : null}
-                      </button>
+                      </Button>
                     ))
                   )}
                 </div>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => {
                     setOpen(false);
@@ -450,13 +455,13 @@ export function Header() {
                   className="rd-horizon-header-view-all mt-3 w-full cursor-pointer rounded-xl border border-primary/20 bg-accent px-3 py-2 text-sm font-semibold text-primary transition-colors duration-150 motion-reduce:transition-none hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                 >
                   {t("查看全部消息")}
-                </button>
+                </Button>
               </PopoverContent>
             </Popover>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   className="rd-horizon-header-user flex min-w-0 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 transition-colors duration-150 motion-reduce:transition-none hover:border-primary/20 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                   aria-label={lang === "en" ? "Open user menu" : "打开用户菜单"}
@@ -474,7 +479,7 @@ export function Header() {
                     <div className="rd-horizon-header-user-role truncate text-xs text-slate-500">{user ? t(getRoleLabel(user.roleName)) : t("未登录")}</div>
                   </div>
                   <ChevronDown className="rd-horizon-header-user-chevron size-4 text-slate-500" aria-hidden="true" />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={10} className="horizon-theme horizon-portal rd-horizon-header-menu w-72 rounded-xl border-slate-200 bg-white p-2 shadow-lg">
                 <DropdownMenuItem className="rd-horizon-header-menu-item cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-accent focus:text-primary" onSelect={() => navigate("/profile")}>

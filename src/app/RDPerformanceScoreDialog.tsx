@@ -17,6 +17,9 @@ import {
   type RdPerfItemScores,
   type RdPerformanceReport,
 } from "./lib/rdApi";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { Button } from "./components/ui/button";
 
 type ScoreMode = "self" | "supervisor";
 
@@ -118,15 +121,15 @@ export function RDPerformanceScoreDialog({
       <span className="min-w-0 flex-1 truncate text-sm text-slate-700" title={r.name}>
         {r.name}
       </span>
-      <span className="shrink-0 text-[11px] text-slate-400">/ {r.weight}分</span>
-      <input
+      <span className="shrink-0 text-[11px] text-muted-foreground">/ {r.weight}分</span>
+      <Input
         type="number"
         min={0}
         max={r.weight}
         value={scores[r.name] ?? 0}
         onChange={(e) => setScore(r, Number(e.target.value))}
         className={cn(
-          "h-7 w-16 shrink-0 rounded-md border border-slate-200 px-2 text-right text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15",
+          "h-7 w-16 shrink-0 rounded-md border border-slate-200 px-2 text-right text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15",
         )}
       />
     </div>
@@ -144,7 +147,7 @@ export function RDPerformanceScoreDialog({
         <DialogHeader className="border-b border-slate-200 px-5 py-3.5 pr-12 text-left">
           <div className="flex items-center gap-2.5">
             <span
-              className="flex size-9 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]"
+              className="flex size-9 items-center justify-center rounded-xl bg-accent text-primary ring-1 ring-[#dce6ff]"
             >
               <Icon className="size-4" />
             </span>
@@ -178,7 +181,7 @@ export function RDPerformanceScoreDialog({
               <span className="text-[12px] font-bold tabular-nums text-slate-700">{itemTotal} / 80</span>
             </div>
             {itemRows.length > 0 ? itemRows.map(renderRow) : (
-              <div className="px-3 py-3 text-center text-[12px] text-slate-400">暂无事项指标，请先生成绩效报表。</div>
+              <div className="px-3 py-3 text-center text-[12px] text-muted-foreground">暂无事项指标，请先生成绩效报表。</div>
             )}
           </div>
 
@@ -198,29 +201,29 @@ export function RDPerformanceScoreDialog({
 
           <div className="mt-4">
             <label className="text-[11px] font-semibold text-slate-500">{isSelf ? "自评说明" : "主管评语"}</label>
-            <textarea
+            <Textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               rows={3}
               maxLength={2000}
               placeholder={isSelf ? "简述本月亮点、不足与改进计划…" : "对该成员本月表现的总体评价与建议…"}
               className={cn(
-                "mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15",
+                "mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15",
               )}
             />
           </div>
         </div>
 
         <DialogFooter className="border-t border-slate-200 px-5 py-3">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onClose}
             disabled={submitting}
             className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             onClick={submit}
             disabled={submitting}
@@ -228,7 +231,7 @@ export function RDPerformanceScoreDialog({
           >
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
             {existing ? "更新评分" : "提交评分"}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -44,6 +44,8 @@ test('桌面、移动、分享与其他路由均明确 display none，不占页�
 test('登录状态恢复及已登录跳转时不渲染备案，未登录表单保留透明备案', () => {
   let auth = { hydrated: true, user: null, login: async () => ({ ok: true }) };
   const { LoginPage } = loadSource('src/app/LoginPage.tsx', {
+    './components/ui/button': loadSource('src/app/components/ui/button.tsx', { './utils': utils }),
+    './components/ui/input': loadSource('src/app/components/ui/input.tsx', { './utils': utils }),
     './auth': { useAuth: () => auth },
     './lib/authSession': { authFetch: () => { throw new Error('SSR must not issue background requests'); } },
     './components/SiteRecordFooter': footerModule,

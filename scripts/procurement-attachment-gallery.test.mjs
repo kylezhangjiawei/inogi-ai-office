@@ -107,7 +107,7 @@ test("附件数量和查看全部入口均打开完整图库，且不会打开�
   ui.click(ui.find((node) => node.props?.["aria-label"] === "查看全部 8 个附件"));
   assert.equal(ui.preview().props.attachment.id, "file-1");
   ui.preview().props.onClose();
-  ui.click(ui.find((node) => node.type === "button" && node.props.children?.includes?.("查看全部（另 5 个）")));
+  ui.click(ui.find((node) => node.type === "Button" && node.props.children?.includes?.("查看全部（另 5 个）")));
   assert.equal(ui.preview().props.attachments.length, 8);
   assert.equal(ui.taskOpens, 0);
   assert.equal(ui.nodes().filter((node) => node.props?.["aria-label"] === "查看任务").length, 1, "避免头部和底部重复任务查看按钮");

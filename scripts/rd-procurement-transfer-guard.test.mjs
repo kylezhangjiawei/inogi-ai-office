@@ -10,6 +10,8 @@ function load(path, dependencies = {}) {
   } }).outputText;
   const exports = {};
   new Function('exports', 'require', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
     return dependencies[name];
   });
@@ -109,13 +111,13 @@ function fixture(t, { workspace = null, props: overrides = {}, documents = async
     },
     async flush() { this.render(); await new Promise(setImmediate); return this.render(); },
     find(predicate) { return nodes(this.render()).find(predicate); },
-    button(label) { return this.find((node) => ['button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type)
+    button(label) { return this.find((node) => ["Button", 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type)
       && (node.props['aria-label'] === label || text(node).trim().replace(/\s+/g, ' ') === label)); },
     field(label) { return this.find((node) => node.props?.['aria-label'] === label || node.props?.ariaLabel === label
       || (label === '低值易耗品备注' && node.type === 'Input' && node.props.placeholder === '如为低值易耗品可备注按年用量备货')); },
     select() { return this.find((node) => node.type === 'Select'); },
     fileInput() { return this.find((node) => node.type === 'Input' && node.props.type === 'file'); },
-    checkbox(name = 'A图纸.pdf') { return this.find((node) => node.type === 'input' && node.props.type === 'checkbox' && node.props['aria-label'].includes(name)); },
+    checkbox(name = 'A图纸.pdf') { return this.find((node) => node.type === "Checkbox" && node.props['aria-label'].includes(name)); },
     dialog() { return this.find((node) => node.type === 'Dialog'); },
     alert() { return this.find((node) => node.type === 'AlertDialog' && node.props.open); },
     pointerOutside() {
@@ -127,16 +129,16 @@ function fixture(t, { workspace = null, props: overrides = {}, documents = async
     change(label, value) { const node = this.field(label); assert.ok(node, label);
       node.props.onChange(node.type === 'DateInput' ? value : { target: { value } }); return this.render(); },
     choose(name = 'A图纸.pdf', checked = true) { const node = this.checkbox(name); assert.ok(node, name);
-      node.props.onChange({ target: { checked } }); return this.render(); },
+      node.props.onCheckedChange(checked); return this.render(); },
     add(file = manual()) { this.fileInput().props.onChange({ target: { files: [file], value: file.name } }); return this.render(); },
     continue() { const alert = this.alert(); assert.ok(alert, 'Close confirmation must be open');
-      const button = nodes(alert).find((node) => ['button', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === '继续填写');
+      const button = nodes(alert).find((node) => ["Button", 'AlertDialogCancel'].includes(node.type) && text(node).trim() === '继续填写');
       assert.ok(button, 'Continue editing action');
       if (button.props.onClick) button.props.onClick({ preventDefault() {} });
       else alert.props.onOpenChange(false); // Radix Cancel requests Root.onOpenChange(false).
       return this.render(); },
     discard() { const alert = this.alert(); assert.ok(alert, 'Close confirmation must be open');
-      const button = nodes(alert).find((node) => ['button', 'AlertDialogAction'].includes(node.type) && text(node).trim() === '放弃并关闭');
+      const button = nodes(alert).find((node) => ["Button", 'AlertDialogAction'].includes(node.type) && text(node).trim() === '放弃并关闭');
       assert.ok(button, 'Discard and close action'); button.props.onClick({ preventDefault() {} }); return this.render(); },
     setTransfer(fn) { transferReply = fn; },
     setUpload(fn) { uploadReply = fn; },
@@ -255,12 +257,12 @@ test('提交即时锁阻止渲染前双击，上传与请求等待时拒绝关�
   const stale = { cancel: f.button('取消').props.onClick, close: f.dialog().props.onOpenChange,
     spec: f.field('规格').props.onChange, date: f.field('需求日期').props.onChange,
     note: f.field('低值易耗品备注').props.onChange, product: f.select().props.onValueChange,
-    file: f.fileInput().props.onChange, check: f.checkbox().props.onChange,
+    file: f.fileInput().props.onChange, check: f.checkbox().props.onCheckedChange,
     remove: f.button('移除附件：A图纸.pdf').props.onClick };
   submit(); submit(); // No render between clicks: React state alone cannot guard this.
   stale.spec({ target: { value: '不能改' } }); stale.date('2026-10-30'); stale.note({ target: { value: '不能改备注' } });
   stale.product('product-2'); stale.file({ target: { files: [manual('不能添加.pdf')], value: 'file' } });
-  stale.check({ target: { checked: false } }); stale.remove(); stale.cancel(); stale.close(false);
+  stale.check(false); stale.remove(); stale.cancel(); stale.close(false);
   f.render(); assert.equal(f.calls.upload.length, 1); assert.equal(f.calls.transfer.length, 0);
   assert.equal(f.calls.close, 0); assert.equal(f.alert(), undefined);
   const outside = f.pointerOutside();

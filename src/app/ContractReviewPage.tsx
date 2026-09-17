@@ -121,12 +121,12 @@ function ClauseAccordion({ clauses }: { clauses: Clause[] }) {
     <div className="divide-y divide-slate-100">
       {clauses.map((clause) => (
         <div key={clause.id}>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => setOpenId(openId === clause.id ? null : clause.id)}
             aria-expanded={openId === clause.id}
             aria-controls={`contract-clause-${clause.id}`}
-            className="flex w-full cursor-pointer items-start justify-between gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-[#f7f9ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]"
+            className="flex w-full cursor-pointer items-start justify-between gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-[#f7f9ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold text-slate-800">{clause.title}</span>
@@ -135,7 +135,7 @@ function ClauseAccordion({ clauses }: { clauses: Clause[] }) {
             <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500" aria-hidden="true">
               {openId === clause.id ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
             </span>
-          </button>
+          </Button>
           {openId === clause.id ? (
             <div id={`contract-clause-${clause.id}`} className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
               <div className="text-xs font-semibold text-slate-700">示例条款原文</div>
@@ -190,7 +190,7 @@ export function ContractReviewPage() {
           description="基于预置示例演示条款提取、风险判断和修改建议；当前未连接真实文件上传或 AI 审查服务。"
           meta={(
             <>
-              <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 font-semibold text-[#002fa7]">演示模式</span>
+              <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 font-semibold text-primary">演示模式</span>
               <span>数据来源：页面内预置样例</span>
             </>
           )}
@@ -198,7 +198,7 @@ export function ContractReviewPage() {
             <Button
               type="button"
               variant={sampleLoaded ? "outline" : "default"}
-              className={cn(!sampleLoaded && "bg-[#002fa7] text-white hover:bg-[#002581]")}
+              className={cn(!sampleLoaded && "bg-primary text-white hover:bg-primary-hover")}
               onClick={loadSampleContract}
             >
               {sampleLoaded ? <RotateCcw className="size-4" aria-hidden="true" /> : <FileText className="size-4" aria-hidden="true" />}
@@ -231,7 +231,7 @@ export function ContractReviewPage() {
                 ))}
               </dl>
               <div className="flex items-start gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-blue-900" role="status">
-                <BadgeCheck className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />
+                <BadgeCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
                 <p className="text-pretty leading-5">以上内容均为演示数据，不代表已完成真实合同解析，也不构成法律意见。</p>
               </div>
             </div>
@@ -240,7 +240,7 @@ export function ContractReviewPage() {
               Icon={FileSearch}
               title="尚未加载演示合同"
               description="本页当前仅提供预置样例。加载后可体验条款展开、风险筛选、谈判立场和建议采纳。"
-              action={<Button type="button" className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={loadSampleContract}><FileText className="size-4" aria-hidden="true" />加载示例合同</Button>}
+              action={<Button type="button" className="bg-primary text-white hover:bg-primary-hover" onClick={loadSampleContract}><FileText className="size-4" aria-hidden="true" />加载示例合同</Button>}
             />
           )}
         </section>
@@ -293,7 +293,7 @@ export function ContractReviewPage() {
                             size="sm"
                             variant={active ? "default" : "outline"}
                             aria-pressed={active}
-                            className={cn(active && "bg-[#002fa7] text-white hover:bg-[#002581]")}
+                            className={cn(active && "bg-primary text-white hover:bg-primary-hover")}
                             onClick={() => setRiskFilter(level)}
                           >
                             {level === "全部" ? "全部等级" : `${level}风险`}
@@ -314,7 +314,7 @@ export function ContractReviewPage() {
                             size="sm"
                             variant={active ? "default" : "outline"}
                             aria-pressed={active}
-                            className={cn(active && "bg-[#002fa7] text-white hover:bg-[#002581]")}
+                            className={cn(active && "bg-primary text-white hover:bg-primary-hover")}
                             onClick={() => setStance(item)}
                           >
                             {item}
@@ -364,7 +364,7 @@ export function ContractReviewPage() {
                                 {expanded ? "收起原文" : "查看原文"}
                               </Button>
                               {!risk.adopted ? (
-                                <Button type="button" size="sm" className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={() => adoptSuggestion(risk.id)}>
+                                <Button type="button" size="sm" className="bg-primary text-white hover:bg-primary-hover" onClick={() => adoptSuggestion(risk.id)}>
                                   <CheckCircle2 className="size-4" aria-hidden="true" />采纳建议
                                 </Button>
                               ) : null}
@@ -379,7 +379,7 @@ export function ContractReviewPage() {
                           ) : null}
 
                           <div className="border-t border-blue-100 bg-blue-50/60 px-4 py-3">
-                            <div className="flex items-center gap-2 text-xs font-semibold text-[#002fa7]">
+                            <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                               <Sparkles className="size-4" aria-hidden="true" />
                               修改建议（{stance}）
                             </div>
@@ -404,7 +404,7 @@ export function ContractReviewPage() {
               Icon={ListChecks}
               title="条款工作区待启动"
               description="加载示例合同后，可逐条查看提取结果，并演示风险建议处理。"
-              action={<Button type="button" className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={loadSampleContract}>加载示例合同</Button>}
+              action={<Button type="button" className="bg-primary text-white hover:bg-primary-hover" onClick={loadSampleContract}>加载示例合同</Button>}
             />
           )}
         </section>
@@ -511,7 +511,7 @@ export function ContractReviewPage() {
 
           {sampleLoaded ? (
             <div className="flex items-start gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-blue-900">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />
+              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
               <p className="text-pretty leading-5">下一步：由法务人员回到真实合同原文逐条复核，确认谈判口径后再在正式合同系统生成红线版本。</p>
             </div>
           ) : null}

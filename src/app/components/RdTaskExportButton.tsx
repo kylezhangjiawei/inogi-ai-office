@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 function toYmd(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -77,16 +79,16 @@ export function RdTaskExportButton({
       else close();
     }}>
       <DialogTrigger asChild>
-        <button
+        <Button variant="unstyled"
           type="button"
           title="按时间段导出研发驾驶舱配置人员的任务完成情况（Excel）"
-          className="group flex flex-none items-center gap-2 rounded-xl border border-[#dce6ff] bg-white px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-sm hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+          className="group flex flex-none items-center gap-2 rounded-xl border border-[#dce6ff] bg-white px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-sm hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent text-primary ring-1 ring-[#dce6ff]">
             <Download className="size-4" />
           </span>
           <span className="min-w-0">{t("导出")}</span>
-        </button>
+        </Button>
       </DialogTrigger>
 
       <DialogContent
@@ -105,22 +107,22 @@ export function RdTaskExportButton({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600">起始日期</span>
-                  <input
+                  <Input
                     type="date"
                     value={start}
                     max={end || undefined}
                     onChange={(e) => setStart(e.target.value)}
-                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                   />
                 </label>
                 <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600">结束日期</span>
-                  <input
+                  <Input
                     type="date"
                     value={end}
                     min={start || undefined}
                     onChange={(e) => setEnd(e.target.value)}
-                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                   />
                 </label>
               </div>
@@ -130,7 +132,7 @@ export function RdTaskExportButton({
                   { label: "近 30 天", days: 30 },
                   { label: "本月", month: true },
                 ] as const).map((q) => (
-                  <button
+                  <Button variant="unstyled"
                     key={q.label}
                     type="button"
                     onClick={() => {
@@ -144,10 +146,10 @@ export function RdTaskExportButton({
                         setStart(toYmd(s));
                       }
                     }}
-                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   >
                     {q.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
           <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-pretty text-[11px] leading-5 text-slate-500">
@@ -156,15 +158,15 @@ export function RdTaskExportButton({
             </div>
 
         <DialogFooter className="border-t border-slate-200 px-5 py-4">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={close}
                 disabled={busy}
             className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button variant="unstyled"
                 type="button"
                 onClick={run}
                 disabled={busy}
@@ -172,7 +174,7 @@ export function RdTaskExportButton({
               >
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 导出 Excel
-              </button>
+              </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

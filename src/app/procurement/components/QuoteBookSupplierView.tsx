@@ -134,11 +134,11 @@ export function QuoteBookSupplierView({ rows, today, canWrite, onCompare, onEdit
             <p aria-live="polite" className="mt-2 text-pretty text-xs leading-5 tabular-nums text-muted-foreground">{t("{count} 项，含未关联档案的报价", { count: suppliers.length })}</p>
           </div>
           {supplierRows.length > 0 ? <ul className="proc-supplier-directory-list p-2">
-            {supplierRows.map((supplier) => <li key={supplier.key}><button type="button" onClick={() => selectSupplier(supplier.key)} aria-pressed={supplier.key === selected?.key} className={cn("proc-supplier-directory-choice w-full min-w-0 cursor-pointer rounded-lg border border-transparent px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring", supplier.key === selected?.key ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-muted/50")}>
+            {supplierRows.map((supplier) => <li key={supplier.key}><Button variant="unstyled" type="button" onClick={() => selectSupplier(supplier.key)} aria-pressed={supplier.key === selected?.key} className={cn("proc-supplier-directory-choice w-full min-w-0 cursor-pointer rounded-lg border border-transparent px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring", supplier.key === selected?.key ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-muted/50")}>
               <span className="flex min-w-0 items-start gap-2"><strong className="min-w-0 flex-1 break-words text-sm font-semibold">{supplier.name}</strong><ChevronRight className="mt-0.5 size-4 shrink-0" /></span>
               <span className="mt-1 block break-all text-xs leading-5 text-muted-foreground">{supplier.supplierId ? `ID ${supplier.supplierId}` : t("独立保留此条报价")}</span>
               <span className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-xs leading-5 text-muted-foreground"><span className="tabular-nums">{t("{count} 个已报价物料", { count: supplier.materialCount })}</span><span>{t(supplierRelationLabel(supplier.relation))}</span></span>
-            </button></li>)}
+            </Button></li>)}
           </ul> : <div className="px-4 py-8 text-center"><p className="text-pretty text-sm leading-6 text-muted-foreground">{supplierSearch ? t("没有匹配的供应商") : t("当前还没有厂家报价")}</p>{supplierSearch && <Button variant="outline" size="sm" className="mt-3" onClick={() => { setSupplierSearch(""); setSupplierPage(1); }}>{t("清空供应商搜索")}</Button>}</div>}
           {supplierPages > 1 && <div className="border-t border-border px-3 py-3"><DirectoryPager page={currentSupplierPage} pages={supplierPages} label={t("供应商列表")} onPage={(page) => { setSupplierPage(page); const first = suppliers[(page - 1) * DIRECTORY_SUPPLIER_PAGE_SIZE]; if (first) selectSupplier(first.key); }} /></div>}
         </aside>

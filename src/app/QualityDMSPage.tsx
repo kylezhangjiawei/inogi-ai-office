@@ -323,7 +323,7 @@ export function QualityDMSPage() {
             ))}
           </nav>
           <div className="mx-3 mb-3 rounded-xl border border-blue-100 bg-[#f7f9ff] p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#002fa7]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-primary">
               <Shield className="size-3.5" aria-hidden="true" />
               受控提醒
             </div>
@@ -341,7 +341,7 @@ export function QualityDMSPage() {
           <div className="hz-toolbar border-b p-3">
             <Label htmlFor="dms-search" className="sr-only">搜索质量文件</Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 id="dms-search"
                 value={searchQuery}
@@ -370,7 +370,7 @@ export function QualityDMSPage() {
                     const selectedRow = selectedId === doc.id;
                     const isVoid = doc.status === "已作废";
                     return (
-                      <tr key={doc.id} className={cn(selectedRow && "bg-[#f7f9ff]", isVoid && "text-slate-400")}>
+                      <tr key={doc.id} className={cn(selectedRow && "bg-[#f7f9ff]", isVoid && "text-muted-foreground")}>
                         <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{doc.code}</td>
                         <td className="px-3 py-2">
                           <Button
@@ -380,8 +380,8 @@ export function QualityDMSPage() {
                             onClick={() => setSelectedId(doc.id)}
                             aria-current={selectedRow ? "true" : undefined}
                           >
-                            <FileText className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
-                            <span className={cn("truncate font-semibold text-slate-800", isVoid && "line-through text-slate-400")}>{doc.name}</span>
+                            <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            <span className={cn("truncate font-semibold text-slate-800", isVoid && "line-through text-muted-foreground")}>{doc.name}</span>
                           </Button>
                         </td>
                         <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-slate-600">{doc.version}</td>
@@ -449,15 +449,15 @@ export function QualityDMSPage() {
                           className={cn(
                             "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums",
                             done && "border-emerald-500 bg-emerald-500 text-white",
-                            active && "border-[#002fa7] bg-[#002fa7] text-white",
-                            !done && !active && "border-slate-200 bg-white text-slate-400",
+                            active && "border-primary bg-primary text-white",
+                            !done && !active && "border-slate-200 bg-white text-muted-foreground",
                           )}
                           aria-current={active ? "step" : undefined}
                         >
                           {done ? <CheckCircle2 className="size-4" aria-hidden="true" /> : index + 1}
                         </span>
                         <div className="min-w-0 pb-3 pt-1">
-                          <div className={cn("text-sm font-semibold", active ? "text-[#002fa7]" : done ? "text-emerald-700" : "text-slate-500")}>{step}</div>
+                          <div className={cn("text-sm font-semibold", active ? "text-primary" : done ? "text-emerald-700" : "text-slate-500")}>{step}</div>
                           {active ? <div className="mt-0.5 text-xs text-slate-500">当前节点 · {selected.approver}</div> : null}
                         </div>
                       </li>
@@ -468,7 +468,7 @@ export function QualityDMSPage() {
                 <ApprovalActions selected={selected} onRequest={setPendingAction} />
 
                 <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <Shield className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />
+                  <Shield className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
                   <p className="text-pretty text-xs leading-5 text-slate-500">当前为模拟审批操作；正式电子签名效力与审计要求以已配置的受控系统为准。</p>
                 </div>
               </TabsContent>
@@ -479,13 +479,13 @@ export function QualityDMSPage() {
                     {selected.history.map((record) => (
                       <li key={`${record.version}-${record.date}`} className="rounded-xl border border-slate-200 p-3">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-mono text-sm font-semibold tabular-nums text-[#002fa7]">{record.version}</span>
+                          <span className="font-mono text-sm font-semibold tabular-nums text-primary">{record.version}</span>
                           <time className="text-xs tabular-nums text-slate-500">{record.date}</time>
                         </div>
                         <dl className="mt-3 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-xs">
-                          <dt className="text-slate-400">修改人</dt>
+                          <dt className="text-muted-foreground">修改人</dt>
                           <dd className="text-slate-700">{record.editor}</dd>
-                          <dt className="text-slate-400">修改原因</dt>
+                          <dt className="text-muted-foreground">修改原因</dt>
                           <dd className="text-slate-700">{record.reason}</dd>
                         </dl>
                         <p className="mt-3 text-pretty text-xs leading-5 text-slate-500">{record.summary}</p>
@@ -520,7 +520,7 @@ export function QualityDMSPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction className={cn(negativeAction ? "bg-red-600 text-white hover:bg-red-700" : "bg-[#002fa7] text-white hover:bg-[#002581]")} onClick={confirmAction}>
+            <AlertDialogAction className={cn(negativeAction ? "bg-red-600 text-white hover:bg-red-700" : "bg-primary text-white hover:bg-primary-hover")} onClick={confirmAction}>
               确认{pendingAction ? actionLabels[pendingAction] : "操作"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -549,7 +549,7 @@ function CategoryButton({
       variant="ghost"
       className={cn(
         "h-9 w-full justify-between rounded-lg px-3",
-        active ? "bg-[#eef3ff] text-[#002fa7] hover:bg-[#eef3ff]" : "text-slate-600 hover:bg-slate-50",
+        active ? "bg-accent text-primary hover:bg-accent" : "text-slate-600 hover:bg-slate-50",
       )}
       onClick={onClick}
       aria-pressed={active}
@@ -599,7 +599,7 @@ function ApprovalActions({ selected, onRequest }: { selected: QualityDoc; onRequ
       <div className="mt-3 space-y-2">
         <div className="text-xs font-semibold text-slate-500">批准人操作</div>
         <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1">
-          <Button type="button" className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={() => onRequest("approve")}>
+          <Button type="button" className="bg-primary text-white hover:bg-primary-hover" onClick={() => onRequest("approve")}>
             <CheckCircle2 aria-hidden="true" />
             批准
           </Button>

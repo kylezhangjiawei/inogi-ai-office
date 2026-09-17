@@ -144,7 +144,7 @@ function pageFixture(query = "", permissions = []) {
       return this.render();
     },
     setEditorField(label, value) {
-      const field = elements(tree).find((node) => ["Input", "Textarea", "select"].includes(node.type) && node.props["aria-label"] === label);
+      const field = elements(tree).find((node) => ["Input", "Textarea", "NativeSelect"].includes(node.type) && node.props["aria-label"] === label);
       assert.ok(field, `Editor field ${label} must be rendered`);
       assert.ok(!field.props.readOnly && !field.props.disabled, `Editor field ${label} must be editable`);
       field.props.onChange({ target: { value } });
@@ -786,7 +786,7 @@ function bomMaterial(line, overrides = {}) {
 }
 
 const bomPermissions = ["material:import", ...stockPlanPermissions];
-const editorField = (tree, label) => elements(tree).find((node) => ["Input", "Textarea", "select"].includes(node.type) && node.props["aria-label"] === label);
+const editorField = (tree, label) => elements(tree).find((node) => ["Input", "Textarea", "NativeSelect"].includes(node.type) && node.props["aria-label"] === label);
 
 test("Q5缺编码和缺用量行提供编辑，禁止新增删除；其他型号和无权限不开放", async () => {
   const lines = [bomSource("missing-code", {code:null}), bomSource("missing-qty", {qtyPer:null})];
@@ -883,7 +883,7 @@ test("通用物料仍支持新增编辑删除和位置选择，保存携带父�
     let tree = page.clickButton(action === "create" ? "新增物料" : `${action === "delete" ? "删除" : "编辑"}物料 ${line.code}`);
     assert.ok(visibleText(tree).includes(action === "create" ? "新增通用物料" : action === "delete" ? "删除通用物料" : "编辑通用物料"));
     if(action !== "delete") {
-      assert.equal(editorField(tree,"BOM 所属位置").type,"select");
+      assert.equal(editorField(tree,"BOM 所属位置").type,"NativeSelect");
       assert.ok(visibleText(tree).includes("物料分类按编码从物料库带出"));
       page.setEditorField("物料名称","模拟通用组件");
       page.setEditorField("物料编码","COMMON-TEST-ONLY");
@@ -973,7 +973,7 @@ test("行键盘打开明细后关闭回到原行，子按钮按键不冒泡开�
   tree = page.render();
   assert.equal(materialRows(tree).length, 1);
   assert.ok(visibleText(materialRows(tree)[0]).includes("ROW-B"));
-  const clear = elements(tree).find((node) => node.type === "button" && visibleText(node).trim() === "清除筛选");
+  const clear = elements(tree).find((node) => node.type === "Button" && visibleText(node).trim() === "清除筛选");
   clear.props.onClick();
   tree = page.render();
   assert.equal(materialRows(tree).length, 2);
@@ -1088,7 +1088,7 @@ test("移动卡片与桌面共用异常口径和详情，编辑来源仍受权�
     assert.match(visibleText(list), /单机用量\s+待补充/);
     assert.doesNotMatch(visibleText(list), /0\s+个|0\s+套/);
     const opener = { isConnected: true, focus() {} };
-    elements(list).find((node) => node.type === "button").props.onClick({ currentTarget: opener });
+    elements(list).find((node) => node.type === "Button").props.onClick({ currentTarget: opener });
     tree = page.render();
     const sheet = elements(tree).find((node) => node.type === "Sheet" && node.props.open);
     const edit = elements(sheet).find((node) => node.type === "Button" && visibleText(node).trim() === "编辑 BOM 来源");

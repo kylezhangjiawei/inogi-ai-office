@@ -9,7 +9,9 @@ const storage = new Proxy({}, { get: denied, set: denied });
 const primitives = new Proxy({}, { get: (_target, name) => name });
 const jsx = (type, props, key) => ({ type, props: props ?? {}, key });
 const translate = (value, values = {}) => value.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match);
-function evaluate(code, dependencies = {}, window = {}) { const exports = {}; new Function('exports', 'require', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'window', code)(exports, (name) => { assert.ok(Object.hasOwn(dependencies, name), `未审查依赖 ${name}`); return dependencies[name]; }, denied, storage, storage, storage, window); return exports; }
+function evaluate(code, dependencies = {}, window = {}) { const exports = {}; new Function('exports', 'require', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'window', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(Object.hasOwn(dependencies, name), `未审查依赖 ${name}`); return dependencies[name]; }, denied, storage, storage, storage, window); return exports; }
 const model = evaluate(compile(read('procurement/monthly-readiness/monthlyReadinessModel.ts')));
 const page = compile(read('procurement/monthly-readiness/MonthlyReadinessPreviewPage.tsx'));
 function nodes(tree) { if (Array.isArray(tree)) return tree.flatMap(nodes); if (!tree || typeof tree !== 'object') return []; return [...(tree.type ? [tree] : []), ...Object.values(tree.props ?? {}).flatMap(nodes)]; }
@@ -21,7 +23,7 @@ function fixture(search = '') {
   function navigate(next) { if (predicate?.({ currentLocation: location, nextLocation: next })) { blocker.state = 'blocked'; pending = next; } else location = next; }
   const hooks = { useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], (value) => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; }, useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; }, useEffect(effect, deps) { const index = cursor++, old = slots[index]; if (!old || deps.some((value, i) => !Object.is(value, old.deps[i]))) { slots[index] = { deps, cleanup: old?.cleanup }; effects.push(() => { slots[index].cleanup?.(); slots[index].cleanup = effect(); }); } } };
   const dependencies = { react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, 'lucide-react': primitives, 'react-router': { Link: 'Link', useSearchParams: () => [new URLSearchParams(location.search), (params) => navigate({ ...location, search: `?${params.toString()}` })], useBlocker: (next) => { predicate = next; return blocker; } }, '../../lib/i18n': { useI18n: () => ({ t: translate }) }, '../../order-processing/components/HorizonPage': primitives, './monthlyReadinessModel': model, '../../order-processing/horizon.css': {}, './monthly-readiness.css': {} };
-  for (const name of ['button', 'input', 'label', 'sheet', 'alert-dialog']) dependencies[`../../components/ui/${name}`] = primitives;
+  for (const name of ["button", "input", 'label', 'sheet', 'alert-dialog']) dependencies[`../../components/ui/${name}`] = primitives;
   const exported = evaluate(page, dependencies, { addEventListener: (event, fn) => listeners.set(event, fn), removeEventListener: (event, fn) => { if (listeners.get(event) === fn) listeners.delete(event); } });
   const view = {
     render() { cursor = 0; tree = exported.MonthlyReadinessPreviewPage(); while (effects.length) effects.shift()(); return tree; },
@@ -30,7 +32,7 @@ function fixture(search = '') {
     click(label) { const button = view.button(label); assert.ok(button, `${label}存在`); assert.ok(!button.props.disabled, `${label}可用`); button.props.onClick(); return view.render(); },
     byId: (id) => view.nodes().find((node) => node.props.id === id),
     input(id, value) { const field = view.byId(id); assert.ok(field, `${id}存在`); assert.ok(!field.props.disabled, `${id}可编辑`); field.props.onChange({ target: { value } }); return view.render(); },
-    check(label, checked) { const wrapper = view.nodes().find((node) => node.type === 'label' && normalized(node).includes(label)); const field = nodes(wrapper).find((node) => node.type === 'input'); assert.ok(field); assert.ok(!field.props.disabled); field.props.onChange({ target: { checked } }); return view.render(); },
+    check(label, checked) { const wrapper = view.nodes().find((node) => node.type === 'label' && normalized(node).includes(label)); const field = nodes(wrapper).find((node) => node.type === "Checkbox"); assert.ok(field); assert.ok(!field.props.disabled); field.props.onCheckedChange(checked); return view.render(); },
     navigate(pathname, search = '') { navigate({ pathname, search }); return view.render(); }, blocker, listeners, params: () => new URLSearchParams(location.search),
   }; view.render(); return view;
 }

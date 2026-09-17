@@ -1,12 +1,12 @@
-.preview-index{max-width:1320px;margin:0 auto;padding:24px;color:#25334a;font-size:14px}
+.preview-index{max-width:1320px;margin:0 auto;padding:24px;color:var(--foreground);font-size:14px}
 .preview-index .order-horizon-command{padding:20px 24px}
 .preview-index-note{padding:14px 18px;margin:18px 0 28px;background:#edf3ff;border:1px solid #d1dff5;border-radius:12px;line-height:1.8;color:#52647e}
-.preview-index-note strong{color:#083cb9;margin-right:12px}
+.preview-index-note strong{color:var(--primary);margin-right:12px}
 .preview-index-section{margin:24px 0}.preview-index-section h2{font-size:17px;font-weight:650;margin-bottom:12px}
 .preview-index-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.preview-index-links a{display:flex;align-items:center;gap:14px;padding:18px;background:white;border:1px solid #dce4ef;border-radius:12px;color:inherit;min-width:0}
-.preview-index-links a:hover{border-color:#083cb9;background:#f9fbff}.preview-index-links a:focus-visible{outline:2px solid #083cb9;outline-offset:3px}
-.preview-index-links a>div{flex:1;min-width:0}.preview-index-links a>svg{flex-shrink:0;color:#083cb9}.preview-index-code{font-size:12px;font-weight:650;color:#083cb9;min-width:30px}
-.preview-index-links h3{font-size:15px;font-weight:650;line-height:1.6}.preview-index-links p{font-size:12px;color:#64748b;line-height:1.7;margin-top:5px}
+.preview-index-links a{display:flex;align-items:center;gap:14px;padding:18px;background:var(--card);border:1px solid transparent;border-radius:var(--m3-shape-card);color:inherit;min-width:0;box-shadow:var(--shadow-card)}
+.preview-index-links a:hover{border-color:var(--primary);background:#f9fbff}.preview-index-links a:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+.preview-index-links a>div{flex:1;min-width:0}.preview-index-links a>svg{flex-shrink:0;color:var(--primary)}.preview-index-code{font-size:12px;font-weight:650;color:var(--primary);min-width:30px}
+.preview-index-links h3{font-size:15px;font-weight:650;line-height:1.6}.preview-index-links p{font-size:12px;color:var(--muted-foreground);line-height:1.7;margin-top:5px}
 @media(max-width:1050px){.preview-index-links{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.preview-index{padding:14px}.preview-index .order-horizon-command{padding:18px}.preview-index-links{grid-template-columns:1fr}.preview-index-note{font-size:13px}}

@@ -37,7 +37,7 @@ export function DefectSections({ state, issueId, view, readOnly, actorId, onActi
       ? `/__preview/field-tasks?task=${encodeURIComponent(issue.sourceTaskId)}&tab=defects`
       : `/__preview/production-inspections?task=${encodeURIComponent(issue.sourceTaskId)}&tab=records`
     : null;
-  const photos = (items: DefectPhoto[]) => items.length ? <div className="dfs-photos" aria-label={t('现场整改照片')}>{items.map((photo) => <button key={photo.id} type="button" className="dfs-photo" aria-label={t('查看照片 {name}', { name: photo.name })} onClick={() => onPhoto(photo)}><img src={photo.dataUrl} alt={photo.name} loading="lazy" /><span><ImageIcon className="size-3" aria-hidden="true" />{photo.name}</span></button>)}</div> : <p className="dfs-muted">{t('未附现场照片')}</p>;
+  const photos = (items: DefectPhoto[]) => items.length ? <div className="dfs-photos" aria-label={t('现场整改照片')}>{items.map((photo) => <Button variant="unstyled" key={photo.id} type="button" className="dfs-photo" aria-label={t('查看照片 {name}', { name: photo.name })} onClick={() => onPhoto(photo)}><img src={photo.dataUrl} alt={photo.name} loading="lazy" /><span><ImageIcon className="size-3" aria-hidden="true" />{photo.name}</span></Button>)}</div> : <p className="dfs-muted">{t('未附现场照片')}</p>;
 
   if (view === 'overview') {
     const collaborations = state.collaborations.filter((item) => item.issueId === issue.id);

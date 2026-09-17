@@ -11,6 +11,7 @@ import { i18nLocale, useI18n } from '../../lib/i18n';
 import { availableToShip, validateShipmentAction } from './shipmentPreviewModel';
 import { shipmentActionLabels, type ShipmentAction, type ShipmentActionContext } from './shipmentTypes';
 import './shipment-action-form.css';
+import { Checkbox } from "../../components/ui/checkbox";
 
 export interface ShipmentActionFormProps {
   context: ShipmentActionContext;
@@ -199,7 +200,7 @@ export function ShipmentActionForm({ context, onSubmit, onDirtyChange, onCancel 
         {kind === 'sn' && <div className="min-w-0 space-y-2">{paragraphField('serialNumbers', '已有 SN（选填）', false)}<p className="text-pretty text-xs leading-5 text-muted-foreground">{t('已登记')} <span className="tabular-nums">{selectedSerials.length}</span> {t('个')}{remainingSn !== null && <> · {t('待补齐')} <span className="tabular-nums">{remainingSn}</span> {t('台')}</>}。{t('未补齐不阻止出库，批次记录仍保留。')}</p></div>}
         {kind !== 'create' && inputField('actor', kind === 'confirm' ? '出库确认人' : '操作人')}
         {['edit', 'reverse', 'sn'].includes(kind) && paragraphField('reason', kind === 'edit' ? '修改原因' : kind === 'reverse' ? '冲销原因' : 'SN 补充说明')}
-        {kind === 'reverse' && <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-3 text-pretty text-xs leading-5"><input type="checkbox" checked={draft.createReplacement} disabled={locked} onChange={(event) => change('createReplacement', event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-primary" /><span>{t('同时生成替代草稿')}<span className="mt-1 block text-muted-foreground">{t('保留与原单的关联。修改草稿后，需另行确认实际出库才计入统计。')}</span></span></label>}
+        {kind === 'reverse' && <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-3 text-pretty text-xs leading-5"><Checkbox checked={draft.createReplacement} disabled={locked} onCheckedChange={(checkedValue) => change('createReplacement', (checkedValue === true))} className="mt-0.5 size-4 shrink-0 accent-primary" /><span>{t('同时生成替代草稿')}<span className="mt-1 block text-muted-foreground">{t('保留与原单的关联。修改草稿后，需另行确认实际出库才计入统计。')}</span></span></label>}
         <p className="rounded-lg bg-muted/40 px-3 py-2.5 text-pretty text-xs leading-5 text-muted-foreground">{impact}</p>
         {errors.submit && <p role="alert" className="text-pretty text-sm leading-6 text-destructive">{errors.submit}</p>}
         {saved && <p role="status" className="text-pretty text-sm leading-6 text-primary">{t(successLabels[kind])}</p>}

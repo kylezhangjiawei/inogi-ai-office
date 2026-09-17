@@ -1,5 +1,6 @@
 import { Bell, Search, User } from "lucide-react";
 import { motion } from "motion/react";
+import { Input } from "./ui/input";
 
 export function Header() {
   const currentDate = new Date().toLocaleDateString("zh-CN", {
@@ -30,7 +31,7 @@ export function Header() {
         <div className="flex min-w-0 items-center gap-2 sm:gap-3 lg:flex-1 lg:justify-end">
           <div className="relative min-w-0 flex-1 lg:max-w-md">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-on-surface-variant" />
-            <input
+            <Input
               type="text"
               placeholder="搜索工单、文档..."
               className="h-10 w-full rounded-[8px] border border-border bg-surface-container-low px-10 text-sm text-on-surface outline-none transition placeholder:text-on-surface-variant/70 hover:bg-surface-container focus:border-primary/40 focus:bg-surface-container-lowest focus:ring-4 focus:ring-primary/10"

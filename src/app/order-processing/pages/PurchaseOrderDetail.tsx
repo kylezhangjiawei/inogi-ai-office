@@ -67,7 +67,7 @@ function InfoItem({ label, value }: { label: string; value?: React.ReactNode }) 
   const displayedValue = value === null || value === undefined || value === '' ? '-' : value;
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-50 py-2.5 last:border-b-0">
-      <span className="shrink-0 text-sm text-slate-400">{label}</span>
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words text-right text-sm font-medium text-slate-800 text-pretty">{displayedValue}</span>
     </div>
   );
@@ -275,7 +275,7 @@ export function PurchaseOrderDetail() {
                   <ArrowLeft className="size-4" />{t('返回齐套中心')}
                 </Button> : null}
                 {!notFound ? (
-                  <Button type="button" className="order-horizon-primary-action bg-blue-700 text-white" onClick={() => void loadOrder()}>
+                  <Button type="button" className="order-horizon-primary-action bg-primary text-white" onClick={() => void loadOrder()}>
                     <RefreshCw className="size-4" />
                     {t('重新加载')}
                   </Button>
@@ -386,7 +386,7 @@ export function PurchaseOrderDetail() {
             <div className="border-b border-slate-100 px-4 py-3">
               <h2 id="purchase-order-lines-title" className="text-balance text-base font-semibold text-slate-900">{t('商品明细')}</h2>
               <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t('预计到货来自采购订单；预计检验后可用日期由经办人逐行确认。确认日期不代表当前库存已可用。')}</p>
-              {hasItemDetails ? <p className="mt-1 text-xs leading-5 text-slate-400">{t('横向滚动查看更多字段')}</p> : null}
+              {hasItemDetails ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('横向滚动查看更多字段')}</p> : null}
               {hasItemDetails ? <div role="group" aria-label={t('按到货数量筛选订单行')} className="mt-3 flex flex-wrap gap-2">
                 {([
                   ['all', '全部明细', fulfillment.totalLines], ['outstanding', '未收齐', outstandingLines],
@@ -404,7 +404,7 @@ export function PurchaseOrderDetail() {
                   role="region"
                   aria-labelledby="purchase-order-lines-title"
                   tabIndex={0}
-                  className="overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]">
+                  className="overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
                   <Table containerClassName="order-horizon-table overflow-visible" className="min-w-[1280px]" aria-label={t('采购订单商品明细，可横向滚动查看更多字段')}>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
@@ -427,8 +427,8 @@ export function PurchaseOrderDetail() {
                           data-purchase-order-line-id={item.id || undefined}
                           aria-current={item === targetLine ? 'true' : undefined}
                           tabIndex={item === targetLine ? -1 : undefined}
-                          className={item === targetLine ? 'bg-blue-50 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700' : undefined}>
-                          <TableCell className="px-4 text-slate-800"><span className="font-mono tabular-nums">{item.sku}</span><p className="mt-1 text-xs text-slate-400 tabular-nums">{t('行号')} {item.lineNo || '—'}</p>{item === targetLine ? <p className="mt-1 text-xs font-semibold text-blue-700">{t('当前核对行')}</p> : null}</TableCell>
+                          className={item === targetLine ? 'bg-blue-50 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary' : undefined}>
+                          <TableCell className="px-4 text-slate-800"><span className="font-mono tabular-nums">{item.sku}</span><p className="mt-1 text-xs text-muted-foreground tabular-nums">{t('行号')} {item.lineNo || '—'}</p>{item === targetLine ? <p className="mt-1 text-xs font-semibold text-blue-700">{t('当前核对行')}</p> : null}</TableCell>
                           <TableCell className="max-w-[220px] font-medium text-slate-900"><div className="truncate" title={item.name}><AutoTranslatedText text={item.name} /></div></TableCell>
                           <TableCell className="max-w-[240px] text-slate-600"><div className="truncate" title={item.spec}><AutoTranslatedText text={item.spec || '-'} /></div></TableCell>
                           <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.qty) ? item.qty : t('待核对')} {line.unit ? t(line.unit) : t('单位待核对')}</TableCell>
@@ -531,12 +531,12 @@ export function PurchaseOrderDetail() {
               <InfoItem label={t('供应商')} value={<AutoTranslatedText text={order.supplier} />} />
               <InfoItem label={t('联系人')} value={order.supplierContact} />
               <InfoItem label={t('联系电话')} value={order.supplierPhone ? (
-                <a href={`tel:${order.supplierPhone}`} className="inline-flex items-center gap-1 text-[#002fa7] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]">
+                <a href={`tel:${order.supplierPhone}`} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                   <Phone className="h-3.5 w-3.5" />{order.supplierPhone}
                 </a>
               ) : '-'} />
               <InfoItem label={t('邮箱')} value={order.supplierEmail ? (
-                <a href={`mailto:${order.supplierEmail}`} className="inline-flex items-center gap-1 text-[#002fa7] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]">
+                <a href={`mailto:${order.supplierEmail}`} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                   <Mail className="h-3.5 w-3.5" />{order.supplierEmail}
                 </a>
               ) : '-'} />
@@ -568,7 +568,7 @@ export function PurchaseOrderDetail() {
                 <Link2 className="h-4 w-4 text-blue-500" />
                 {t('关联采购任务')}
               </h2>
-              <span className="text-xs text-slate-400 tabular-nums">{taskLinks.length}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{taskLinks.length}</span>
             </div>
             {taskLinks.length > 0 ? (
               <div className="space-y-2">
@@ -580,31 +580,31 @@ export function PurchaseOrderDetail() {
                         <span className="text-xs text-slate-500">{t(task.status)}</span>
                       </div>
                       <div className="mt-1 truncate text-sm text-slate-700"><AutoTranslatedText text={task.materialName} /></div>
-                      <div className="mt-1 flex justify-between gap-3 text-xs text-slate-400 tabular-nums">
+                      <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground tabular-nums">
                         <span className="truncate">{task.buyer || t('未分配采购员')}</span>
                         <span className="shrink-0">{task.arrivedQty}/{task.quantity}</span>
                       </div>
                     </>
                   );
                   return canOpenProcurementCockpit ? (
-                    <button
+                    <Button variant="unstyled"
                       key={task.id}
                       type="button"
                       aria-label={t('打开关联采购任务 {code}', { code: task.code })}
                       onClick={() => navigate(`${procurementCockpitPath}?task=${encodeURIComponent(task.id)}`)}
-                      className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2">
+                      className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left hover:border-primary/25 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
                       {cardContent}
-                    </button>
+                    </Button>
                   ) : (
                     <div key={task.id} aria-disabled="true" className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left">
                       {cardContent}
-                      <div className="mt-2 text-xs text-slate-400">{t('无采购任务查看权限')}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">{t('无采购任务查看权限')}</div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-sm text-slate-400 text-pretty">
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-sm text-muted-foreground text-pretty">
                 {t('该采购单尚未关联采购任务')}
               </div>
             )}

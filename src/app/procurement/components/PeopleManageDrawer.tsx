@@ -283,13 +283,13 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                     {m.department ? <AutoTranslatedText as="span" className="block break-words text-[10px] text-slate-500" text={m.department} /> : null}
                   </span>
                   {canReassign && (
-                    <button type="button" aria-label={t("从名录移除：{name}", { name: m.name })} disabled={working || Boolean(rosterError)} onClick={() => requestRemoveMember(m)} className="ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50" title={t("从名录移除")}><X className="size-3.5" /></button>
+                    <Button variant="unstyled" type="button" aria-label={t("从名录移除：{name}", { name: m.name })} disabled={working || Boolean(rosterError)} onClick={() => requestRemoveMember(m)} className="ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50" title={t("从名录移除")}><X className="size-3.5" /></Button>
                   )}
                 </span>
               ))}
               {!rosterLoading && !rosterError && roster.length === 0 && <span className="text-pretty text-[11px] text-slate-500">{t("尚未添加成员；仍可指派给有采购工作台权限的用户")}</span>}
             </div>
-            {rosterError && <div role="alert" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-pretty text-xs text-rose-700"><span className="min-w-0 break-words">{rosterError}</span><button type="button" disabled={working} onClick={() => void loadRoster()} className="shrink-0 font-semibold underline disabled:opacity-50">{t("重试")}</button></div>}
+            {rosterError && <div role="alert" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-pretty text-xs text-rose-700"><span className="min-w-0 break-words">{rosterError}</span><Button variant="unstyled" type="button" disabled={working} onClick={() => void loadRoster()} className="shrink-0 font-semibold underline disabled:opacity-50">{t("重试")}</Button></div>}
             {canReassign && (
               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                 <BuyerComboInput
@@ -301,15 +301,15 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                   placeholder={t("输入姓名添加成员…")}
                   className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-primary/40"
                 />
-                <button type="button" disabled={working || rosterLoading || Boolean(rosterError) || !addName.trim()} onClick={() => void addMember()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-60">
+                <Button type="button" disabled={working || rosterLoading || Boolean(rosterError) || !addName.trim()} onClick={() => void addMember()} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
                   {rosterBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}{t("添加")}
-                </button>
+                </Button>
               </div>
             )}
             {actionError?.scope === "roster" && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}
           </div>
 
-          {tasksError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"><span className="min-w-0 break-words">{tasksError}</span><button type="button" onClick={() => void refreshProcurement()} className="shrink-0 font-semibold underline">{t("重试")}</button></div>}
+          {tasksError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700"><span className="min-w-0 break-words">{tasksError}</span><Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="shrink-0 font-semibold underline">{t("重试")}</Button></div>}
           {(tasksLoading || rosterLoading) && <div role="status" className="py-10 text-center text-sm text-slate-500">{t("加载中")}…</div>}
           {!tasksLoading && !rosterLoading && !tasksError && !rosterError && people.length === 0 && <div className="py-10 text-center text-sm text-slate-500">{t("当前没有在制任务")}</div>}
           {!tasksLoading && !rosterLoading && !tasksError && !rosterError && people.map((p) => {
@@ -332,7 +332,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                 <PersonAvatar name={p.key === UNASSIGNED ? "?" : p.name} size="xs" />
                 <div className="min-w-0 flex-1">
                 {p.key !== UNASSIGNED && onFocusPerson ? (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     disabled={working}
                     onClick={() => { onFocusPerson(p.name); onClose(); }}
@@ -340,7 +340,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                     title={t("在驾驶舱中筛选该负责人的任务")}
                   >
                     {p.name}
-                  </button>
+                  </Button>
                 ) : (
                   <span className="block break-words text-sm font-semibold text-slate-800" title={p.name}>{p.name}</span>
                 )}
@@ -350,7 +350,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                 <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
                 <span className={cn("inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium tabular-nums", load.tone)}><load.Icon className="size-3 shrink-0" />{load.label}</span>
                 {canReassign && p.active.length > 0 && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     disabled={working}
                     aria-expanded={handover === p.key}
@@ -358,7 +358,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                     className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />{t(p.key === UNASSIGNED ? "指派" : "交接")}
-                  </button>
+                  </Button>
                 )}
                 </div>
               </div>
@@ -398,10 +398,10 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
                     placeholder={t("接收人姓名")}
                     className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40"
                   />
-                  <button type="button" disabled={working || p.active.length === 0} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-60">
+                  <Button type="button" disabled={working || p.active.length === 0} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
                     {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {busy ? t("正在提交…") : t(p.key === UNASSIGNED ? "指派 {count} 个任务" : "交接 {count} 个任务", { count: p.active.length })}
-                  </button>
+                  </Button>
                   <Button type="button" variant="ghost" size="sm" disabled={working} onClick={cancelHandover} className="h-8 text-xs">{t("取消")}</Button>
                   </div>
                   {actionError?.scope === `handover:${p.key}` && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}

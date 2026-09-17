@@ -262,7 +262,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
     return (
       <tr key={material.id} className="group border-t border-slate-100 hover:bg-background" data-supply-risk={risk.tone}>
         <td className={cn(td, "proc-horizon-material-identity sticky left-0 z-10 border-r border-slate-100 bg-white group-hover:bg-background")}>
-          <button
+          <Button variant="unstyled"
             ref={(node) => { if (nextMaterialIdRef.current === material.id) nextMaterialFocusRef.current = node; }}
             type="button"
             title={material.name}
@@ -270,7 +270,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
             className="block w-full rounded-md text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
             <AutoTranslatedText className="line-clamp-2 break-words font-semibold text-slate-900" text={material.name} />
-          </button>
+          </Button>
           <span className="mt-1 block truncate font-mono text-xs tabular-nums text-slate-500" title={materialCode(material) || "—"}>
             {materialCode(material) || "—"}
           </span>
@@ -283,11 +283,11 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
         {showCategory && <td className={cn(td, "text-xs text-slate-500")} title={material.category || t("未分类")}><AutoTranslatedText className="block truncate" text={material.category || "未分类"} /></td>}
         <td className={cn(td, "text-xs")} title={t(material.productLine || "—")}><span className="block truncate">{t(material.productLine || "—")}</span></td>
         <td className={cn(td, "whitespace-nowrap text-right font-semibold tabular-nums text-slate-900")}>{material.stockQty.toLocaleString()}</td>
-        <td className={cn(td, "whitespace-nowrap text-right font-semibold tabular-nums", inventoryReady ? "text-slate-900" : "text-slate-400")}>
+        <td className={cn(td, "whitespace-nowrap text-right font-semibold tabular-nums", inventoryReady ? "text-slate-900" : "text-muted-foreground")}>
           {inventoryReady ? material.availableQty.toLocaleString() : "—"}
         </td>
         <td className={cn(td, "whitespace-nowrap text-right tabular-nums text-slate-600")}>{material.safeStock.toLocaleString()}</td>
-        <td className={cn(td, "whitespace-nowrap text-right tabular-nums", aggregate.inTransit > 0 ? "text-primary" : "text-slate-400")}>{aggregate.inTransit.toLocaleString()}</td>
+        <td className={cn(td, "whitespace-nowrap text-right tabular-nums", aggregate.inTransit > 0 ? "text-primary" : "text-muted-foreground")}>{aggregate.inTransit.toLocaleString()}</td>
         <td className={td}>
           <span title={t(risk.detail)} className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium", RISK_STYLE[risk.tone])}>
             <RiskIcon aria-hidden="true" className="size-3" />
@@ -297,7 +297,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
         <td className={cn(td, "whitespace-nowrap text-right text-xs tabular-nums")}>{material.latestPrice != null ? fmtMoney(material.latestPrice) : "—"}</td>
         <td className={td}><ReviewPill status={material.reviewStatus} /></td>
         <td className="sticky right-0 z-10 w-24 border-l border-slate-100 bg-white px-2 py-1.5 text-right group-hover:bg-background">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => openMaterial(material)}
             aria-label={t("查看物料详情：{name}", { name: material.name })}
@@ -305,7 +305,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
           >
             <Eye aria-hidden="true" className="size-3.5" />
             {t("详情")}
-          </button>
+          </Button>
         </td>
       </tr>
     );
@@ -321,13 +321,13 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
           <tr>
             <td colSpan={columnCount} className="border-t border-slate-100 p-0">
               <div className="sticky left-0 w-64 px-3 py-2">
-                <button type="button" className="min-h-9 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                <Button variant="unstyled" type="button" className="min-h-9 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   onClick={(event) => {
                     if (event.detail === 0) nextMaterialIdRef.current = list[limit]?.id ?? null;
                     setCategoryLimits((current) => ({ ...current, [key]: limit + PAGE_SIZE }));
                   }}>
                   {t("再显示 {count} 条 · 剩余 {remaining} 条", { count: Math.min(PAGE_SIZE, remaining), remaining })}
-                </button>
+                </Button>
               </div>
             </td>
           </tr>
@@ -343,7 +343,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
           <label htmlFor="material-search-filter" className="block min-w-0 flex-1 basis-64">
             <span className="mb-1 block text-[11px] font-semibold text-slate-600">{t("搜索物料")}</span>
             <span className="relative block">
-              <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-slate-400" />
+              <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={searchRef}
                 id="material-search-filter"
@@ -351,17 +351,17 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
                 value={filters.keyword}
                 onChange={(event) => setFilter("keyword", event.target.value)}
                 placeholder={t("名称 / 规格 / ERP 或 T+ 编码")}
-                className="h-10 w-full rounded-lg border-slate-200 bg-white pl-8 pr-9 text-sm shadow-none placeholder:text-slate-400"
+                className="h-10 w-full rounded-lg border-slate-200 bg-white pl-8 pr-9 text-sm shadow-none placeholder:text-muted-foreground"
               />
               {filters.keyword && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   aria-label={t("清空物料搜索")}
                   onClick={() => { setFilter("keyword", ""); searchRef.current?.focus(); }}
-                  className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-slate-100 hover:text-slate-600"
                 >
                   <X aria-hidden="true" className="size-3.5" />
-                </button>
+                </Button>
               )}
             </span>
           </label>
@@ -421,10 +421,10 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
                 {item.label}
               </span>
             ))}
-            <button type="button" onClick={clearFilters} className="ml-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:text-primary">
+            <Button variant="unstyled" type="button" onClick={clearFilters} className="ml-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:text-primary">
               <X aria-hidden="true" className="size-3" />
               {t("清除全部")}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -439,7 +439,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
         {filterActive && pageRows.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
             <span className="text-pretty text-sm text-slate-500">{t("没有符合当前筛选条件的物料")}</span>
-            <button type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选并查看全部")}</button>
+            <Button variant="unstyled" type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选并查看全部")}</Button>
           </div>
         ) : (
         <table className="w-full min-w-[1480px] table-fixed border-separate border-spacing-0">
@@ -470,9 +470,9 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
               <th scope="col" className={cn(th, "text-right")}>{t("安全库存")}</th>
               <th scope="col" className={cn(th, "text-right")}>
                 <Tooltip>
-                  <TooltipTrigger asChild><button type="button" className="inline-flex min-h-8 items-center gap-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label={t("查看采购在途口径")}>
+                  <TooltipTrigger asChild><Button variant="unstyled" type="button" className="inline-flex min-h-8 items-center gap-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label={t("查看采购在途口径")}>
                     {t("采购在途")}<HelpCircle aria-hidden="true" className="size-3" />
-                  </button></TooltipTrigger>
+                  </Button></TooltipTrigger>
                   <TooltipContent className="max-w-64">{t("采购在途为系统采购任务的未到货数量，不含未关联任务的 ERP 在途。")}</TooltipContent>
                 </Tooltip>
               </th>
@@ -490,11 +490,11 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
                 <tr key={major.major} className="border-t border-slate-100 bg-slate-50/70 hover:bg-slate-100">
                   <td className="p-0 font-semibold text-slate-900" colSpan={columnCount}>
                     <div className="sticky left-0 w-64 px-3 py-2">
-                    <button type="button" aria-expanded={expanded.has(major.major)} onClick={() => toggle(major.major)} className="flex min-h-8 w-full items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                    <Button variant="unstyled" type="button" aria-expanded={expanded.has(major.major)} onClick={() => toggle(major.major)} className="flex min-h-8 w-full items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                       {expanded.has(major.major) ? <ChevronDown aria-hidden="true" className="size-4 text-slate-500" /> : <ChevronRight aria-hidden="true" className="size-4 text-slate-500" />}
                       <span className="min-w-0 flex-1" title={major.major}><AutoTranslatedText className="line-clamp-2 break-words" text={major.major} /></span>
                       <span className="shrink-0 rounded-md bg-slate-200/70 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-600">{major.count}</span>
-                    </button>
+                    </Button>
                     </div>
                   </td>
                 </tr>,
@@ -505,11 +505,11 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
                       <tr key={major.major + category.cat} className="border-t border-slate-100 hover:bg-slate-50">
                         <td className="p-0" colSpan={columnCount}>
                           <div className="sticky left-0 w-64 px-3 py-2">
-                          <button type="button" aria-expanded={expanded.has(major.major + "::" + category.cat)} onClick={() => toggle(major.major + "::" + category.cat)} className="flex min-h-8 w-full items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" style={{ paddingLeft: 22 }}>
-                            {expanded.has(major.major + "::" + category.cat) ? <ChevronDown aria-hidden="true" className="size-3.5 text-slate-400" /> : <ChevronRight aria-hidden="true" className="size-3.5 text-slate-400" />}
+                          <Button variant="unstyled" type="button" aria-expanded={expanded.has(major.major + "::" + category.cat)} onClick={() => toggle(major.major + "::" + category.cat)} className="flex min-h-8 w-full items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" style={{ paddingLeft: 22 }}>
+                            {expanded.has(major.major + "::" + category.cat) ? <ChevronDown aria-hidden="true" className="size-3.5 text-muted-foreground" /> : <ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground" />}
                             <span className="min-w-0 flex-1" title={category.cat}><AutoTranslatedText className="line-clamp-2 break-words font-medium text-slate-700" text={category.cat} /></span>
                             <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] tabular-nums text-slate-500">{category.list.length}</span>
-                          </button>
+                          </Button>
                           </div>
                         </td>
                       </tr>,

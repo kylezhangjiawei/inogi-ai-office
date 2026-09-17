@@ -212,5 +212,5 @@ test("409后恢复旧配置仍保留冲突说明及重新读取入口", () => {
   assert.equal(draft, savedSettings);
   assert.equal(saveError, "服务器版本已更新");
   assert.equal(dependencies.saveConflict, true);
-  assert.match(source, /\{saveError && \([\s\S]*?\{saveConflict && <button[^>]*onClick=\{\(\) => void reloadSettingsKeepingDraft\(\)\}/);
+  assert.match(source, /\{saveError && \([\s\S]*?\{saveConflict && <(?:Button|UiButton)[^>]*onClick=\{\(\) => void reloadSettingsKeepingDraft\(\)\}/);
 });

@@ -42,6 +42,7 @@ import { Pager } from "./components/Pager";
 // 分页器由两个作品库共用，实现搬到 components/Pager，这里转出让原有引用不受影响。
 export { Pager };
 import type { AiModelOption } from "./lib/aiModelOptions";
+import { Textarea } from "./components/ui/textarea";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -905,22 +906,22 @@ export function ArtworkCard({
           </div>
         ) : null}
         <div className="absolute inset-x-4 bottom-4 grid grid-cols-4 overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
+          <Button variant="unstyled" className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
             <Eye className="h-3.5 w-3.5" />
             预览
-          </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
+          </Button>
+          <Button variant="unstyled" className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
             <Download className="h-3.5 w-3.5" />
             下载
-          </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
+          </Button>
+          <Button variant="unstyled" className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
             <PencilLine className="h-3.5 w-3.5" />
             修改
-          </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
+          </Button>
+          <Button variant="unstyled" className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-rose-500 text-rose-500" : "")} />}
             收藏
-          </button>
+          </Button>
         </div>
       </div>
       <div className="px-5 py-4">
@@ -1024,11 +1025,11 @@ export function ImagePreviewModal({ item, onClose }: { item: GeneratedImage; onC
           <DialogDescription>{item.prompt || "查看当前生成图片的高清预览。"}</DialogDescription>
         </DialogHeader>
         {image.failed && !image.refreshing ? (
-          <div role="alert" className="flex h-full items-center justify-center text-sm text-slate-300">图片加载失败，请关闭后重试</div>
+          <div role="alert" className="flex h-full items-center justify-center text-sm text-muted-foreground">图片加载失败，请关闭后重试</div>
         ) : image.src ? (
           <MobileZoomableImage src={image.src} alt={item.prompt} className="h-full w-full" onLoad={image.onLoad} onError={image.onError} />
         ) : (
-          <div role="status" className="flex h-full items-center justify-center text-sm text-slate-300"><Loader2 className="mr-2 size-4 animate-spin" />正在加载原图</div>
+          <div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 size-4 animate-spin" />正在加载原图</div>
         )}
       </DialogContent>
     </Dialog>
@@ -1163,7 +1164,7 @@ export function ImageEditModal({
           <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
             <div className="shrink-0 border-b border-slate-200/70 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <MessageSquare className="size-4 text-[#002fa7]" />
+                <MessageSquare className="size-4 text-primary" />
                 AI 修改对话
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
@@ -1210,9 +1211,9 @@ export function ImageEditModal({
             </div>
             <div className="shrink-0 border-t border-slate-200/70 p-4">
               <label htmlFor="image-edit-instruction" className="sr-only">图片修改要求</label>
-              <textarea
+              <Textarea
                 id="image-edit-instruction"
-                className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-primary focus:ring-4 focus:ring-primary/25"
                 value={editInstruction}
                 onChange={(event) => setEditInstruction(event.target.value)}
                 maxLength={MAX_PROMPT_LENGTH}
@@ -1273,7 +1274,7 @@ function UsageStatCard({
         {label}
       </div>
       <div className="mt-1.5 font-mono text-lg font-semibold tabular-nums text-slate-950">{value}</div>
-      {hint ? <div className="mt-0.5 text-[11px] text-slate-400">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }
@@ -1338,7 +1339,7 @@ export function ImageUsagePanel({
             {usage ? `${usage.date} · ${usage.timezone} · 按 UTC 日统计上游调用` : "按 UTC 日统计上游调用"}
           </p>
         </div>
-        <button
+        <Button variant="unstyled"
           type="button"
           className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[12px] border border-border bg-surface-container-lowest px-3 text-xs font-semibold text-slate-600 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRefresh}
@@ -1346,7 +1347,7 @@ export function ImageUsagePanel({
         >
           <RefreshCw className={cn("h-3.5 w-3.5", loading ? "animate-spin motion-reduce:animate-none" : "")} />
           {loading ? "刷新中" : "刷新"}
-        </button>
+        </Button>
       </div>
 
       {!usage || !summary ? (
@@ -1393,7 +1394,7 @@ export function ImageUsagePanel({
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex h-[180px] items-center justify-center text-xs text-slate-400">今日暂无调用</div>
+                <div className="flex h-[180px] items-center justify-center text-xs text-muted-foreground">今日暂无调用</div>
               )}
               <div className="mt-2 flex flex-wrap gap-3">
                 {operationData.map((entry) => (
@@ -1428,7 +1429,7 @@ export function ImageUsagePanel({
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex h-[200px] items-center justify-center text-xs text-slate-400">今日暂无调用</div>
+                <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">今日暂无调用</div>
               )}
             </div>
           </div>
@@ -1436,14 +1437,14 @@ export function ImageUsagePanel({
           <div className="overflow-hidden rounded-[12px] border border-border bg-white/60">
             <div className="flex items-center justify-between border-b border-border/70 px-4 py-2.5">
               <div className="text-xs font-semibold text-slate-700">调用明细</div>
-              <div className="text-[11px] text-slate-400">共 {entries.length} 条</div>
+              <div className="text-[11px] text-muted-foreground">共 {entries.length} 条</div>
             </div>
             {entries.length ? (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[640px] text-left text-[11px]">
                     <thead>
-                      <tr className="text-slate-400">
+                      <tr className="text-muted-foreground">
                         <th className="px-4 py-2 font-medium">时间</th>
                         <th className="px-3 py-2 font-medium">操作</th>
                         <th className="px-3 py-2 font-medium">尺寸</th>
@@ -1496,7 +1497,7 @@ export function ImageUsagePanel({
                 ) : null}
               </>
             ) : (
-              <div className="px-4 py-10 text-center text-xs text-slate-400">今日暂无调用明细</div>
+              <div className="px-4 py-10 text-center text-xs text-muted-foreground">今日暂无调用明细</div>
             )}
           </div>
         </div>

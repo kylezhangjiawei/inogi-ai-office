@@ -261,21 +261,21 @@ export function QuoteFormDrawer({
               <Input ref={imageInputRef} type="file" accept="image/*" disabled={imageBusy} className="hidden" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; void pickImage(picked); }} />
               <div className="mt-1 flex items-center gap-3">
                 {imagePreview ? (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     aria-label={t("预览商品图片")}
                     onClick={() => setLightboxOpen(true)}
                     className="size-16 cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <img src={imagePreview} alt="" className="size-full object-cover" />
-                  </button>
+                  </Button>
                 ) : (
                   <Button
                     type="button"
                     variant="outline"
                     disabled={imageBusy}
                     onClick={() => imageInputRef.current?.click()}
-                    className="flex size-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                    className="flex size-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
                   >
                     {imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                     <span className="text-[10px]">{t("上传")}</span>
@@ -284,7 +284,7 @@ export function QuoteFormDrawer({
                 {imagePreview && (
                   <div className="flex flex-col gap-1 text-xs">
                     <Button type="button" variant="link" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="h-auto justify-start p-0 text-xs text-primary">{imageBusy ? t("上传中…") : t("更换图片")}</Button>
-                    <Button type="button" variant="ghost" disabled={imageBusy} onClick={() => { if (localPreviewUrlRef.current) URL.revokeObjectURL(localPreviewUrlRef.current); localPreviewUrlRef.current = null; setImageKeyPatch(""); setImagePreview(null); }} className="h-auto justify-start p-0 text-xs text-slate-400 hover:bg-transparent hover:text-rose-500 disabled:opacity-60">{t("移除图片")}</Button>
+                    <Button type="button" variant="ghost" disabled={imageBusy} onClick={() => { if (localPreviewUrlRef.current) URL.revokeObjectURL(localPreviewUrlRef.current); localPreviewUrlRef.current = null; setImageKeyPatch(""); setImagePreview(null); }} className="h-auto justify-start p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-rose-500 disabled:opacity-60">{t("移除图片")}</Button>
                   </div>
                 )}
               </div>
@@ -307,15 +307,15 @@ export function QuoteFormDrawer({
                   <label className="block min-w-0">
                     <span className="mb-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-500">
                       <span className="shrink-0">{t("起订量")}</span>
-                      {material.unit && <span className="truncate text-[11px] text-slate-400" title={material.unit}>({material.unit})</span>}
+                      {material.unit && <span className="truncate text-[11px] text-muted-foreground" title={material.unit}>({material.unit})</span>}
                     </span>
                     <Input aria-label={t("第 {index} 档起订量", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} aria-describedby={formErrors.tiers ? "quote-tiers-error" : undefined} value={row.minQty} onChange={(e) => { setTier(index, "minQty", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="numeric" placeholder={t("起订量，如 3000")} className={cn("h-9 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-primary/40", formErrors.tiers && "border-rose-300")} />
                   </label>
                   <label className="block min-w-0">
-                    <span className="mb-1 block text-xs text-slate-500">{t("单价")} <span className="text-[11px] text-slate-400">({form.currency})</span></span>
+                    <span className="mb-1 block text-xs text-slate-500">{t("单价")} <span className="text-[11px] text-muted-foreground">({form.currency})</span></span>
                     <Input aria-label={t("第 {index} 档单价", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} aria-describedby={formErrors.tiers ? "quote-tiers-error" : undefined} value={row.unitPrice} onChange={(e) => { setTier(index, "unitPrice", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="decimal" placeholder={t("单价，如 0.65")} className={cn("h-9 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-primary/40", formErrors.tiers && "border-rose-300")} />
                   </label>
-                  <Button type="button" variant="ghost" size="icon" aria-label={t("删除第 {index} 档报价", { index: index + 1 })} disabled={tiers.length <= 1} onClick={() => { setTiers((rows) => rows.filter((_, i) => i !== index)); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="size-9 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500">
+                  <Button type="button" variant="ghost" size="icon" aria-label={t("删除第 {index} 档报价", { index: index + 1 })} disabled={tiers.length <= 1} onClick={() => { setTiers((rows) => rows.filter((_, i) => i !== index)); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="size-9 rounded-lg text-muted-foreground hover:bg-rose-50 hover:text-rose-500">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -328,7 +328,7 @@ export function QuoteFormDrawer({
 
         {Object.values(formErrors).some(Boolean) && <div role={formErrors.submit ? "alert" : "status"} className="max-h-24 shrink-0 overflow-y-auto border-t border-rose-200 bg-rose-50 px-6 py-2 text-pretty text-xs text-rose-700"><span className="break-words">{formErrors.submit || formErrors.supplier || formErrors.leadTime || formErrors.tiers || formErrors.image}</span></div>}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
-          <span className="proc-quote-save-hint hidden min-w-0 items-start gap-1.5 text-pretty text-xs leading-5 text-slate-400"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />{t("核对供应商、币种、有效期与各档价格后保存")}</span>
+          <span className="proc-quote-save-hint hidden min-w-0 items-start gap-1.5 text-pretty text-xs leading-5 text-muted-foreground"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />{t("核对供应商、币种、有效期与各档价格后保存")}</span>
           <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="outline" disabled={busy || imageBusy} onClick={onClose} className="rounded-lg border-slate-200 px-4 py-2 text-sm text-slate-600">{t("取消")}</Button>
           <Button type="button" disabled={busy || imageBusy} onClick={() => void submit()} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">

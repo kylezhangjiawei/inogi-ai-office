@@ -86,6 +86,6 @@ test('详情表格和关联任务具备键盘焦点、访问名称与权限保�
   assert.match(detail, /usePermission\('page:proc-cockpit'\)/);
   assert.match(detail, /canOpenProcurementCockpit \? \(/);
   assert.match(detail, /打开关联采购任务 \{code\}/);
-  assert.match(detail, /focus-visible:ring-2 focus-visible:ring-\[#002fa7\] focus-visible:ring-offset-2/);
+  assert.match(detail, /focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2/);
   assert.match(detail, /无采购任务查看权限/);
 });

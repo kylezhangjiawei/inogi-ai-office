@@ -3,6 +3,7 @@ import { FileImage, FileText } from "lucide-react";
 import { cn } from "../../../app/components/ui/utils";
 import type { InvoiceRecord } from "../types";
 import { useI18n } from "../../../app/lib/i18n";
+import { Button } from "../../../app/components/ui/button";
 
 export function InvoiceThumbnail({
   invoice,
@@ -15,11 +16,11 @@ export function InvoiceThumbnail({
   const Icon = invoice.thumbnailType === "PDF" ? FileText : FileImage;
 
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       title={`${invoice.vendor} / ${invoice.invoiceNo}`}
       className={cn(
-        "group relative flex h-[50px] w-[50px] cursor-pointer items-center justify-center rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white text-blue-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50",
+        "group relative flex h-[50px] w-[50px] cursor-pointer items-center justify-center rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white text-primary shadow-sm transition-colors hover:border-primary/25 hover:bg-accent",
         className,
       )}
     >
@@ -30,6 +31,6 @@ export function InvoiceThumbnail({
         <br />
         {t('发票号：')}{invoice.invoiceNo}
       </span>
-    </button>
+    </Button>
   );
 }

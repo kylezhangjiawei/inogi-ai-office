@@ -113,7 +113,7 @@ export function CustomsDocs() {
           />
           <div className="hz-toolbar border-b px-4 py-3">
             <div className="relative max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 type="search"
                 aria-label="搜索单证字段"
@@ -171,7 +171,7 @@ export function CustomsDocs() {
           </div>
           <div className="grid gap-2 border-t border-slate-100 p-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <Button type="button" variant="outline" onClick={() => toast.success("已生成校验摘要")}><FileSpreadsheet className="size-4" />导出校验表</Button>
-            <Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => toast.success("已同步回报关 AI 主流程")}><FileCheck2 className="size-4" />返回主流程</Button>
+            <Button type="button" className="bg-primary hover:bg-primary-hover" onClick={() => toast.success("已同步回报关 AI 主流程")}><FileCheck2 className="size-4" />返回主流程</Button>
           </div>
         </section>
       </div>

@@ -145,7 +145,7 @@ function buildRouteTree(items: PermissionCatalogItem[]): RouteTreeRoot[] {
 
 function TypeBadge({ type }: { type: PermissionCatalogItem["type"] }) {
   return type === "page" ? (
-    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#002fa7]">
+    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-primary">
       <FileText className="size-3" aria-hidden="true" />页面
     </span>
   ) : (
@@ -565,7 +565,7 @@ export function RouteManagementPage() {
             <div className="min-w-0">
               <Label htmlFor="route-catalog-search" className="mb-1.5 block text-xs font-semibold text-slate-700">搜索权限</Label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   ref={searchInputRef}
                   id="route-catalog-search"
@@ -607,7 +607,7 @@ export function RouteManagementPage() {
             </p>
             {routeTree.length > 0 ? (
               isFiltering ? (
-                <span className="shrink-0 text-xs font-medium text-[#002fa7]">筛选结果已展开</span>
+                <span className="shrink-0 text-xs font-medium text-primary">筛选结果已展开</span>
               ) : (
                 <Button type="button" variant="outline" size="sm" onClick={allExpanded ? collapseAll : expandAll}>
                   {allExpanded ? <Minus className="size-3.5" aria-hidden="true" /> : <Layers3 className="size-3.5" aria-hidden="true" />}
@@ -643,16 +643,16 @@ export function RouteManagementPage() {
                 return (
                   <article key={root.label}>
                     <h3>
-                      <button
+                      <Button variant="unstyled"
                         type="button"
-                        className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:hover:bg-transparent"
+                        className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent"
                         onClick={() => toggleRoot(root.label)}
                         disabled={isFiltering}
                         aria-expanded={rootExpanded}
                         aria-controls={rootPanelId}
                       >
-                        <ChevronRight className={cn("size-4 shrink-0 text-slate-400", rootExpanded && "rotate-90 text-[#002fa7]")} aria-hidden="true" />
-                        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl", rootExpanded ? "bg-blue-100 text-[#002fa7]" : "bg-slate-100 text-slate-600")} aria-hidden="true">
+                        <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground", rootExpanded && "rotate-90 text-primary")} aria-hidden="true" />
+                        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl", rootExpanded ? "bg-blue-100 text-primary" : "bg-slate-100 text-slate-600")} aria-hidden="true">
                           {rootExpanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -662,7 +662,7 @@ export function RouteManagementPage() {
                           </span>
                         </span>
                         {rootHiddenCount > 0 ? <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 tabular-nums">{rootHiddenCount} 个导航隐藏</span> : null}
-                      </button>
+                      </Button>
                     </h3>
 
                     {rootExpanded ? (
@@ -675,18 +675,18 @@ export function RouteManagementPage() {
                           return (
                             <section key={branch.key} className="border-b border-slate-200 last:border-b-0" aria-labelledby={`${branchPanelId}-title`}>
                               <h4 id={`${branchPanelId}-title`}>
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
-                                  className="flex w-full cursor-pointer items-center gap-2 px-5 py-3 text-left hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:hover:bg-transparent sm:pl-14"
+                                  className="flex w-full cursor-pointer items-center gap-2 px-5 py-3 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent sm:pl-14"
                                   onClick={() => toggleBranch(branch.key)}
                                   disabled={isFiltering}
                                   aria-expanded={branchExpanded}
                                   aria-controls={branchPanelId}
                                 >
-                                  <ChevronRight className={cn("size-3.5 shrink-0 text-slate-400", branchExpanded && "rotate-90 text-[#002fa7]")} aria-hidden="true" />
+                                  <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground", branchExpanded && "rotate-90 text-primary")} aria-hidden="true" />
                                   <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">{branch.label}</span>
                                   <span className="shrink-0 text-xs text-slate-500 tabular-nums">{branch.items.length} 项 · {branchPageCount} 页面 · {branch.items.length - branchPageCount} 按钮</span>
-                                </button>
+                                </Button>
                               </h4>
 
                               {branchExpanded ? (
@@ -713,7 +713,7 @@ export function RouteManagementPage() {
                                       {branch.items.map((item) => {
                                         const itemBusy = busyItemIds.has(item.id);
                                         return (
-                                        <tr key={item.id} className="hover:bg-blue-50/35" aria-busy={itemBusy}>
+                                        <tr key={item.id} className="hover:bg-accent/35" aria-busy={itemBusy}>
                                           <td className={TABLE_CELL_CLASS}>
                                             <div className="font-semibold text-slate-900">{item.label}</div>
                                             <div className="mt-1 break-all font-mono text-xs text-slate-500">{item.code}</div>
@@ -721,7 +721,7 @@ export function RouteManagementPage() {
                                           </td>
                                           <td className={TABLE_CELL_CLASS}><TypeBadge type={item.type} /></td>
                                           <td className={TABLE_CELL_CLASS}>
-                                            {item.routePath ? <code className="break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{item.routePath}</code> : <span className="text-slate-400">不适用</span>}
+                                            {item.routePath ? <code className="break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{item.routePath}</code> : <span className="text-muted-foreground">不适用</span>}
                                           </td>
                                           <td className={TABLE_CELL_CLASS}>
                                             <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", item.enabled ? "border-green-200 bg-green-50 text-green-700" : "border-slate-200 bg-slate-100 text-slate-600")}>
@@ -731,22 +731,22 @@ export function RouteManagementPage() {
                                           <td className={TABLE_CELL_CLASS}>
                                             {item.type === "page" ? (
                                               <div>
-                                                <button
+                                                <Button variant="unstyled"
                                                   type="button"
                                                   disabled={itemBusy}
                                                   onClick={() => void handleToggleNavHidden(item)}
                                                   className={cn(
-                                                    "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60",
+                                                    "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60",
                                                     item.navHidden ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100" : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
                                                   )}
                                                   aria-label={`${item.navHidden ? "显示" : "隐藏"}“${item.label}”的侧边栏导航`}
                                                 >
                                                   {item.navHidden ? <EyeOff className="size-3" aria-hidden="true" /> : <Eye className="size-3" aria-hidden="true" />}
                                                   {itemBusy ? "更新中…" : item.navHidden ? "导航隐藏" : "导航显示"}
-                                                </button>
+                                                </Button>
                                                 {actionError?.id === item.id ? <p role="alert" className="mt-1.5 text-pretty text-xs font-medium text-red-600">{actionError.message}</p> : null}
                                               </div>
-                                            ) : <span className="text-slate-400">不适用</span>}
+                                            ) : <span className="text-muted-foreground">不适用</span>}
                                           </td>
                                           <td className={cn(TABLE_CELL_CLASS, "text-xs text-slate-500 tabular-nums")}>{formatDate(item.updatedAt)}</td>
                                           <td className={cn(TABLE_CELL_CLASS, "text-right")}>

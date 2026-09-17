@@ -509,7 +509,7 @@ function FileTypeIcon({ entry, className }: { entry: KbEntry; className?: string
   if (t === 'doc') return <FileSpreadsheet className={cn('text-blue-500', className)} />;
   if (t === 'video') return <FileVideo className={cn('text-violet-500', className)} />;
   if (entry.external_url) return <Link className={cn('text-sky-500', className)} />;
-  return <File className={cn('text-slate-400', className)} />;
+  return <File className={cn('text-muted-foreground', className)} />;
 }
 
 /**
@@ -544,7 +544,7 @@ function getCoverStyle(entry: KbEntry): { Icon: React.ComponentType<{ className?
   if (t === 'xlsx' || t === 'doc' || t === 'docx') return { Icon: FileSpreadsheet, tint: 'bg-blue-50', icon: 'text-blue-400' };
   if (t === 'video') return { Icon: FileVideo, tint: 'bg-violet-50', icon: 'text-violet-400' };
   if (entry.external_url) return { Icon: Link, tint: 'bg-sky-50', icon: 'text-sky-400' };
-  return { Icon: File, tint: 'bg-slate-50', icon: 'text-slate-400' };
+  return { Icon: File, tint: 'bg-slate-50', icon: 'text-muted-foreground' };
 }
 
 /** 卡片顶部封面：图片铺满；非图片显示带底色的大图标。填满父容器（父级定宽高比）。 */
@@ -574,14 +574,14 @@ function EntryCover({ entry }: { entry: KbEntry }) {
 function EntryThumbSmall({ entry, onClick }: { entry: KbEntry; onClick?: () => void }) {
   const { imageUrl, onError } = useEntryImageUrl(entry);
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       onClick={onClick}
       disabled={!onClick}
       title={onClick ? t("点击预览") : undefined}
       className={cn(
         'relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200/70',
-        onClick && 'cursor-pointer transition hover:ring-2 hover:ring-indigo-300',
+        onClick && 'cursor-pointer transition hover:ring-2 hover:ring-primary/25',
       )}
     >
       {imageUrl ? (
@@ -589,7 +589,7 @@ function EntryThumbSmall({ entry, onClick }: { entry: KbEntry; onClick?: () => v
       ) : (
         <span className="flex h-full w-full items-center justify-center"><FileTypeIcon entry={entry} className="h-5 w-5" /></span>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -659,7 +659,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   return (
     <div
       ref={ref}
-      className="rd-kb-entry-card group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)] [content-visibility:auto] [contain-intrinsic-size:300px]"
+      className="rd-kb-entry-card group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors motion-reduce:transition-none duration-200  hover:border-primary/25 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)] [content-visibility:auto] [contain-intrinsic-size:300px]"
     >
       {/* Cover */}
       <div className="rd-kb-entry-cover relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
@@ -671,24 +671,24 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
         {(isPreviewable || hasDownload) && (
           <div className="rd-kb-cover-actions absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/35 opacity-0 backdrop-blur-[1px] transition-opacity duration-200 group-hover:opacity-100">
             {isPreviewable && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => onPreview(entry)}
                 title={t("预览")}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-indigo-700 shadow transition hover:bg-white"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-primary shadow transition hover:bg-white"
               >
                 <Eye className="h-4 w-4" />
-              </button>
+              </Button>
             )}
             {hasDownload && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => void downloadKbEntry(entry, kbId)}
                 title={entry.external_url ? t('打开链接') : t('下载')}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition hover:bg-white hover:text-indigo-700"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition hover:bg-white hover:text-primary-hover"
               >
                 <ArrowDownToLine className="h-4 w-4" />
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -696,18 +696,18 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
 
       {/* Body */}
       <div className="rd-kb-entry-body flex flex-1 flex-col gap-1 p-3">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={isPreviewable ? () => onPreview(entry) : undefined}
           disabled={!isPreviewable}
           title={entry.title}
           className={cn(
             'block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors',
-            isPreviewable && 'cursor-pointer group-hover:text-indigo-600',
+            isPreviewable && 'cursor-pointer group-hover:text-primary-hover',
           )}
         >
           {entry.title}
-        </button>
+        </Button>
         <p className="line-clamp-2 text-xs leading-relaxed text-slate-500" title={entrySubtitle(entry)}>
           {entrySubtitle(entry)}
         </p>
@@ -718,7 +718,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
             <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-5 w-5 text-[9px]" />
             <div className="min-w-0 leading-tight">
               <div className="truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? t("未知")}</div>
-              <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
+              <div className="text-[10px] text-muted-foreground">{relativeTime(entry.created_at)}</div>
             </div>
           </div>
           <span
@@ -732,19 +732,19 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
           {hasManage && (
             <div className="rd-kb-entry-actions absolute inset-0 flex items-center justify-end gap-1 bg-white/95 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
               {canEdit && (
-                <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                <Button variant="unstyled" type="button" onClick={() => onEdit(entry)} title={t("编辑")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-accent hover:text-primary-hover">
                   <Edit3 className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               )}
               {canMove && (
-                <button type="button" onClick={() => onMove(entry)} title={t("移动")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                <Button variant="unstyled" type="button" onClick={() => onMove(entry)} title={t("移动")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-accent hover:text-primary-hover">
                   <MoveRight className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               )}
               {canDelete && (
-                <button type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600">
+                <Button variant="unstyled" type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600">
                   <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -772,32 +772,32 @@ const EntryRow = React.memo(function EntryRow({
   ) && hasFile;
   const score = entry.permission_level ?? 0;
   const permCfg = getPermissionScoreConfig(score);
-  const iconBtn = 'flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700';
+  const iconBtn = 'flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-accent hover:text-primary-hover';
 
   return (
-    <div className="rd-kb-entry-row group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-indigo-200 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
+    <div className="rd-kb-entry-row group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-primary/25 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
       <EntryThumbSmall entry={entry} onClick={isPreviewable ? () => onPreview(entry) : undefined} />
       <span className="hidden shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200/70 sm:inline-flex">
         <FileTypeIcon entry={entry} className="h-3 w-3" />
         {getTypeLabel(entry)}
       </span>
       <div className="min-w-0 flex-1">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={isPreviewable ? () => onPreview(entry) : undefined}
           disabled={!isPreviewable}
           title={entry.title}
-          className={cn('block max-w-full truncate text-left text-sm font-semibold text-slate-900', isPreviewable && 'cursor-pointer hover:text-indigo-600')}
+          className={cn('block max-w-full truncate text-left text-sm font-semibold text-slate-900', isPreviewable && 'cursor-pointer hover:text-primary-hover')}
         >
           {entry.title}
-        </button>
+        </Button>
         <p className="truncate text-xs text-slate-500" title={entrySubtitle(entry)}>{entrySubtitle(entry)}</p>
       </div>
       <div className="hidden shrink-0 items-center gap-1.5 md:flex">
         <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-6 w-6 text-[10px]" />
         <div className="leading-tight">
           <div className="max-w-[88px] truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? t("未知")}</div>
-          <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
+          <div className="text-[10px] text-muted-foreground">{relativeTime(entry.created_at)}</div>
         </div>
       </div>
       <span
@@ -809,16 +809,16 @@ const EntryRow = React.memo(function EntryRow({
       </span>
       <div className="flex shrink-0 items-center gap-0.5">
         {isPreviewable && (
-          <button type="button" onClick={() => onPreview(entry)} title={t("预览")} className={iconBtn}><Eye className="h-3.5 w-3.5" /></button>
+          <Button variant="unstyled" type="button" onClick={() => onPreview(entry)} title={t("预览")} className={iconBtn}><Eye className="h-3.5 w-3.5" /></Button>
         )}
         {hasDownload && (
-          <button type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? t('打开链接') : t('下载')} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></button>
+          <Button variant="unstyled" type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? t('打开链接') : t('下载')} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></Button>
         )}
         {hasManage && (
           <span className="rd-kb-row-actions flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-            {canEdit && <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></button>}
-            {canMove && <button type="button" onClick={() => onMove(entry)} title={t("移动")} className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></button>}
-            {canDelete && <button type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>}
+            {canEdit && <Button variant="unstyled" type="button" onClick={() => onEdit(entry)} title={t("编辑")} className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></Button>}
+            {canMove && <Button variant="unstyled" type="button" onClick={() => onMove(entry)} title={t("移动")} className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></Button>}
+            {canDelete && <Button variant="unstyled" type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></Button>}
           </span>
         )}
       </div>
@@ -948,7 +948,7 @@ function EditEntryDialog({
               <NativeSelect
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               >
                 <option value="">{t("请选择")}</option>
                 {flatCats.map((c) => (
@@ -983,7 +983,7 @@ function EditEntryDialog({
               onValueChange={([v]) => setPermissionLevel(Math.max(0, Math.min(100, Math.round(v))))}
               className={cn('w-full [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4', permCfg.sliderClass)}
             />
-            <p className="text-[11px] leading-relaxed text-slate-400">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               {t("用户分值 ≥ 文件分值才可访问。0 = 完全公开，100 = 最高密级。")}
             </p>
           </div>
@@ -997,7 +997,7 @@ function EditEntryDialog({
             type="button"
             onClick={() => void handleSave()}
             disabled={saving || !title.trim() || !categoryId}
-            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t("保存修改")}
@@ -1058,7 +1058,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
       "h-6 w-6 rounded-md transition-colors disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-35",
       selected
         ? "text-white/80 hover:bg-white/15 hover:text-white"
-        : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+        : "text-muted-foreground hover:bg-slate-100 hover:text-slate-700",
     );
     const stopAction = (event: React.MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
@@ -1129,7 +1129,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
 
   return (
     <Card className="rd-kb-category-sidebar w-full lg:w-80 lg:shrink-0 lg:min-h-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="rd-kb-category-heading hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
+      <div className="rd-kb-category-heading hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-muted-foreground">
         <span>{t("知识域")}</span>
         <div className="flex items-center gap-2">
           {canCreate && (
@@ -1138,7 +1138,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               variant="ghost"
               size="icon"
               onClick={() => onCreate(null)}
-              className="h-6 w-6 rounded-md text-slate-400 hover:bg-indigo-50 hover:text-indigo-700"
+              className="h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-primary-hover"
               title={t("新增一级类目")}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -1155,7 +1155,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
         data-selected={selectedCatId === null}
         className={cn(
           'rd-kb-category-all',
-          'h-auto min-w-max lg:min-w-0 justify-between w-full px-3 py-2 rounded-md text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-300',
+          'h-auto min-w-max lg:min-w-0 justify-between w-full px-3 py-2 rounded-md text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/25',
           selectedCatId === null
             ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
             : 'text-slate-600 hover:bg-slate-50',
@@ -1193,7 +1193,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                   if (hasChildren) toggleExpand(cat.id);
                 }}
                 className={cn(
-                  'h-auto min-w-0 flex-1 justify-between px-3 py-2 text-sm font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-indigo-300',
+                  'h-auto min-w-0 flex-1 justify-between px-3 py-2 text-sm font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-primary/25',
                   canManage ? 'rounded-r-none pr-1' : 'rounded-md',
                 )}
               >
@@ -1239,7 +1239,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                         size="sm"
                         onClick={() => onSelect(child.id)}
                         className={cn(
-                          'h-auto min-w-0 flex-1 justify-between px-2 py-1.5 text-xs font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-indigo-300',
+                          'h-auto min-w-0 flex-1 justify-between px-2 py-1.5 text-xs font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-primary/25',
                           canManage ? 'rounded-r-none pr-1' : 'rounded-md',
                         )}
                       >
@@ -1348,7 +1348,7 @@ function CategoryFormDialog({
               onChange={(event) => setLabel(event.target.value)}
               maxLength={40}
               placeholder={t("例如：硬件研发")}
-              className="h-10 rounded-lg border-slate-200 bg-white text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="h-10 rounded-lg border-slate-200 bg-white text-sm focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
             />
           </div>
 
@@ -1356,7 +1356,7 @@ function CategoryFormDialog({
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-slate-600">{t("图标")}</Label>
               {selectedIconMeta && (
-                <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                   {t("已选")}
                   <selectedIconMeta.icon className="h-3.5 w-3.5" style={{ color }} />
                   {selectedIconMeta.label}
@@ -1364,7 +1364,7 @@ function CategoryFormDialog({
               )}
             </div>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={iconSearch}
                 onChange={(event) => setIconSearch(event.target.value)}
@@ -1374,13 +1374,13 @@ function CategoryFormDialog({
             </div>
             <div className="grid max-h-40 grid-cols-8 gap-1.5 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-2">
               {iconChoices.length === 0 ? (
-                <p className="col-span-8 py-4 text-center text-xs text-slate-400">{t("没有匹配的图标")}</p>
+                <p className="col-span-8 py-4 text-center text-xs text-muted-foreground">{t("没有匹配的图标")}</p>
               ) : (
                 iconChoices.map((option) => {
                   const Icon = option.icon;
                   const selected = icon === option.value;
                   return (
-                    <button
+                    <Button variant="unstyled"
                       key={option.value}
                       type="button"
                       onClick={() => setIcon(option.value)}
@@ -1389,12 +1389,12 @@ function CategoryFormDialog({
                       className={cn(
                         "flex h-9 cursor-pointer items-center justify-center rounded-lg border transition-colors",
                         selected
-                          ? "border-indigo-300 bg-indigo-600 text-white shadow-sm"
-                          : "border-transparent bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-600",
+                          ? "border-primary/25 bg-primary text-white shadow-sm"
+                          : "border-transparent bg-white text-slate-500 hover:border-primary/25 hover:text-primary-hover",
                       )}
                     >
                       <Icon className="h-4 w-4" />
-                    </button>
+                    </Button>
                   );
                 })
               )}
@@ -1404,7 +1404,7 @@ function CategoryFormDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-slate-600">{t("颜色")}</Label>
-              <span className="text-[11px] text-slate-400">{t("用于左侧类目树的图标颜色")}</span>
+              <span className="text-[11px] text-muted-foreground">{t("用于左侧类目树的图标颜色")}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {CATEGORY_COLOR_OPTIONS.map((value) => {
@@ -1418,7 +1418,7 @@ function CategoryFormDialog({
                     onClick={() => setColor(value)}
                     className={cn(
                       "h-8 w-8 rounded-lg border-slate-200 bg-white p-1 hover:bg-slate-50",
-                      selected && "border-indigo-300 ring-2 ring-indigo-100",
+                      selected && "border-primary/25 ring-2 ring-primary/25",
                     )}
                     title={value}
                   >
@@ -1450,7 +1450,7 @@ function CategoryFormDialog({
               color,
             })}
             disabled={saving || !trimmedLabel}
-            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {isEdit ? t('保存修改') : t('创建类目')}
@@ -1490,7 +1490,7 @@ function DeleteCategoryDialog({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-slate-950">{t("确认删除类目")}</h3>
-              <p className="mt-0.5 text-xs text-slate-400">{t("仅空类目允许删除")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("仅空类目允许删除")}</p>
             </div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
@@ -1560,7 +1560,7 @@ function MoveEntryDialog({
             <FileTypeIcon entry={entry} className="h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-900">{entry.title}</p>
-              <p className="mt-0.5 truncate text-xs text-slate-400">
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {t("当前：")}{currentCategory?.label ?? entry.category_id}
               </p>
             </div>
@@ -1577,7 +1577,7 @@ function MoveEntryDialog({
                   className={cn(
                     "h-8 justify-start rounded-md px-2 text-xs",
                     targetId === category.id
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      ? "bg-primary text-white hover:bg-primary-hover"
                       : "text-slate-600 hover:bg-slate-50",
                   )}
                 >
@@ -1592,7 +1592,7 @@ function MoveEntryDialog({
                 </Button>
               ))}
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-muted-foreground">
               {targetCategory ? `${t('将移动到：')}${t(targetCategory.label)}` : t('请选择目标类目')}
             </p>
           </div>
@@ -1605,7 +1605,7 @@ function MoveEntryDialog({
             type="button"
             onClick={() => onConfirm(targetId)}
             disabled={loading || !targetId || targetId === entry.category_id}
-            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
           >
             {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t("确认移动")}
@@ -1645,7 +1645,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
             </div>
             <div>
               <h3 className="text-sm font-semibold text-slate-900">{t("确认删除文件")}</h3>
-              <p className="text-xs text-slate-400 mt-0.5">{t("此操作不可撤销")}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t("此操作不可撤销")}</p>
             </div>
           </div>
           {/* File preview row */}
@@ -1654,7 +1654,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
             <div className="min-w-0">
               <p className="text-sm text-slate-800 font-medium truncate">{entry.title}</p>
               {entry.file_name && entry.file_name !== entry.title && (
-                <p className="text-xs text-slate-400 mt-0.5 truncate">{entry.file_name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.file_name}</p>
               )}
             </div>
           </div>
@@ -1750,7 +1750,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             </DialogTitle>
             <div className="flex items-center gap-2 mt-0.5">
               {entry.file_name && entry.file_name !== entry.title && (
-                <span className="text-[11px] text-slate-400 truncate min-w-0">{entry.file_name}</span>
+                <span className="text-[11px] text-muted-foreground truncate min-w-0">{entry.file_name}</span>
               )}
               {entry.file_size && (
                 <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-500 border-0 font-mono">
@@ -1797,7 +1797,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               variant="outline"
               size="sm"
               onClick={() => void downloadKbEntry(entry, kbId)}
-              className="h-8 shrink-0 gap-1.5 rounded-lg border-indigo-200 bg-indigo-50/70 px-3 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
+              className="h-8 shrink-0 gap-1.5 rounded-lg border-primary/25 bg-accent/70 px-3 text-xs font-semibold text-primary hover:border-primary/25 hover:bg-accent"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{entry.external_url ? t("打开链接") : t("下载")}</span>
@@ -1810,7 +1810,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="h-8 w-8 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 shrink-0"
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-slate-700 hover:bg-slate-100 shrink-0"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -1821,13 +1821,13 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           'rd-kb-preview-body',
           'flex items-center justify-center overflow-hidden',
           isDarkBg
-            ? 'bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 min-h-[320px]'
+            ? 'bg-slate-900 min-h-[320px]'
             : fileType === 'pdf'
               ? 'bg-slate-100'
               : 'bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:18px_18px] bg-white min-h-[240px]',
         )}>
           {loading && (
-            <div className="flex flex-col items-center gap-3 py-14 text-slate-400">
+            <div className="flex flex-col items-center gap-3 py-14 text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
               <p className="text-sm font-medium">{t("正在加载文件…")}</p>
             </div>
@@ -1872,9 +1872,9 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           {!loading && canPreview && !fileUrl && (
             <div className="flex flex-col items-center gap-4 py-14">
               <div className="p-5 rounded-2xl bg-slate-100 ring-1 ring-slate-200">
-                <FileTypeIcon entry={entry} className="w-12 h-12 text-slate-300" />
+                <FileTypeIcon entry={entry} className="w-12 h-12 text-muted-foreground" />
               </div>
-              <p className="text-sm text-slate-400">{t("文件加载失败，请尝试下载查看")}</p>
+              <p className="text-sm text-muted-foreground">{t("文件加载失败，请尝试下载查看")}</p>
             </div>
           )}
 
@@ -1893,7 +1893,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700 mb-1">{t("该文件不支持在线预览")}</p>
-                <p className="text-xs text-slate-400 leading-relaxed max-w-xs">
+                <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">
                   {entry.external_url ? t('点击按钮在新标签页中打开外部链接') : t('点击下载按钮将文件保存到本地后查看')}
                 </p>
               </div>
@@ -1901,7 +1901,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 <Button
                   type="button"
                   onClick={() => void downloadKbEntry(entry, kbId)}
-                  className="h-9 px-6 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-[0_6px_18px_rgba(79,70,229,0.28)] gap-2"
+                  className="h-9 px-6 text-sm font-semibold bg-primary hover:bg-primary-hover text-white rounded-xl shadow-[0_6px_18px_rgba(79,70,229,0.28)] gap-2"
                 >
                   <ArrowDownToLine className="w-4 h-4" />
                   {entry.external_url ? t('打开链接') : t('下载文件')}
@@ -1924,7 +1924,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           </div>
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
-          <span className="text-slate-400 shrink-0">{relativeTime(entry.created_at)}</span>
+          <span className="text-muted-foreground shrink-0">{relativeTime(entry.created_at)}</span>
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
           <span className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium shrink-0', srcCfg.className)}>
@@ -1957,14 +1957,14 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             <>
               <Separator orientation="vertical" className="h-3.5 shrink-0" />
               <div className="flex items-center gap-1 min-w-0">
-                <Tag className="w-3 h-3 text-slate-400 shrink-0" />
+                <Tag className="w-3 h-3 text-muted-foreground shrink-0" />
                 {entry.tags.slice(0, 4).map((tag) => (
                   <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-white text-slate-600 border border-slate-200">
                     {tag}
                   </Badge>
                 ))}
                 {entry.tags.length > 4 && (
-                  <span className="text-[10px] text-slate-400">+{entry.tags.length - 4}</span>
+                  <span className="text-[10px] text-muted-foreground">+{entry.tags.length - 4}</span>
                 )}
               </div>
             </>
@@ -2171,7 +2171,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             size="icon"
             onClick={onClose}
             aria-label={t("关闭上传弹窗")}
-            className="absolute right-4 top-1/2 h-8 w-8 -translate-y-1/2 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white focus-visible:ring-2 focus-visible:ring-indigo-200"
+            className="absolute right-4 top-1/2 h-8 w-8 -translate-y-1/2 rounded-md text-muted-foreground hover:text-slate-700 hover:bg-white focus-visible:ring-2 focus-visible:ring-primary/25"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -2207,10 +2207,10 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             tabIndex={0}
             className={cn(
               'rd-kb-upload-dropzone',
-              'relative min-h-[184px] overflow-hidden border border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-3 cursor-pointer outline-none transition-all duration-200',
+              'relative min-h-[184px] overflow-hidden border border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-3 cursor-pointer outline-none transition-colors motion-reduce:transition-none duration-200',
               dragging
                 ? 'border-indigo-400 bg-indigo-50 ring-4 ring-indigo-100 shadow-[0_16px_36px_rgba(79,70,229,0.12)]'
-                : 'border-slate-300 bg-white hover:border-indigo-300 hover:bg-indigo-50/50',
+                : 'border-slate-300 bg-white hover:border-primary/25 hover:bg-accent/50',
             )}
           >
             <div className="pointer-events-none absolute inset-0 bg-slate-50/40" />
@@ -2222,7 +2222,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             </p>
             <p className="relative text-xs text-slate-500">{t("支持图片、PDF、文档等多种格式")}</p>
             {/* Native input — label click activates it without any programmatic .click() needed */}
-            <input
+            <Input
               ref={fileInputRef}
               id="kb-upload-files"
               type="file"
@@ -2276,14 +2276,14 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                             {t('分片上传')}
                           </span>
                         )}
-                        <span className="text-[11px] text-slate-400">{formatSize(file.size)}</span>
+                        <span className="text-[11px] text-muted-foreground">{formatSize(file.size)}</span>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           onClick={() => removeFile(i)}
                           aria-label={t("移除文件 {name}", { name: file.name })}
-                          className="h-6 w-6 rounded-md text-slate-400 hover:text-red-500 focus-visible:ring-2 focus-visible:ring-red-200"
+                          className="h-6 w-6 rounded-md text-muted-foreground hover:text-red-500 focus-visible:ring-2 focus-visible:ring-red-200"
                         >
                           <X className="w-3.5 h-3.5" />
                         </Button>
@@ -2325,7 +2325,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               value={categoryId}
               onValueChange={(v) => { setCategoryId(v); setCategorySource('manual'); }}
               placeholder={t("请选择分类")}
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-primary/25"
             >
               <option value="">{t("请选择分类")}</option>
               {flatCats.map((cat) => (
@@ -2380,14 +2380,14 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               })()}
             </div>
             {/* Scale marks */}
-            <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5 select-none">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground px-0.5 select-none">
               <span>0 · {t("完全公开")}</span>
               <span>25</span>
               <span>50</span>
               <span>75</span>
               <span>100 · {t("绝密")}</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-slate-400">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               {canSetPermissionLevel
                 ? t("仅用户知识库分值 ≥ 此值的成员方可查看。分值越高，访问限制越严格。")
                 : t("权限分值按你在「人员管理」中配置的等级自动设定，研发成员不可调整。")}
@@ -2403,7 +2403,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               placeholder={t("对文件的简要说明...")}
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200 resize-none"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-primary/25 resize-none"
             />
           </div>
 
@@ -2416,7 +2416,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder={t("例如：API设计, 架构图")}
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-primary/25"
             />
           </div>
         </div>
@@ -2445,7 +2445,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             variant="ghost"
             onClick={onClose}
             disabled={uploading}
-            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-200"
+            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/25"
           >
             {t("取消")}
           </Button>
@@ -2453,7 +2453,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             type="button"
             onClick={handleUpload}
             disabled={uploading || selectedFiles.length === 0}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg outline-none transition-colors duration-200 shadow-[0_8px_18px_rgba(79,70,229,0.20)] focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg outline-none transition-colors duration-200 shadow-[0_8px_18px_rgba(79,70,229,0.20)] focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2"
           >
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
             <Upload className="w-4 h-4" />
@@ -2540,14 +2540,14 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("搜索姓名 / 账号 / 部门")} className="h-9" />
         <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
           {loading ? (
-            <div className="py-8 text-center text-sm text-slate-400">{t("加载中…")}</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">{t("加载中…")}</div>
           ) : rows.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-400">{t("没有匹配的成员")}</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">{t("没有匹配的成员")}</div>
           ) : rows.map((c) => (
             <div key={c.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-800">{c.name}</div>
-                <div className="truncate text-xs text-slate-400">
+                <div className="truncate text-xs text-muted-foreground">
                   {c.username}{c.department ? <> · {t(c.department)}</> : null}
                 </div>
               </div>
@@ -3049,23 +3049,23 @@ export function RDKnowledgeBasePage({
         {toolbarLeading}
         {/* 筛选输入 */}
         <div className="rd-kb-search relative min-w-[180px] flex-1 sm:max-w-xs">
-          <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder={t("按标题、描述、标签筛选…")}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
           />
           {keyword && (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setKeyword('')}
-              className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition hover:text-slate-700"
+              className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition hover:text-slate-700"
               aria-label={t("清除筛选词")}
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -3073,7 +3073,7 @@ export function RDKnowledgeBasePage({
         <NativeSelect
           value={fileTypeFilter}
           onValueChange={handleFileTypeFilterChange}
-          className="rd-kb-filter h-9 w-auto min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          className="rd-kb-filter h-9 w-auto min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
         >
           {FILE_TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -3086,7 +3086,7 @@ export function RDKnowledgeBasePage({
         <NativeSelect
           value={String(levelFilter)}
           onValueChange={(v) => setLevelFilter(Number(v))}
-          className="rd-kb-filter h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          className="rd-kb-filter h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
         >
           <option value="100">{t("权限分 ≤ 100（全部）")}</option>
           <option value="75">{t("权限分 ≤ 75（受限）")}</option>
@@ -3106,24 +3106,24 @@ export function RDKnowledgeBasePage({
 
           {/* 网格 / 列表 视图切换 */}
           <div className="rd-kb-view-toggle inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setViewMode('grid')}
               aria-pressed={viewMode === 'grid'}
               title={t("网格视图")}
-              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'grid' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
+              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'grid' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground hover:text-slate-600')}
             >
               <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => setViewMode('list')}
               aria-pressed={viewMode === 'list'}
               title={t("列表视图")}
-              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
+              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'list' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground hover:text-slate-600')}
             >
               <List className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           {/* 同步（= 刷新，保留当前筛选） */}
@@ -3132,7 +3132,7 @@ export function RDKnowledgeBasePage({
             variant="outline"
             onClick={handleRefresh}
             disabled={loading}
-            className="rd-kb-toolbar-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rd-kb-toolbar-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
             title={t("同步（保留当前筛选条件）")}
           >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
@@ -3156,7 +3156,7 @@ export function RDKnowledgeBasePage({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="rd-kb-toolbar-action h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    className="rd-kb-toolbar-action h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-primary/25"
                     title={t("更多操作")}
                     aria-label={t("更多操作")}
                   >
@@ -3245,7 +3245,7 @@ export function RDKnowledgeBasePage({
             <Button
               type="button"
               onClick={() => openUploadDialog()}
-              className="rd-kb-primary-action h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              className="rd-kb-primary-action h-9 gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-colors motion-reduce:transition-none duration-200 hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
               {t("上传文件")}
@@ -3291,7 +3291,7 @@ export function RDKnowledgeBasePage({
           {/* Loading */}
           {loading && entries.length === 0 && (
             <div className="rd-kb-state flex-1 flex items-center justify-center py-20">
-              <div className="flex flex-col items-center gap-3 text-slate-400">
+              <div className="flex flex-col items-center gap-3 text-muted-foreground">
                 <Loader2 className="w-8 h-8 animate-spin" />
                 <span className="text-sm">{t("加载中...")}</span>
               </div>
@@ -3301,12 +3301,12 @@ export function RDKnowledgeBasePage({
           {/* Empty state */}
           {!loading && entries.length === 0 && (
             <div className="rd-kb-state flex-1 flex items-center justify-center py-20">
-              <div className="flex flex-col items-center gap-3 text-slate-400">
+              <div className="flex flex-col items-center gap-3 text-muted-foreground">
                 <BookOpen className="w-12 h-12 text-slate-200" />
                 <p className="text-sm font-medium">
                   {hasActiveFilters ? t('没有符合条件的条目') : t('知识库暂无内容')}
                 </p>
-                <p className="text-xs text-slate-300">
+                <p className="text-xs text-muted-foreground">
                   {hasActiveFilters
                     ? t('尝试修改搜索词或筛选条件')
                     : t('上传第一个文件开始构建知识库')}
@@ -3316,7 +3316,7 @@ export function RDKnowledgeBasePage({
                     type="button"
                     variant="secondary"
                     onClick={() => openUploadDialog()}
-                    className="rd-kb-empty-action mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-sm font-medium rounded-lg transition-colors"
+                    className="rd-kb-empty-action mt-2 flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent text-primary text-sm font-medium rounded-lg transition-colors"
                   >
                     <Upload className="w-4 h-4" />
                     {t("上传文件")}
@@ -3375,17 +3375,17 @@ export function RDKnowledgeBasePage({
                     {t("第 {page} / {total} 页 · 共 {n} 条", { page, total: totalPages, n: entries.length })}
                   </span>
                   <div className="flex flex-wrap items-center justify-end gap-1">
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       disabled={page === 1}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-primary/25 hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={t("上一页")}
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                     {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                      <button
+                      <Button variant="unstyled"
                         key={pg}
                         type="button"
                         onClick={() => setPage(pg)}
@@ -3393,22 +3393,22 @@ export function RDKnowledgeBasePage({
                         className={cn(
                           'flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold tabular-nums transition',
                           pg === page
-                            ? 'border-indigo-500 bg-indigo-600 text-white'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-700',
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:text-primary-hover',
                         )}
                       >
                         {pg}
-                      </button>
+                      </Button>
                     ))}
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       disabled={page === totalPages}
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-primary/25 hover:text-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={t("下一页")}
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </div>
                 </nav>
               )}

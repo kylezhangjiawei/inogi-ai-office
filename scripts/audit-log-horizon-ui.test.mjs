@@ -47,7 +47,7 @@ function evaluate(source, bindings = {}) {
   return Function(...Object.keys(bindings), javascript)(...Object.values(bindings));
 }
 
-const detailButton = element("button", (node) => attribute(node, "className")?.getText(ast).includes("rd-horizon-audit-open-detail"));
+const detailButton = element("Button", (node) => attribute(node, "className")?.getText(ast).includes("rd-horizon-audit-open-detail"));
 const detailSheet = element("Sheet");
 const detailContent = element("SheetContent");
 
@@ -215,7 +215,7 @@ test("关闭详情清除选择并将焦点返回最近点击的摘要按钮", ()
 });
 
 test("刷新重新读取当前筛选并更新统计，不清空查询条件或重置页码", () => {
-  const refresh = element("button", (node) => attribute(node, "onClick")?.getText(ast).includes("setReloadVersion"));
+  const refresh = element("Button", (node) => attribute(node, "onClick")?.getText(ast).includes("setReloadVersion"));
   const query = Object.freeze({ module: "procurement", keyword: "主板", page: 3, pageSize: 25 });
   const before = JSON.stringify(query);
   const statsSignature = { current: "old-signature" };

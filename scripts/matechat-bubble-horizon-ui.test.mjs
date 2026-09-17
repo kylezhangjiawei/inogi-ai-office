@@ -106,16 +106,16 @@ test('聊天置顶和重命名在请求期间禁止重复提交，失败后释�
   assert.equal(scope.conversationSavingRef.current, false);
 });
 
-test("MateChat 与 RAG 引用接入 Horizon/Klein Blue 初步视觉", () => {
+test("MateChat 与 RAG 引用接入 Horizon 语义主题", () => {
   assert.match(mateChat, /className="horizon-theme matechat-horizon/);
   assert.match(citations, /className="rag-horizon-citations/);
-  assert.match(mateChat, /bg-\[#002fa7\]/);
-  assert.match(mateChat, /bg-\[#eef3ff\]/);
-  assert.match(citations, /text-\[#002fa7\]/);
+  assert.match(mateChat, /bg-primary/);
+  assert.match(mateChat, /bg-accent/);
+  assert.match(citations, /text-primary/);
   assert.match(streakCard, /matechat-streak-horizon/);
   assert.match(reminderModal, /matechat-reminder-horizon/);
-  assert.match(streakCard, /bg-\[#002fa7\]/);
-  assert.match(reminderModal, /bg-\[#002fa7\]/);
+  assert.match(streakCard, /bg-primary/);
+  assert.match(reminderModal, /bg-primary/);
 
   for (const [name, implementation] of Object.entries(visualSources)) {
     assert.doesNotMatch(implementation, /\b(?:indigo|violet|purple|fuchsia|pink)-/i, `${name}不应包含旧紫色强调`);

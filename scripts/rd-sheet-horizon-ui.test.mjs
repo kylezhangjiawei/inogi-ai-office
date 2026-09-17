@@ -16,7 +16,7 @@ test("研发数据表保持真实路由并使用 Horizon 外壳与页内二级�
   assert.match(page, /titleLevel=\{2\}/);
   assert.match(page, /title=\{t\("研发数据表"\)\}/);
   assert.match(page, /eyebrow=\{t\("研发协同 \/ 共享数据资产"\)\}/);
-  assert.match(page, /#002fa7/);
+  assert.match(page, /primary/);
 });
 
 test("六类确认流程统一使用可异步等待的标准 AlertDialog", () => {

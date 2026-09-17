@@ -67,16 +67,16 @@ test("返回与线程替换语义覆盖桌面、协同和移动回退", () => {
   assert.match(source, /onCloseFocus=\{close\}/);
 });
 
-test("页面使用 Klein Blue 且无旧装饰和手写模态层", () => {
-  assert.match(source, /bg-\[#002fa7\]/);
+test("页面使用 Horizon 主题 且无旧装饰和手写模态层", () => {
+  assert.match(source, /bg-primary/);
   assert.doesNotMatch(source, /gradient|purple-|violet-|indigo-|tracking-|transition-all|hover:-translate/);
   assert.doesNotMatch(source, /createPortal|fixed inset-0|backdrop-blur/);
   assert.doesNotMatch(conversationSource, /gradient|purple-|violet-|indigo-|fuchsia-|pink-|tracking-/);
   assert.match(source, /focus-visible:ring-2/);
 });
 
-test("移动任务讨论统一 Klein Blue，输入区保持 44px 触控目标", () => {
-  assert.match(conversationSource, /bg-\[#002fa7\]/);
+test("移动任务讨论统一 Horizon 主题，输入区保持 44px 触控目标", () => {
+  assert.match(conversationSource, /bg-primary/);
   assert.match(conversationSource, /variant === "mobile" \? "size-11" : "size-9"/);
   assert.match(conversationSource, /variant === "mobile" \? "min-h-11 text-base" : "min-h-9 text-sm"/);
   assert.doesNotMatch(conversationSource, /rd-conversation-composer relative[^"\n]*backdrop-blur/);

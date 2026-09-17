@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -71,6 +72,8 @@ import {
   type OrderSummary,
   type WorkbenchResponse
 } from '../../lib/orderProcessingApi';
+import { Input } from "../../components/ui/input";
+import { NativeSelect } from "../../components/ui/native-select";
 const ORDER_QUEUE_PAGE_SIZE = 6;
 const PRODUCT_TABLE_PAGE_SIZE = 12;
 
@@ -720,7 +723,7 @@ export function Workbench() {
   };
   return (
     <div className="order-horizon order-horizon-workbench material-scrollbar flex h-full min-h-0 w-full flex-col overflow-auto p-3 pb-4">
-      <input
+      <Input
         ref={orderUploadInputRef}
         type="file"
         multiple
@@ -732,7 +735,7 @@ export function Workbench() {
           event.target.value = '';
           void handleUploadOrders(files);
         }} />
-      <input
+      <Input
         ref={aiTemplateInputRef}
         type="file"
         multiple
@@ -756,34 +759,34 @@ export function Workbench() {
         )}
         actions={(
           <>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void handleRefreshOrders()}
               disabled={syncingWecomOrders}
               className="order-horizon-secondary-action inline-flex items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-60">
               {syncingWecomOrders ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               {t('刷新队列')}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => orderUploadInputRef.current?.click()}
               disabled={uploadingOrders}
               className="order-horizon-primary-action inline-flex items-center justify-center gap-2 border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">
               {uploadingOrders ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
               {uploadingOrders ? t('上传中') : t('上传订货单')}
-            </button>
+            </Button>
           </>
         )}
       />
       {workbenchError ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
           <span className="text-pretty">{workbenchError}</span>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => void loadWorkbench()}
             className="min-h-10 border border-rose-200 bg-white px-3 font-medium text-rose-700 hover:bg-rose-100">
             {t('重试加载')}
-          </button>
+          </Button>
         </div>
       ) : null}
       {/* Main Workbench Container */}
@@ -825,9 +828,9 @@ export function Workbench() {
                   {mailboxError ? (
                     <div className="mb-2 flex items-center justify-between gap-2 text-xs text-rose-700" role="alert">
                       <span className="min-w-0 text-pretty">{mailboxError}</span>
-                      <button type="button" onClick={() => void loadMailboxes()} className="min-h-9 shrink-0 border border-rose-200 bg-white px-2 font-medium">
+                      <Button variant="unstyled" type="button" onClick={() => void loadMailboxes()} className="min-h-9 shrink-0 border border-rose-200 bg-white px-2 font-medium">
                         {t('重试')}
-                      </button>
+                      </Button>
                     </div>
                   ) : null}
                   <Select
@@ -837,7 +840,7 @@ export function Workbench() {
                       resetOrderQueue(true);
                     }}
                     disabled={loadingWecomMailboxes || enabledWecomMailboxes.length === 0}>
-                    <SelectTrigger aria-label={t('选择企业微信邮箱')} className="min-h-10 rounded-lg border-blue-100 bg-white px-3 text-xs text-slate-700 shadow-sm shadow-blue-100/40 focus:ring-blue-500/20">
+                    <SelectTrigger aria-label={t('选择企业微信邮箱')} className="min-h-10 rounded-lg border-primary/25 bg-white px-3 text-xs text-slate-700 shadow-sm shadow-blue-100/40 focus:ring-primary/20">
                       <SelectValue
                         placeholder={
                           loadingWecomMailboxes ?
@@ -862,8 +865,8 @@ export function Workbench() {
               }
 
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
                   type="text"
                   value={orderSearch}
 	                  onChange={(event) => {
@@ -872,7 +875,7 @@ export function Workbench() {
 	                  }}
                   placeholder={t("搜索客户 / 订单号")}
                   aria-label={t('搜索订货单')}
-                  className="min-h-10 w-full rounded-lg border-none bg-slate-100 pl-8 pr-3 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  className="min-h-10 w-full rounded-lg border-none bg-slate-100 pl-8 pr-3 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20" />
                 
               </div>
             </div>
@@ -883,13 +886,13 @@ export function Workbench() {
 	              aria-busy={loading || loadingMoreOrders}
 	              className="min-h-0 flex-1 overflow-y-auto p-3 space-y-1.5">
 	              {visibleQueueItems.map((order) =>
-	              <button
+	              <Button variant="unstyled"
 	                key={order.id}
                     type="button"
                 onClick={() => handleSelectOrder(order.id)}
                 data-selected={selectedOrderId === order.id}
                 aria-pressed={selectedOrderId === order.id}
-                className={`order-horizon-order-item relative p-3.5 cursor-pointer overflow-hidden ${selectedOrderId === order.id ? 'bg-blue-50' : 'hover:bg-blue-50/40'}`}>
+                className={`order-horizon-order-item relative p-3.5 cursor-pointer overflow-hidden ${selectedOrderId === order.id ? 'bg-accent' : 'hover:bg-accent/40'}`}>
                 
                   {selectedOrderId === order.id &&
                 <span className="absolute left-0 top-3 bottom-3 w-1 bg-blue-500 rounded-r-full" />
@@ -908,11 +911,11 @@ export function Workbench() {
                     {order.id}
                   </span>
                   <span
-                  className={`flex items-center gap-1 text-xs ${selectedOrderId === order.id ? 'text-blue-700/60' : 'text-slate-400'}`}>
+                  className={`flex items-center gap-1 text-xs ${selectedOrderId === order.id ? 'text-blue-700/60' : 'text-muted-foreground'}`}>
                   
                     <Clock className="w-3.5 h-3.5" /> {t("发货：{date}", { date: order.date })}
                   </span>
-                </button>
+                </Button>
               )}
 		              {loading && visibleQueueItems.length === 0 ? (
 		                <div className="space-y-2" aria-label={t('正在加载订货单')}>
@@ -929,21 +932,21 @@ export function Workbench() {
                   t('暂无可用企业微信邮箱，请先在邮箱管理启用通道') :
                 t('暂无匹配订单')}
 		                {orderSearch ? (
-		                  <button type="button" className="min-h-10 border border-slate-200 bg-white px-3 font-medium text-slate-700" onClick={() => {
+		                  <Button variant="unstyled" type="button" className="min-h-10 border border-slate-200 bg-white px-3 font-medium text-slate-700" onClick={() => {
 		                    setOrderSearch('');
 		                    resetOrderQueue(true);
 		                  }}>
 		                    {t('清除搜索')}
-		                  </button>
+		                  </Button>
 		                ) : activeTab === 'upload' ? (
-		                  <button type="button" disabled={uploadingOrders} className="min-h-10 bg-[#002fa7] px-3 font-medium text-white disabled:opacity-60" onClick={() => orderUploadInputRef.current?.click()}>
+		                  <Button type="button" disabled={uploadingOrders} className="min-h-10 px-3 font-medium disabled:opacity-60" onClick={() => orderUploadInputRef.current?.click()}>
 		                    {t('上传订货单')}
-		                  </button>
+		                  </Button>
 		                ) : null}
 		              </div>
 		              }
 	              {visibleQueueItems.length > 0 &&
-	              <div className="py-3 text-center text-xs text-slate-400">
+	              <div className="py-3 text-center text-xs text-muted-foreground">
 	                {loadingMoreOrders &&
 	                <span className="inline-flex items-center justify-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("正在加载更多")}
@@ -957,19 +960,19 @@ export function Workbench() {
 
 		            <div className="p-4 border-t border-slate-100 bg-slate-50/30">
 		              <div className="flex gap-3">
-		                <button
+		                <Button variant="unstyled"
 		                  onClick={() => void handleRefreshOrders()}
 		                  disabled={syncingWecomOrders}
-		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-accent text-primary text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">
                   {syncingWecomOrders ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} {t("刷新")}
-		                </button>
-                <button
+		                </Button>
+                <Button variant="unstyled"
                   onClick={() => orderUploadInputRef.current?.click()}
                   disabled={uploadingOrders}
-                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 bg-blue-50 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 bg-accent py-2.5 text-sm font-medium text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">
                   {uploadingOrders ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
                   {uploadingOrders ? t('上传中') : t('上传')}
-                </button>
+                </Button>
               </div>
             </div>
           </aside>
@@ -979,19 +982,19 @@ export function Workbench() {
             {/* Compact Summary */}
             <div className="order-horizon-summary mx-5 mt-4 mb-3 px-4 py-2.5 bg-white flex flex-wrap items-center gap-x-5 gap-y-2 text-sm shrink-0">
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">{t("客户：")}</span>
+                <span className="text-muted-foreground">{t("客户：")}</span>
                 <span className="font-medium text-slate-800">
                   {orderDetails.customer}
                 </span>
               </div>
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">{t("订单号：")}</span>
+                <span className="text-muted-foreground">{t("订单号：")}</span>
                 <span className="font-mono text-slate-800">
                   {orderDetails.orderId}
                 </span>
               </div>
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">{t("发货日：")}</span>
+                <span className="text-muted-foreground">{t("发货日：")}</span>
                 <span className="text-slate-800">{orderDetails.date}</span>
               </div>
               <div className="ml-auto flex items-center gap-2">
@@ -1001,20 +1004,20 @@ export function Workbench() {
                     {orderDetails.amount}
                   </span>
                 </div>
-                <button
+                <Button variant="unstyled"
                   onClick={(event) => openModal('original', event.currentTarget)}
                   disabled={!selectedOrder?.id}
-                    className="flex min-h-10 items-center gap-1.5 whitespace-nowrap bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex min-h-10 items-center gap-1.5 whitespace-nowrap bg-accent px-3 text-xs font-medium text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50">
                   <FileText className="w-3.5 h-3.5" /> {t("查看原单")}
-                </button>
+                </Button>
                 {selectedOrder?.generated &&
-                  <button
+                  <Button
                     onClick={(event) => openModal('preview', event.currentTarget)}
                     disabled={!selectedOrder?.id || loading}
-                    className="flex min-h-10 items-center gap-1.5 whitespace-nowrap bg-[#002fa7] px-3.5 text-xs font-medium text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex min-h-10 items-center gap-1.5 whitespace-nowrap px-3.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50">
                     <Eye className="w-3.5 h-3.5" />
                     {t("查看发票")}
-                  </button>
+                  </Button>
                 }
               </div>
             </div>
@@ -1026,24 +1029,24 @@ export function Workbench() {
 	                  <h3 className="font-semibold text-slate-800 whitespace-nowrap">{t("商品明细")}</h3>
 	                  <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
 	                    <div className="relative min-w-[180px] flex-1 max-w-[260px]">
-	                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-	                      <input
+	                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+	                      <Input
 	                        value={productSearch}
 	                        onChange={(event) => setProductSearch(event.target.value)}
 	                        placeholder={t("筛商品 / SKU / 备注")}
 	                        aria-label={t('搜索商品明细')}
-	                        className="min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10" />
+	                        className="min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/10" />
 	                    </div>
-	                    <select
+	                    <NativeSelect
 	                      value={productCategoryFilter}
 	                      onChange={(event) => setProductCategoryFilter(event.target.value)}
 	                      aria-label={t('商品类目')}
-	                      className="min-h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10">
+	                      className="min-h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/10">
 	                      <option value="all">{t("全部类目")}</option>
 	                      {productCategories.map((category) =>
 	                      <option key={category} value={category}>{t(category.trim())}</option>
 	                      )}
-	                    </select>
+	                    </NativeSelect>
 	                  </div>
 	                </div>
 	              </div>
@@ -1078,7 +1081,7 @@ export function Workbench() {
 	                    <TableRow
                       key={p.id}
                       className={`
-                        hover:bg-blue-50/30 transition-colors
+                        hover:bg-accent/30 transition-colors
                       `}>
                       
                         <TableCell className="px-4 py-2.5 text-slate-500">
@@ -1119,7 +1122,7 @@ export function Workbench() {
 	                    )}
 	                    {productRows.length === 0 &&
 	                    <TableRow>
-	                      <TableCell colSpan={11} className="px-4 py-10 text-center text-sm text-slate-400">
+	                      <TableCell colSpan={11} className="px-4 py-10 text-center text-sm text-muted-foreground">
 	                        {loading
 	                          ? t('正在加载商品明细...')
 	                          : !selectedOrder
@@ -1166,7 +1169,7 @@ export function Workbench() {
                           event.preventDefault();
                           setProductPage(1);
                         }}
-                        className="size-8 rounded-full border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-600 hover:text-white">
+                        className="size-8 rounded-full border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-primary-hover hover:text-white">
                         
                         1
                       </PaginationLink>
@@ -1229,49 +1232,49 @@ export function Workbench() {
               <section className="order-horizon-panel bg-white p-5">
                 <div className="space-y-3 text-sm mb-5">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">{t("客户")}</span>
+                    <span className="text-muted-foreground">{t("客户")}</span>
                     <span className="text-slate-800 truncate max-w-[140px]">
                       {orderDetails.customer}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">{t("订单号")}</span>
+                    <span className="text-muted-foreground">{t("订单号")}</span>
                     <span className="text-slate-800 font-mono">
                       {orderDetails.orderId}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">{t("发货日")}</span>
+                    <span className="text-muted-foreground">{t("发货日")}</span>
                     <span className="text-slate-800">{orderDetails.date}</span>
                   </div>
                   <div className="flex justify-between pt-3 border-t border-slate-50">
-                    <span className="text-slate-400">{t("金额")}</span>
+                    <span className="text-muted-foreground">{t("金额")}</span>
                     <span className="text-blue-700 font-semibold">
                       {orderDetails.amount}
                     </span>
                   </div>
                 </div>
-                <button
+                <Button
                   onClick={handleOpenInvoiceDraft}
                   disabled={!selectedOrder?.id}
-                  className="mb-3 flex w-full items-center justify-center gap-1.5 bg-blue-700 py-2.5 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                  className="mb-3 flex w-full items-center justify-center gap-1.5 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50">
                   <FileDown className="w-4 h-4" /> {t("生成发票")}
-                </button>
+                </Button>
                 <div className="flex gap-3">
-                  <button
+                  <Button variant="unstyled"
                     onClick={(event) => openModal('preview', event.currentTarget)}
                     disabled={!selectedOrder?.generated}
                     title={selectedOrder?.generated ? t("预览商业发票") : t("请先点击「生成发票」")}
-                    className="flex-1 py-2 bg-blue-50 text-blue-700 text-sm font-medium enabled:hover:bg-blue-100 flex items-center justify-center gap-1.5 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">
+                    className="flex-1 py-2 bg-accent text-primary text-sm font-medium enabled:hover:bg-accent flex items-center justify-center gap-1.5 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">
 
                     <Eye className="w-4 h-4" /> {t("预览")}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={handleExportInvoice}
 	                    disabled={!selectedOrder?.generated}
-	                    className="flex-1 py-2 bg-[#002fa7] text-white text-sm font-medium hover:bg-[#002581] flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
+	                    className="flex-1 py-2 text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                     <Download className="w-4 h-4" /> {t("导出")}
-                  </button>
+                  </Button>
                 </div>
               </section>
 
@@ -1279,37 +1282,37 @@ export function Workbench() {
               <section className="order-horizon-panel bg-white p-5">
                 <div className="flex justify-between items-center gap-3 mb-4">
                   <h3 className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                    <Layers className="w-4.5 h-4.5 text-[#002fa7]" /> {t("发票模板")}
+                    <Layers className="w-4.5 h-4.5 text-primary" /> {t("发票模板")}
                   </h3>
                   <div className="flex items-center gap-1.5">
-                    <button
+                    <Button variant="unstyled"
                       onClick={(event) => openModal('aiTemplate', event.currentTarget)}
-                      className="flex min-h-10 items-center justify-center gap-1 border border-blue-100 bg-blue-50 px-2.5 text-xs font-medium text-blue-800 hover:bg-blue-100">
+                      className="flex min-h-10 items-center justify-center gap-1 border border-primary/25 bg-accent px-2.5 text-xs font-medium text-primary hover:bg-accent">
                       
                       <Sparkles className="w-3.5 h-3.5" /> {t("AI 模板")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <div className="space-y-1.5 mb-4">
                   {selectableTemplates.map((template) =>
-                  <button
+                  <Button variant="unstyled"
                     key={template.id}
                     type="button"
                     onClick={() => void handleSelectTemplate(template.id)}
                     data-selected={activeTemplate === template.id}
                     aria-pressed={activeTemplate === template.id}
-                    className={`order-horizon-template-option p-3 flex items-center justify-between cursor-pointer ${activeTemplate === template.id ? 'bg-blue-50' : 'hover:bg-blue-50/40'}`}>
+                    className={`order-horizon-template-option p-3 flex items-center justify-between cursor-pointer ${activeTemplate === template.id ? 'bg-accent' : 'hover:bg-accent/40'}`}>
                     
                       <span className="flex items-center gap-2.5">
                         <FileDown
-                        className={`w-4.5 h-4.5 ${activeTemplate === template.id ? 'text-blue-600' : 'text-slate-400'}`} />
+                        className={`w-4.5 h-4.5 ${activeTemplate === template.id ? 'text-blue-600' : 'text-muted-foreground'}`} />
                       
                         <span
                         className={`text-sm flex items-center gap-2 ${activeTemplate === template.id ? 'font-medium text-blue-900' : 'text-slate-600'}`}>
                         
                           {t(template.name.trim())}
                           {template.source === 'ai' &&
-                        <span className="inline-flex items-center gap-0.5 rounded border border-[#c8d6ff] bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-medium text-[#002fa7]">
+                        <span className="inline-flex items-center gap-0.5 rounded border border-[#c8d6ff] bg-accent px-1.5 py-0.5 text-[10px] font-medium text-primary">
                               <Sparkles className="w-2.5 h-2.5" /> AI
                             </span>
                         }
@@ -1318,7 +1321,7 @@ export function Workbench() {
                       {activeTemplate === template.id &&
                     <span className="size-2 rounded-full bg-blue-600" />
                     }
-                    </button>
+                    </Button>
                   )}
                 </div>
               </section>
@@ -1343,21 +1346,21 @@ export function Workbench() {
                 <h2 id="ai-template-title" className="text-lg font-semibold text-slate-800 flex items-center gap-2 text-balance">
                   <Sparkles className="size-5 text-blue-700" /> {t('AI 生成模板')}
                 </h2>
-                <button
+                <Button variant="unstyled"
               type="button"
               aria-label={t('关闭 AI 模板窗口')}
               onClick={closeActiveModal}
               disabled={aiPhase === 'generating'}
-              className="flex size-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
+              className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
               
                   <X className="w-5 h-5" />
-                </button>
+                </Button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 space-y-6">
                 {aiPhase === 'idle' &&
-            <div className="relative overflow-hidden rounded-2xl border border-[#c8d6ff] bg-[#eef3ff] p-8 text-center">
-                    <div className="relative z-10 mx-auto mb-6 flex size-16 items-center justify-center rounded-2xl bg-[#002fa7]">
+            <div className="relative overflow-hidden rounded-2xl border border-[#c8d6ff] bg-accent p-8 text-center">
+                    <div className="relative z-10 mx-auto mb-6 flex size-16 items-center justify-center rounded-2xl bg-primary">
                       <Sparkles className="w-8 h-8 text-white" />
                     </div>
 
@@ -1369,14 +1372,14 @@ export function Workbench() {
                     </p>
 
                     <div className="flex items-center justify-center gap-4 relative z-10">
-                      <button
+                      <Button
                   onClick={() => aiTemplateInputRef.current?.click()}
-                  className="px-6 py-3 bg-[#002fa7] text-white text-sm font-medium hover:bg-[#002581] flex items-center gap-2">
+                  className="px-6 py-3 text-sm font-medium flex items-center gap-2">
                   
                         <Upload className="w-4 h-4" /> {t('选择文件并生成')}
-                      </button>
+                      </Button>
                     </div>
-                    <p className="text-xs text-slate-400 mt-4 relative z-10">
+                    <p className="text-xs text-muted-foreground mt-4 relative z-10">
                       {t('支持 JPG · PNG · PDF，最大 10MB')}
                     </p>
                   </div>
@@ -1384,7 +1387,7 @@ export function Workbench() {
 
                 {aiPhase === 'generating' &&
             <div className="rounded-3xl border border-[#dbe5ff] bg-white p-8 text-center elevation-1">
-                    <div className="size-16 mx-auto rounded-2xl bg-[#002fa7] flex items-center justify-center mb-6">
+                    <div className="size-16 mx-auto rounded-2xl bg-primary flex items-center justify-center mb-6">
                       <Loader2 className="w-8 h-8 text-white animate-spin" />
                     </div>
 
@@ -1401,11 +1404,11 @@ export function Workbench() {
                   key={i}
                   className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl text-left">
                   
-                          <FileText className="w-5 h-5 text-slate-400 shrink-0" />
+                          <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
                           <span className="text-sm text-slate-700 flex-1 truncate">
                             {f.name}
                           </span>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-muted-foreground">
                             {f.size}
                           </span>
                         </div>
@@ -1414,7 +1417,7 @@ export function Workbench() {
 
                     <div className="max-w-sm mx-auto mt-8 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                       <div
-                  className={`h-full bg-[#002fa7] rounded-full transition-[width] duration-500 ease-out
+                  className={`h-full bg-primary rounded-full transition-[width] duration-500 ease-out
                           ${aiPhase === 'generating' ? 'w-4/5' : ''}
                         `}>
                 </div>
@@ -1463,18 +1466,18 @@ export function Workbench() {
 
               {aiPhase === 'done' &&
           <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-3">
-                  <button
+                  <Button variant="unstyled"
               onClick={resetAi}
               className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200">
               
                     {t('重新生成')}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
               onClick={saveAiTemplate}
-              className="px-6 py-2 text-sm font-medium text-white bg-[#002fa7] hover:bg-[#002581] flex items-center gap-1.5">
+              className="px-6 py-2 text-sm font-medium flex items-center gap-1.5">
               
                     <Check className="w-4 h-4" /> {t('保存并应用新模板')}
-                  </button>
+                  </Button>
                 </div>
           }
             </WorkbenchDialogSurface>
@@ -1498,15 +1501,15 @@ export function Workbench() {
                     {t('当前模板：{name}，保存后可在“查看发票”中看到最新内容。', { name: activeTemplateName })}
                   </p>
                 </div>
-                <button
+                <Button variant="unstyled"
               type="button"
               aria-label={t('关闭发票生成窗口')}
               onClick={closeActiveModal}
               disabled={invoiceSubmitting}
-              className="flex size-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
+              className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
               
                   <X className="w-5 h-5" />
-                </button>
+                </Button>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-6 pb-10">
@@ -1540,13 +1543,13 @@ export function Workbench() {
                           {invoiceDraftLines.map((line) => {
                             const lineKey = line.lineId ?? line.id;
                             return (
-                              <TableRow key={lineKey} className="hover:bg-blue-50/30">
+                              <TableRow key={lineKey} className="hover:bg-accent/30">
                                 <TableCell className="px-4 py-3 font-mono text-slate-600">{line.id}</TableCell>
                                 <TableCell className="px-4 py-3 font-medium text-slate-800">{line.name}</TableCell>
                                 <TableCell className="px-4 py-3 text-slate-600">{line.spec}</TableCell>
                                 <TableCell className="px-4 py-3 text-slate-600">{line.unit}</TableCell>
                                 <TableCell className="px-4 py-3 text-right">
-                                  <input
+                                  <Input
                                     type="number"
                                     min={1}
                                     step={1}
@@ -1556,10 +1559,10 @@ export function Workbench() {
                                     aria-invalid={invoiceInvalidField === `line-${lineKey}`}
                                     aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                                     onChange={(event) => handleInvoiceDraftLineChange(lineKey, 'quantity', event.target.value)}
-                                    className="min-h-10 w-24 rounded-lg border border-slate-200 bg-slate-50 px-3 text-right text-sm font-medium tabular-nums text-slate-800 outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10" />
+                                    className="min-h-10 w-24 rounded-lg border border-slate-200 bg-slate-50 px-3 text-right text-sm font-medium tabular-nums text-slate-800 outline-none focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/10" />
                                 </TableCell>
                                 <TableCell className="px-4 py-3 text-right">
-                                  <input
+                                  <Input
                                     type="number"
                                     min={0}
                                     step="0.01"
@@ -1568,7 +1571,7 @@ export function Workbench() {
                                     aria-invalid={invoiceInvalidField === `line-${lineKey}`}
                                     aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                                     onChange={(event) => handleInvoiceDraftLineChange(lineKey, 'unitPrice', event.target.value)}
-                                    className="min-h-10 w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 text-right text-sm font-medium tabular-nums text-slate-800 outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10" />
+                                    className="min-h-10 w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 text-right text-sm font-medium tabular-nums text-slate-800 outline-none focus:border-primary/25 focus:bg-white focus:ring-2 focus:ring-primary/10" />
                                 </TableCell>
                                 <TableCell className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
                                   {formatInvoiceMoney(line.subtotal)}
@@ -1591,7 +1594,7 @@ export function Workbench() {
                     }`}>
                     <div className="mb-5 flex items-start justify-between gap-3">
                       <div>
-                        <div className={`text-xs font-semibold uppercase ${activeTemplate === 'inogi' ? 'text-white/70' : 'text-slate-400'}`}>
+                        <div className={`text-xs font-semibold uppercase ${activeTemplate === 'inogi' ? 'text-white/70' : 'text-muted-foreground'}`}>
                           Invoice Template
                         </div>
                         <div className="mt-2 text-xl font-black">
@@ -1605,8 +1608,8 @@ export function Workbench() {
 
                     <div className={`space-y-2 rounded-2xl p-4 text-sm ${activeTemplate === 'inogi' ? 'bg-white/10' : 'bg-slate-50'}`}>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('客户')}</span>
-                        <input
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-muted-foreground'}>{t('客户')}</span>
+                        <Input
                           value={invoiceDraftInfo.customer}
                           data-invoice-field="customer"
                           aria-label={t('客户名称')}
@@ -1614,12 +1617,12 @@ export function Workbench() {
                           aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                           onChange={(event) => handleInvoiceDraftInfoChange('customer', event.target.value)}
                           className={`min-w-0 flex-1 rounded-lg bg-transparent px-2 py-0.5 text-right font-medium outline-none transition-colors focus:ring-2 ${
-                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-blue-500/10'
+                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-primary/10'
                           }`} />
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('订单号')}</span>
-                        <input
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-muted-foreground'}>{t('订单号')}</span>
+                        <Input
                           value={invoiceDraftInfo.orderId}
                           data-invoice-field="orderId"
                           aria-label={t('订单号')}
@@ -1627,12 +1630,12 @@ export function Workbench() {
                           aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                           onChange={(event) => handleInvoiceDraftInfoChange('orderId', event.target.value)}
                           className={`min-w-0 flex-1 rounded-lg bg-transparent px-2 py-0.5 text-right font-mono outline-none transition-colors focus:ring-2 ${
-                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-blue-500/10'
+                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-primary/10'
                           }`} />
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('发货日')}</span>
-                        <input
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-muted-foreground'}>{t('发货日')}</span>
+                        <Input
                           value={invoiceDraftInfo.date}
                           data-invoice-field="date"
                           aria-label={t('发货日期')}
@@ -1640,7 +1643,7 @@ export function Workbench() {
                           aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                           onChange={(event) => handleInvoiceDraftInfoChange('date', event.target.value)}
                           className={`min-w-0 flex-1 rounded-lg bg-transparent px-2 py-0.5 text-right outline-none transition-colors focus:ring-2 ${
-                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-blue-500/10'
+                            activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-primary/10'
                           }`} />
                       </div>
                     </div>
@@ -1658,7 +1661,7 @@ export function Workbench() {
                             <div
                               key={lineKey}
                               className={`grid grid-cols-[minmax(0,1fr)_64px_104px] gap-2 border-t px-3 py-2 text-xs ${activeTemplate === 'inogi' ? 'border-white/10' : 'border-slate-100'}`}>
-                              <input
+                              <Input
                                 value={line.name}
                                 data-invoice-field={`line-${lineKey}`}
                                 aria-label={`${line.id} ${t('商品名称')}`}
@@ -1666,9 +1669,9 @@ export function Workbench() {
                                 aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                                 onChange={(event) => handleInvoiceDraftLineTextChange(lineKey, 'name', event.target.value)}
                                 className={`min-w-0 truncate rounded-md bg-transparent px-1 py-0.5 font-medium outline-none transition-colors focus:ring-2 ${
-                                  activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-blue-500/10'
+                                  activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-primary/10'
                                 }`} />
-                              <input
+                              <Input
                                 type="number"
                                 min={1}
                                 step={1}
@@ -1678,10 +1681,10 @@ export function Workbench() {
                                 aria-describedby={invoiceValidationError ? 'invoice-validation-error' : undefined}
                                 onChange={(event) => handleInvoiceDraftLineChange(lineKey, 'quantity', event.target.value)}
                                 className={`min-w-0 rounded-md bg-transparent px-1 py-0.5 text-right outline-none transition-colors focus:ring-2 ${
-                                  activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-blue-500/10'
+                                  activeTemplate === 'inogi' ? 'text-white focus:bg-white/10 focus:ring-white/20' : 'text-slate-800 focus:bg-white focus:ring-primary/10'
                                 }`} />
                               <div className="flex min-w-0 items-center justify-end gap-0.5 font-semibold">
-                                <span className={activeTemplate === 'inogi' ? 'text-white/70' : 'text-slate-400'}>¥</span>
+                                <span className={activeTemplate === 'inogi' ? 'text-white/70' : 'text-muted-foreground'}>¥</span>
                                 <span className="w-20 truncate text-right" title={formatInvoiceMoney(line.subtotal)}>
                                   {line.subtotal.toFixed(2)}
                                 </span>
@@ -1704,22 +1707,22 @@ export function Workbench() {
                   {invoiceValidationError || t('金额由数量乘以单价自动计算。')}
                 </p>
                 <div className="flex gap-3 lg:mr-44">
-                  <button
+                  <Button variant="unstyled"
               type="button"
               onClick={closeActiveModal}
               disabled={invoiceSubmitting}
               className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
               
                     {t('取消')}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
               onClick={() => void handleConfirmGenerateInvoice()}
               disabled={invoiceSubmitting || invoiceDraftLines.length === 0}
-              className="px-6 py-2 text-sm font-medium text-white bg-[#002fa7] hover:bg-[#002581] flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
+              className="px-6 py-2 text-sm font-medium flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
               
                     {invoiceSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     {t('保存并生成发票')}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </WorkbenchDialogSurface>
@@ -1737,14 +1740,14 @@ export function Workbench() {
                 <h2 id="original-order-title" className="text-lg font-semibold text-slate-800 flex items-center gap-2 text-balance">
                   <FileText className="w-5 h-5 text-blue-500" /> {t('订货单识别结果')}
                 </h2>
-                <button
+                <Button variant="unstyled"
               type="button"
               aria-label={t('关闭订货单识别结果窗口')}
               onClick={closeActiveModal}
-              className="flex size-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100">
+              className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100">
               
                   <X className="w-5 h-5" />
-                </button>
+                </Button>
               </div>
               <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1 flex justify-center">
                 <div className="bg-white p-8 shadow-sm border border-slate-200 w-full max-w-2xl min-h-[500px] rounded-xl">
@@ -1832,23 +1835,23 @@ export function Workbench() {
                   </span>
                 </h2>
                 <div className="flex items-center gap-3">
-	                  <button
+	                  <Button
 	                    type="button"
 	                    onClick={handleExportInvoice}
 	                    disabled={!selectedOrder?.generated || invoiceExporting}
-	                    className="px-5 py-2 text-sm font-medium text-white bg-[#002fa7] hover:bg-[#002581] flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
+	                    className="px-5 py-2 text-sm font-medium flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
 	                    {invoiceExporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
 	                    {invoiceExporting ? t('导出中') : t('导出 PDF')}
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="unstyled"
                 type="button"
                 aria-label={t('关闭发票预览窗口')}
                 onClick={closeActiveModal}
                 disabled={invoiceExporting}
-                className="flex size-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
+                className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
                 
                     <X className="w-5 h-5" />
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="p-6 overflow-y-auto bg-slate-100/60 flex-1 flex justify-center">
@@ -2033,12 +2036,12 @@ export function Workbench() {
                 {invoicePreviewTemplate.startsWith('ai-') &&
             <div className="relative w-full max-w-3xl overflow-hidden bg-white p-10 font-sans tabular-nums elevation-1">
                     {/* Decorative header accent */}
-                    <div className="absolute top-0 left-0 w-full h-3 bg-[#002fa7]"></div>
+                    <div className="absolute top-0 left-0 w-full h-3 bg-primary"></div>
 
                     <div className="flex justify-between items-start mb-12 mt-4">
                       <div>
-                        <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-[#eef3ff]">
-                          <Layers className="size-6 text-[#002fa7]" />
+                        <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-accent">
+                          <Layers className="size-6 text-primary" />
                         </div>
                         <h1 className="mb-1 text-3xl font-bold text-slate-800">
                           COMMERCIAL INVOICE
@@ -2070,8 +2073,8 @@ export function Workbench() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-8 mb-10">
-                      <div className="rounded-2xl border border-[#c8d6ff] bg-[#eef3ff] p-5">
-                        <h4 className="mb-3 text-xs font-bold uppercase text-[#002fa7]">
+                      <div className="rounded-2xl border border-[#c8d6ff] bg-accent p-5">
+                        <h4 className="mb-3 text-xs font-bold uppercase text-primary">
                           Billed To
                         </h4>
                         <p className="font-bold text-slate-800 text-lg mb-1">
@@ -2136,7 +2139,7 @@ export function Workbench() {
                           <span>Subtotal</span>
                           <span>{invoicePreviewAmountText}</span>
                         </div>
-                        <div className="flex justify-between py-3 text-lg font-bold text-[#002fa7]">
+                        <div className="flex justify-between py-3 text-lg font-bold text-primary">
                           <span>Invoice Total</span>
                           <span>{invoicePreviewAmountText}</span>
                         </div>

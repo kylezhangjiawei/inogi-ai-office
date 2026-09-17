@@ -31,6 +31,8 @@ function fixture({ kind = 'create', context = contextFor(kind), submit, props: o
   const dependencies = { react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, '../../lib/i18n': { useI18n: () => ({ t }), i18nLocale: () => 'zh-CN' }, '../../components/ui/utils': { cn: (...parts) => parts.filter(Boolean).join(' ') }, './shipmentTypes': types, './shipmentPreviewModel': model };
   const exports = {};
   new Function('exports', 'require', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name];
     if (name.endsWith('.css')) return {};
     assert.ok(name === 'lucide-react' || name.startsWith('../../components/ui/'), `No external write dependency: ${name}`);
@@ -51,7 +53,7 @@ function fixture({ kind = 'create', context = contextFor(kind), submit, props: o
     unmount() { slots.forEach((slot) => slot?.cleanup?.()); },
     text: () => text(tree), nodes: () => elements(tree), node: (type) => elements(tree).find((node) => node.type === type),
     field: (name) => elements(tree).find((node) => node.props?.id === `shipment-action-${name}`),
-    checkbox: () => elements(tree).find((node) => node.type === 'input' && node.props.type === 'checkbox'),
+    checkbox: () => elements(tree).find((node) => node.type === "Checkbox"),
     button: (label) => elements(tree).find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === label),
     fill(name, value) { const node = view.field(name); assert.ok(node, `${name} exists`); assert.equal(Boolean(node.props.disabled), false); node.props.onChange({ target: { value } }); return view.render(); },
     choose(name, value) { const node = view.nodes().find((item) => item.type === 'Select' && elements(item).some((child) => child.props?.id === `shipment-action-${name}`)); assert.ok(node, `${name} selectable`); assert.equal(Boolean(node.props.disabled), false); node.props.onValueChange(value); return view.render(); },
@@ -174,7 +176,7 @@ test('确认前阻止无放行、超放行余额、早于放行日期的登记',
 test('冲销默认生成关联草稿，可取消生成，原记录与冲销原因保留', async () => {
   for (const createReplacement of [true, false]) {
     const context = contextFor('reverse'); let state; const view = fixture({ context, submit: (action) => { state = model.applyShipmentAction(context.state, 1, action); } });
-    fillValid(view); assert.equal(view.checkbox().props.checked, true); view.checkbox().props.onChange({ target: { checked: createReplacement } }); view.render(); view.submit();
+    fillValid(view); assert.equal(view.checkbox().props.checked, true); view.checkbox().props.onCheckedChange(createReplacement); view.render(); view.submit();
     assert.match(text(view.node('AlertDialogContent')), /不代表实物退货/); view.confirm(); await view.settle();
     assert.equal(state.records.find((record) => record.id === 'ship-80').status, 'reversed');
     assert.equal(state.records.filter((record) => record.replacementFor === 'ship-80').length, createReplacement ? 1 : 0);

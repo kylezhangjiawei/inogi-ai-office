@@ -122,11 +122,11 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId, 
         </div>
         {selected && !filtered.some((task) => task.id === selected.id) && <p className="border-b border-border px-4 py-3 text-pretty text-xs text-muted-foreground">{t("当前正在查看的样品不在筛选结果中。")}</p>}
         <div className="proc-sample-list-scroll cockpit-scroll space-y-2 p-3">
-          {filtered.map((task) => <button key={task.id} type="button" disabled={interaction.busy} aria-pressed={selected?.id === task.id} onClick={(event) => selectTask(task.id, event.currentTarget)} className={cn("w-full rounded-xl border p-3 text-left disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40", selected?.id === task.id ? "border-primary/30 bg-accent" : "border-border bg-card hover:bg-muted/40")}>
+          {filtered.map((task) => <Button variant="unstyled" key={task.id} type="button" disabled={interaction.busy} aria-pressed={selected?.id === task.id} onClick={(event) => selectTask(task.id, event.currentTarget)} className={cn("w-full rounded-xl border p-3 text-left disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40", selected?.id === task.id ? "border-primary/30 bg-accent" : "border-border bg-card hover:bg-muted/40")}>
             <div className="flex items-start justify-between gap-2"><span className="line-clamp-2 break-words text-sm font-semibold">{task.materialName}</span><span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[11px]", PROC_STATUS_META[task.status].pill)}>{t(PROC_STATUS_META[task.status].label)}</span></div>
             <p className="mt-1 truncate text-xs tabular-nums text-muted-foreground">{task.code} · {task.quantity} {task.unit}</p>
             <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><PersonAvatar name={task.status === "testing" ? task.sampleTest?.testerName || t("待指定") : task.buyer || t("未指派")} size="xs" /><span className="truncate">{task.status === "testing" ? task.sampleTest?.testerName || t("待指定测试人") : task.buyer || t("采购待指派")}</span></p>
-          </button>)}
+          </Button>)}
           {!loading && !filtered.length && <div className="px-3 py-6 text-center"><p className="text-pretty text-sm text-muted-foreground">{t("没有符合条件的样品")}</p>{(filter !== "all" || query) && <Button type="button" variant="link" onClick={clearFilters}>{t("清除筛选")}</Button>}</div>}
         </div>
         <p className="border-t border-border px-4 py-3 text-xs tabular-nums text-muted-foreground">{t("显示 {shown} / {total} 项", { shown: filtered.length, total: samples.length })}</p>

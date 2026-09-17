@@ -80,7 +80,7 @@ test("聊天分析自定义路径后，手机入口与宽屏返回仍匹配同�
         t: (key) => key, cn: () => "", isCurrentMobileOverlay: () => false,
         window: { requestAnimationFrame() {} },
       });
-      const menu = descendants(mobileLayout()).find((element) => element.type === "button"
+      const menu = descendants(mobileLayout()).find((element) => element.type === "Button"
         && React.Children.toArray(element.props.children).includes("AI 使用与反馈"));
       assert.ok(menu, "应存在聊天分析菜单入口");
       assert.equal(menu.props["aria-current"], "page");

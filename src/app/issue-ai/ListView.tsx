@@ -75,7 +75,7 @@ function InitialAvatar({ name, src, className }: { name: string; src?: string | 
     <span
       aria-hidden
       className={cn(
-        "rd-horizon-issue-avatar flex shrink-0 items-center justify-center rounded-full bg-[#eef3ff] font-semibold text-[#002fa7]",
+        "rd-horizon-issue-avatar flex shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-primary",
         className,
       )}
     >
@@ -114,16 +114,16 @@ function ActiveTag({
   onClear: () => void;
 }) {
   return (
-    <span className="rd-horizon-issue-active-filter inline-flex items-center gap-1 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] py-0.5 pl-2 pr-1 text-xs text-[#002fa7]">
+    <span className="rd-horizon-issue-active-filter inline-flex items-center gap-1 rounded-md border border-primary/20 bg-accent py-0.5 pl-2 pr-1 text-xs text-primary">
       {label}
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onClear}
         aria-label={t("清除该筛选")}
         className="cursor-pointer rounded-sm p-0.5 hover:bg-[#e4ebff] focus-visible:outline-none"
       >
         <X className="size-3" />
-      </button>
+      </Button>
     </span>
   );
 }
@@ -146,7 +146,7 @@ function IssueList({
   return (
     <div className="rd-horizon-issue-rows space-y-2" data-view="issues">
       {items.map((it) => (
-        <button
+        <Button variant="unstyled"
           key={it.id}
           type="button"
           onClick={() => onOpen(it.id)}
@@ -155,7 +155,7 @@ function IssueList({
           data-severity={it.severity}
           className={cn(
             cardClass,
-            "rd-horizon-issue-row group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:border-[#002fa7]/30 hover:bg-[#fbfcff] focus-visible:outline-none",
+            "rd-horizon-issue-row group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:border-primary/30 hover:bg-[#fbfcff] focus-visible:outline-none",
           )}
         >
           {/* 头像（创建人，最前）：本人显示真实头像，其余首字 */}
@@ -164,10 +164,10 @@ function IssueList({
           {/* 中间：编号 + 来源 + 标题 + 创建人/产品/工位 */}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Mono className="text-[11px] font-semibold text-slate-400">{it.id}</Mono>
+              <Mono className="text-[11px] font-semibold text-muted-foreground">{it.id}</Mono>
               <SourceTag value={it.source} />
             </div>
-            <div className="mt-1 truncate text-sm font-semibold text-slate-800 group-hover:text-[#002fa7]">
+            <div className="mt-1 truncate text-sm font-semibold text-slate-800 group-hover:text-primary">
               {it.title}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500">
@@ -193,9 +193,9 @@ function IssueList({
               <SeverityBadge value={it.severity} />
               <StatusBadge value={it.status} />
             </div>
-            <Mono className="text-xs text-slate-400">{formatDate(it.createdAt)}</Mono>
+            <Mono className="text-xs text-muted-foreground">{formatDate(it.createdAt)}</Mono>
           </div>
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -232,7 +232,7 @@ function ReusableCards({
             ? t("复用自 {id}", { id: adopted.reusedFrom })
             : t("已沉淀可复用方案"));
         return (
-          <button
+          <Button variant="unstyled"
             key={it.id}
             type="button"
             onClick={() => onOpen(it.id)}
@@ -241,12 +241,12 @@ function ReusableCards({
             data-severity={it.severity}
             className={cn(
               cardClass,
-              "rd-horizon-issue-reusable-card flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-colors duration-150 hover:border-[#002fa7]/30 hover:bg-[#fbfcff] focus-visible:outline-none",
+              "rd-horizon-issue-reusable-card flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-colors duration-150 hover:border-primary/30 hover:bg-[#fbfcff] focus-visible:outline-none",
             )}
           >
             <div className="flex items-start justify-between gap-2">
-              <Mono className="text-xs text-slate-400">{it.id}</Mono>
-              <span className="rd-horizon-issue-reusable-badge inline-flex items-center gap-1 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] px-2 py-0.5 text-xs font-medium text-[#002fa7]">
+              <Mono className="text-xs text-muted-foreground">{it.id}</Mono>
+              <span className="rd-horizon-issue-reusable-badge inline-flex items-center gap-1 rounded-md border border-primary/20 bg-accent px-2 py-0.5 text-xs font-medium text-primary">
                 {t("可复用")}
               </span>
             </div>
@@ -255,7 +255,7 @@ function ReusableCards({
             </div>
             <div className="rd-horizon-issue-reuse-suggestion mt-1 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
               <div className="mb-1 flex items-center gap-1.5">
-                <span className="text-xs font-medium text-[#002fa7]">
+                <span className="text-xs font-medium text-primary">
                   {t("采纳方案")}
                 </span>
                 {adoptedSolution ? (
@@ -266,7 +266,7 @@ function ReusableCards({
                 {summary}
               </p>
             </div>
-            <div className="mt-auto flex items-center gap-1.5 pt-1 text-xs text-slate-400">
+            <div className="mt-auto flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
               <SourceTag value={it.source} />
               {it.product ? (
                 <>
@@ -275,7 +275,7 @@ function ReusableCards({
                 </>
               ) : null}
             </div>
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -308,17 +308,17 @@ function Pagination({
         {t("共")} <Mono>{total}</Mono> {t("条 · 第")} <Mono>{from}</Mono>–<Mono>{to}</Mono> {t("条")}
       </span>
       <div className="flex items-center gap-1">
-        <button
+        <Button variant="unstyled"
           type="button"
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-[#002fa7]/25 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
         >
           <ChevronLeft className="size-3.5" />
           {t("上一页")}
-        </button>
+        </Button>
         {pages.map((p) => (
-          <button
+          <Button variant="unstyled"
             key={p}
             type="button"
             onClick={() => onPage(p)}
@@ -326,22 +326,22 @@ function Pagination({
             className={cn(
               "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center rounded-md border px-1.5 text-xs transition-colors duration-150 focus-visible:outline-none",
               p === page
-                ? "border-[#002fa7]/30 bg-[#eef3ff] font-medium text-[#002fa7]"
-                : "border-slate-200 bg-white text-slate-600 hover:border-[#002fa7]/25 hover:text-[#002fa7]",
+                ? "border-primary/30 bg-accent font-medium text-primary"
+                : "border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:text-primary",
             )}
           >
             <Mono>{p}</Mono>
-          </button>
+          </Button>
         ))}
-        <button
+        <Button variant="unstyled"
           type="button"
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-[#002fa7]/25 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
         >
           {t("下一页")}
           <ChevronRight className="size-3.5" />
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -524,7 +524,7 @@ export function ListView({
             {STATUS_GROUP_ORDER.map((key) => {
               const active = statusGroup === key;
               return (
-                <button
+                <Button variant="unstyled"
                   key={key}
                   type="button"
                   onClick={() => patchQuery({ statusGroup: key })}
@@ -534,19 +534,19 @@ export function ListView({
                   className={cn(
                     "h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors duration-150 focus-visible:outline-none",
                     active
-                      ? "bg-[#002fa7] text-white shadow-sm"
+                      ? "bg-primary text-white shadow-sm"
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                   )}
                 >
                   {t(STATUS_GROUP_LABEL[key])}
-                </button>
+                </Button>
               );
             })}
           </div>
 
           {/* 搜索（推到右侧，与新建相邻） */}
           <div className="rd-horizon-issue-search relative ml-auto w-full max-w-[18rem]">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
@@ -556,7 +556,7 @@ export function ListView({
               }}
               placeholder={t("搜索标题 / 编号 / 产品 / 描述")}
               aria-label={t("搜索标题 / 编号 / 产品 / 描述")}
-              className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-[#002fa7]"
+              className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-primary"
             />
           </div>
         </div>
@@ -573,13 +573,13 @@ export function ListView({
                 }}
               />
             ) : null}
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={clearSearchFilter}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-[#002fa7] hover:underline focus-visible:outline-none"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-primary hover:underline focus-visible:outline-none"
             >
               {t("清除筛选")}
-            </button>
+            </Button>
           </div>
         ) : null}
       </section>

@@ -117,7 +117,7 @@ const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
 const EMPTY_SELECT_VALUE = "__empty__";
 const ALL_DEPARTMENTS = "ALL";
 const UNASSIGNED_DEPARTMENT = "__unassigned__";
-const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-colors focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-colors focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary";
 
 function SelectControl({
   value,
@@ -302,7 +302,7 @@ function PasswordCell({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="shrink-0 font-mono text-xs text-slate-400" aria-hidden="true">••••••••</span>
+      <span className="shrink-0 font-mono text-xs text-muted-foreground" aria-hidden="true">••••••••</span>
       {canChange && (
         <Button
           type="button"
@@ -655,7 +655,7 @@ export function UserManagement() {
             <div className="min-w-0">
               <Label htmlFor="user-search" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("搜索用户")}</Label>
               <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-slate-400" aria-hidden="true">
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-muted-foreground" aria-hidden="true">
                   <Search className="size-4" />
                 </span>
                 <Input
@@ -761,10 +761,10 @@ export function UserManagement() {
                   </tr>
                 ) : (
                   pagedUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-blue-50/35">
+                    <tr key={user.id} className="hover:bg-accent/35">
                       <td className={TABLE_CELL_CLASS}>
                         <div className="flex min-w-0 items-start gap-3">
-                          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#002fa7]" aria-hidden="true">
+                          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-primary" aria-hidden="true">
                             <Users className="size-[18px]" />
                           </span>
                           <div className="min-w-0">
@@ -773,13 +773,13 @@ export function UserManagement() {
                                 <span className="truncate font-semibold text-slate-800">{user.name}</span>
                               ) : (
                                 <PermissionGuard permission="user:edit" fallback={<span className="truncate font-semibold text-slate-800">{user.name}</span>}>
-                                  <button
+                                  <Button variant="unstyled"
                                     type="button"
-                                    className="min-w-0 cursor-pointer truncate rounded-sm text-left font-semibold text-slate-800 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    className="min-w-0 cursor-pointer truncate rounded-sm text-left font-semibold text-slate-800 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                     onClick={(event) => openEdit(user, event.currentTarget)}
                                   >
                                     {user.name}
-                                  </button>
+                                  </Button>
                                 </PermissionGuard>
                               )}
                               {isSuperAdmin(user) ? <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{t("超级管理员")}</span> : null}

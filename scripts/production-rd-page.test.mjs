@@ -12,13 +12,15 @@ class FixedDate extends Date { constructor(...args) { super(...(args.length ? ar
 function load(path, imports = {}, window = {}) {
   const exports = {};
   const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  new Function('exports', 'require', 'window', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'Date', code)(exports, (name) => { assert.ok(Object.hasOwn(imports, name), `审查依赖 ${name}`); return imports[name]; }, window, forbidden, storage, storage, storage, FixedDate);
+  new Function('exports', 'require', 'window', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'Date', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(Object.hasOwn(imports, name), `审查依赖 ${name}`); return imports[name]; }, window, forbidden, storage, storage, storage, FixedDate);
   return exports;
 }
 const defectsModel = load('defects/defectModel.ts');
 const model = load('rd-collaboration/rdModel.ts', { '../defects/defectModel': defectsModel });
 const types = load('rd-collaboration/rdTypes.ts');
-const shared = { 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, 'lucide-react': primitives, '../../lib/i18n': { useI18n: () => ({ t: translate }) }, '../../components/ui/button': primitives, '../../components/ui/alert-dialog': primitives, '../../order-processing/components/HorizonPage': primitives, '../../order-processing/horizon.css': {}, './production-rd.css': {}, '../defects/defectModel': defectsModel, './rdModel': model, './rdTypes': types };
+const shared = { 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, 'lucide-react': primitives, '../../lib/i18n': { useI18n: () => ({ t: translate }) }, '../../components/ui/button': primitives, '../../components/ui/tabs': primitives, '../../components/ui/alert-dialog': primitives, '../../order-processing/components/HorizonPage': primitives, '../../order-processing/horizon.css': {}, './production-rd.css': {}, '../defects/defectModel': defectsModel, './rdModel': model, './rdTypes': types };
 const nodes = (tree) => Array.isArray(tree) ? tree.flatMap(nodes) : !tree || typeof tree !== 'object' ? [] : [...(tree.type ? [tree] : []), ...Object.values(tree.props ?? {}).flatMap(nodes)];
 const text = (tree) => Array.isArray(tree) ? tree.map(text).join(' ') : typeof tree === 'string' || typeof tree === 'number' ? String(tree) : !tree || typeof tree !== 'object' ? '' : ['children', 'title', 'description', 'actions', 'action'].map((key) => text(tree.props?.[key])).join(' ');
 const normalized = (tree) => text(tree).replace(/\s+/g, ' ').trim();
@@ -42,12 +44,12 @@ function fixture() {
   const navigate = (next) => { if (predicate?.()) { pending = next; blocker.state = 'blocked'; } else location = next; };
   const page = load('rd-collaboration/ProductionRdPreviewPage.tsx', { ...shared, react: harness.hooks, 'react-router': { Link: 'Link', useSearchParams: () => [new URLSearchParams(location.search), (params) => navigate({ ...location, search: `?${params}` })], useBlocker: (next) => { predicate = next; return blocker; } }, '../defects/defectPreviewSession': session, './rdPreviewSession': rdSession, './RdActionForm': { RdActionForm: 'RdActionForm' } }, { addEventListener: (name, cb) => listeners.set(name, cb), removeEventListener: (name) => listeners.delete(name), requestAnimationFrame: (cb) => cb(), document: { getElementById: () => ({ scrollIntoView() {} }) } });
   const view = { render() { harness.reset(); tree = page.ProductionRdPreviewPage(); harness.flush(); return tree; }, nodes: () => nodes(tree), text: () => normalized(tree), form: () => nodes(tree).find((node) => node.type === 'RdActionForm'), state: () => rdSession.getRdPreviewState(), defects: () => session.getDefectPreviewState(), location: () => location,
-    byId: (id) => nodes(tree).find((node) => node.props.id === id), button: (label) => nodes(tree).find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label),
+    byId: (id) => nodes(tree).find((node) => node.props.id === id), button: (label) => nodes(tree).find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && normalized(node) === label),
     click(label) { const button = view.button(label); assert.ok(button, `${label} exists`); assert.equal(!!button.props.disabled, false); button.props.onClick?.(); view.render(); },
     actor(id) { view.byId('prd-actor').props.onChange({ target: { value: id } }); view.render(); }, dirty() { view.form().props.onDirtyChange(true); view.render(); },
     async save(action) { await view.form().props.onSubmit(action); view.render(); },
     unload() { let prevented = false; listeners.get('beforeunload')?.({ preventDefault() { prevented = true; } }); return prevented; },
-    failNext() { const checkbox = nodes(tree).find((node) => node.type === 'input' && node.props.type === 'checkbox'); checkbox.props.onChange({ target: { checked: true } }); view.render(); },
+    failNext() { const checkbox = nodes(tree).find((node) => node.type === "Checkbox"); checkbox.props.onCheckedChange(true); view.render(); },
     navigate(pathname) { navigate({ pathname, search: '' }); view.render(); },
     dialog(title) { return nodes(tree).find((node) => node.type === 'AlertDialog' && normalized(node).includes(title)); },
   }; view.render(); return view;
@@ -75,7 +77,7 @@ test('切换操作人先保护填写，放弃后旧回调无法写入', async ()
 
 test('资料分类切换有未保存保护，确认后不丢失已保存原异常', async () => {
   const page = fixture(); page.click('指定研发处理人'); await page.save(assign()); page.actor('rd-a'); page.click('提交技术意见'); page.dirty();
-  page.click('处理记录'); assert.equal(page.dialog('放弃尚未保存的填写').props.open, true); page.click('放弃并继续'); assert.equal(page.form(), undefined); assert.equal(page.defects().collaborations.length, 1);
+  page.nodes().find((node) => node.type === 'Tabs').props.onValueChange('history'); page.render(); assert.equal(page.dialog('放弃尚未保存的填写').props.open, true); page.click('放弃并继续'); assert.equal(page.form(), undefined); assert.equal(page.defects().collaborations.length, 1);
 });
 
 test('跨页来源链接离开前阻断，放弃后保留 P08 共享来源', async () => {
@@ -110,7 +112,7 @@ function formFixture() {
   const Form = load('rd-collaboration/RdActionForm.tsx', { ...shared, react: harness.hooks }).RdActionForm;
   const props = { state, defects, issueId: 'issue-process', actorId: 'quality-a', kind: 'assign', onDirtyChange(value) { dirty = value; }, async onSubmit(action) { if (reject) throw new Error('保存失败，填写保留'); calls.push(action); }, onCancel() {} };
   const view = { render() { harness.reset(); tree = Form(props); harness.flush(); }, nodes: () => nodes(tree), text: () => normalized(tree), input: (id) => nodes(tree).find((node) => node.props.id === `prd-${id}`), dirty: () => dirty, calls: () => calls,
-    fill(id, value) { view.input(id).props.onChange({ target: { value } }); view.render(); }, review() { nodes(tree).find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); view.render(); }, fail(value) { reject = value; }, async submit() { await tree.props.onSubmit({ preventDefault() {} }); view.render(); },
+    fill(id, value) { view.input(id).props.onChange({ target: { value } }); view.render(); }, review() { nodes(tree).find((node) => node.type === "Checkbox").props.onCheckedChange(true); view.render(); }, fail(value) { reject = value; }, async submit() { await tree.props.onSubmit({ preventDefault() {} }); view.render(); },
   }; view.render(); return view;
 }
 

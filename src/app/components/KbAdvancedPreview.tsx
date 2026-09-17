@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
+import { Button } from "./ui/button";
 
 type KbFileType = "html" | "text" | "xlsx" | "docx";
 
@@ -132,18 +133,18 @@ function XlsxPreview({ fileUrl }: { fileUrl: string }) {
       {sheets.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3 py-1.5">
           {sheets.map((s, idx) => (
-            <button
+            <Button variant="unstyled"
               key={s.name}
               type="button"
               onClick={() => setActiveSheet(idx)}
               className={`shrink-0 rounded-[4px] px-2.5 py-1 text-[11px] font-medium transition-colors ${
                 idx === activeSheet
-                  ? "bg-[#002fa7] text-white"
+                  ? "bg-primary text-white"
                   : "text-slate-600 hover:bg-slate-200"
               }`}
             >
               {s.name}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -205,7 +206,7 @@ function DocxPreview({ fileUrl }: { fileUrl: string }) {
 
 function PreviewLoading({ label }: { label: string }) {
   return (
-    <div className="flex flex-col items-center gap-3 py-14 text-slate-400">
+    <div className="flex flex-col items-center gap-3 py-14 text-muted-foreground">
       <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
       <p className="text-sm font-medium">{label}</p>
     </div>
@@ -220,8 +221,8 @@ function PreviewError({ message }: { message: string }) {
       </div>
       <div>
         <p className="text-sm font-semibold text-slate-700">无法预览此文件</p>
-        <p className="mt-1 text-xs text-slate-400">{message}</p>
-        <p className="mt-2 text-xs text-slate-400">请下载到本地后用对应软件查看</p>
+        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+        <p className="mt-2 text-xs text-muted-foreground">请下载到本地后用对应软件查看</p>
       </div>
     </div>
   );

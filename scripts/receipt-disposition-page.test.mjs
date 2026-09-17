@@ -25,6 +25,8 @@ function evaluate(code, dependencies = {}) {
   const exports = {};
   new Function('exports', 'require', 'crypto', 'Date', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', code)(
     exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
       assert.ok(Object.hasOwn(dependencies, name), `页面不应加载未审查依赖：${name}`);
       return dependencies[name];
     }, { randomUUID }, FixedDate, failExternalAccess, forbiddenStorage, forbiddenStorage, forbiddenStorage,
@@ -68,7 +70,7 @@ function fixture() {
     '../order-processing/horizon.css': {},
     './receipt-disposition-preview.css': {},
   };
-  for (const component of ['alert-dialog', 'button', 'collapsible', 'input', 'label', 'tabs']) dependencies[`../components/ui/${component}`] = primitives;
+  for (const component of ['alert-dialog', "button", 'collapsible', "input", 'label', 'tabs']) dependencies[`../components/ui/${component}`] = primitives;
   const exports = evaluate(pageCode, dependencies);
   const view = {
     render() { cursor = 0; tree = exports.ReceiptDispositionPreviewPage(); return tree; },
@@ -77,14 +79,14 @@ function fixture() {
     byType(type) { return view.nodes().find((node) => node.type === type); },
     form() { return view.byType('ReceiptDispositionForm'); },
     dialog() { return view.byType('AlertDialog'); },
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === label); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === label); },
     click(label) { const node = view.button(label); assert.ok(node, `${label} exists`); assert.equal(Boolean(node.props.disabled), false, `${label} enabled`); node.props.onClick(); return view.render(); },
     switchKind(kind) { view.byType('Tabs').props.onValueChange(kind); return view.render(); },
-    selectBatch(name) { const node = view.nodes().find((item) => item.type === 'button' && item.props.className === 'rdp-batch' && text(item).includes(name)); assert.ok(node, `${name} exists`); node.props.onClick(); return view.render(); },
+    selectBatch(name) { const node = view.nodes().find((item) => item.type === "Button" && item.props.className === 'rdp-batch' && text(item).includes(name)); assert.ok(node, `${name} exists`); node.props.onClick(); return view.render(); },
     setDirty(value = true) { view.form().props.onDirtyChange(value); return view.render(); },
     cancelDiscard() { view.dialog().props.onOpenChange(false); return view.render(); },
     confirmDiscard() { view.click('放弃并继续'); view.dialog().props.onOpenChange(false); return view.render(); },
-    failNext(value = true) { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: value } }); return view.render(); },
+    failNext(value = true) { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(value); return view.render(); },
     async save(patch = {}) {
       const form = view.form(); assert.ok(form, '当前应有处置表单');
       try {
@@ -166,7 +168,7 @@ test('只读、空态和读取失败隐藏保存入口，恢复后保留已保�
     const page = fixture(); await page.save({ quantity: 2 }); page.setDirty();
     page.click(scenario); assert.equal(page.dialog().props.open, true); assert.ok(page.form());
     page.confirmDiscard(); assert.equal(page.form(), undefined); assert.ok(page.text().includes(message));
-    assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.disabled, true);
+    assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.disabled, true);
     if (scenario === '仅可查看') assert.match(page.text(), /累计入库\s*36 → 38 件/);
     page.click(back); assert.equal(page.form().props.receipt.inboundQty, 38); assert.match(page.text(), /累计入库\s*36 → 38 件/);
   }
@@ -176,7 +178,7 @@ test('模拟失败仅消耗一次开关，保持草稿与累计，重试成功�
   const page = fixture(); page.setDirty(); page.failNext(); const key = page.form().key;
   await assert.rejects(page.save({ quantity: 3 }), /演示保存失败，填写内容已保留/);
   assert.equal(page.form().key, key); assert.equal(page.form().props.receipt.inboundQty, 36); assert.match(page.text(), /暂无处置记录/);
-  assert.equal(page.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
+  assert.equal(page.nodes().find((node) => node.type === "Checkbox").props.checked, false);
   page.switchKind('isolation'); assert.equal(page.dialog().props.open, true); page.cancelDiscard();
   await page.save({ quantity: 3 }); assert.equal(page.form().props.receipt.inboundQty, 39);
   page.switchKind('isolation'); assert.equal(page.dialog().props.open, false); assert.equal(page.form().props.kind, 'isolation');

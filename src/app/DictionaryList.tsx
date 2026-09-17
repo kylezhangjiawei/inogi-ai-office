@@ -566,18 +566,18 @@ export function DictionaryList() {
                       activeTypeId === type.id ? "border-blue-200 bg-blue-50" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
                     )}
                   >
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       className={cn(
                         "min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm focus-visible:outline-none",
-                        activeTypeId === type.id ? "font-semibold text-[#002fa7]" : "text-slate-700",
+                        activeTypeId === type.id ? "font-semibold text-primary" : "text-slate-700",
                       )}
                       aria-pressed={activeTypeId === type.id}
                       onClick={() => setActiveTypeId(type.id)}
                     >
                       <span className="block truncate">{type.label}</span>
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">{type.kind === "email" ? "邮箱账号" : "通用枚举"}</span>
-                    </button>
+                    </Button>
                     <ActionIconButton label={`编辑类型：${type.label}`} className="border-transparent bg-transparent" onClick={(event) => openEditType(type, event)}>
                       <Pencil className="size-4" aria-hidden="true" />
                     </ActionIconButton>
@@ -613,7 +613,7 @@ export function DictionaryList() {
             <div className="hz-toolbar flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="relative w-full sm:max-w-sm">
                 <Label htmlFor="dictionary-search" className="sr-only">搜索字典条目</Label>
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   ref={stableItemFocusRef}
                   id="dictionary-search"

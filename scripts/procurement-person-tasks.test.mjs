@@ -7,7 +7,9 @@ function load(path, dependencies = {}, globals = {}) {
   const exports = {};
   const source = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  new Function("exports", "require", ...Object.keys(globals), code)(exports, (name) => { assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...Object.values(globals));
+  new Function("exports", "require", ...Object.keys(globals), code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(name in dependencies, `Unexpected dependency: ${name}`); return dependencies[name]; }, ...Object.values(globals));
   return exports;
 }
 const data = load("src/app/procurement/data.ts", { react: {}, "../auth": {}, "../lib/authSession": { addAuthClearedListener() {} }, "../lib/procurementApi": {}, "../lib/rdApi": {} }, { window: undefined });

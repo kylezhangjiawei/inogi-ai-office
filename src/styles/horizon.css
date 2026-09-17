@@ -13,7 +13,7 @@
   --hz-line: var(--border-subtle);
   --hz-line-strong: var(--border);
   --hz-shadow-card: var(--shadow-card);
-  --hz-shadow-focal: var(--shadow-card);
+  --hz-shadow-focal: var(--shadow-focal);
   color: var(--hz-body);
 }
 
@@ -96,16 +96,21 @@
 
 .hz-actions :is(button, [data-slot="button"]) {
   min-height: 2.5rem;
-  border-radius: 11px !important;
+  border-radius: 999px !important;
   box-shadow: none !important;
 }
 
-.hz-primary-action {
+.hz-primary-action,
+.hz-actions .hz-primary-action {
   border-color: var(--hz-primary) !important;
   color: var(--primary-foreground) !important;
   background: var(--hz-primary) !important;
-  box-shadow: none !important;
+  border-radius: 999px !important;
+  box-shadow: var(--shadow-primary) !important;
 }
+
+.hz-primary-action:disabled,
+.hz-actions .hz-primary-action:disabled { box-shadow: none !important; }
 
 .hz-primary-action:hover { border-color: var(--hz-primary-hover) !important; background: var(--hz-primary-hover) !important; }
 
@@ -205,13 +210,19 @@
   border-color: var(--hz-line) !important;
   color: var(--hz-body) !important;
   background: var(--hz-surface) !important;
-  box-shadow: var(--m3-elevation-3) !important;
+  box-shadow: var(--shadow-focal) !important;
 }
 
-.horizon-theme :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible,
-.horizon-portal :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible {
+.horizon-theme :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible,
+.horizon-portal :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible {
   outline: 2px solid var(--primary) !important;
   outline-offset: 2px !important;
+}
+
+/* CommandInput shows focus on the complete search row, inside its clipped surface. */
+.horizon-theme [data-slot="command-input"]:focus-visible,
+.horizon-portal [data-slot="command-input"]:focus-visible {
+  outline: none !important;
 }
 
 @media (max-width: 1320px) {
@@ -256,7 +267,7 @@
   border-radius: 24px;
   padding: 1.25rem;
   background: var(--card);
-  box-shadow: var(--m3-elevation-1);
+  box-shadow: var(--hz-shadow-card);
 }
 .hz-dashboard .hz-stat-value { margin-top: 0.5rem; font-size: 1.75rem; }
 .hz-dashboard .hz-stat-note { margin-top: 0.375rem; }
@@ -302,23 +313,43 @@
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
 }
-/* White navigation chrome frames the tinted workspace; cards remain white. */
+/* Inset white navigation and content float above the near-white canvas. */
 .rd-horizon-app,
 .rd-horizon-app > .material-shell {
-  background: var(--card);
+  background: var(--background);
 }
 
 .rd-horizon-main {
   overscroll-behavior: contain;
   padding-top: 1rem;
-  background: var(--background);
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  background: transparent;
+}
+
+.rd-horizon-desktop-navigation {
+  padding: 1rem 0 1rem 1rem;
+}
+
+.rd-horizon-desktop-navigation .rd-horizon-sidebar-frame {
+  border-radius: 24px;
+  background: var(--sidebar);
+  box-shadow: var(--shadow-chrome);
+}
+
+.rd-horizon-desktop-navigation .rd-horizon-sidebar-frame > div,
+.rd-horizon-desktop-navigation .rd-horizon-global-sidebar {
+  border-radius: inherit;
+}
+
+.rd-horizon-app[data-immersive="true"] .rd-horizon-desktop-navigation {
+  display: none;
 }
 .rd-horizon-global-header .rd-horizon-header-heading { gap: 0.75rem !important; }
 .rd-horizon-global-header .rd-horizon-page-search-trigger {
   height: 2.5rem;
-  border-radius: 16px;
+  border-radius: 999px;
   color: var(--muted-foreground);
-  background: var(--background);
+  background: var(--input-background);
 }
 .rd-horizon-global-header .rd-horizon-page-search-trigger:hover { background: var(--accent); color: var(--primary); }
 .rd-horizon-global-header .rd-horizon-header-date { border: 0; }

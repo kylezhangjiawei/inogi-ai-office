@@ -48,9 +48,9 @@ test("四步立项、AI 生成微调、附件与审批业务契约保持完整",
   assert.match(source, /当前版本尚未实现会签的逐人完成状态/);
 });
 
-test("立项向导统一 Klein Blue 强调并清除旧高噪声视觉", () => {
-  assert.match(source, /bg-\[#002fa7\]/);
-  assert.match(source, /bg-\[#eef3ff\]/);
+test("立项向导统一 Horizon 主题 强调并清除旧高噪声视觉", () => {
+  assert.match(source, /bg-primary/);
+  assert.match(source, /bg-accent/);
   assert.match(source, /hz-primary-action/);
   assert.doesNotMatch(source, /\b(?:indigo|violet|purple|fuchsia|pink)-/i);
   assert.doesNotMatch(source, /\bdark:/);

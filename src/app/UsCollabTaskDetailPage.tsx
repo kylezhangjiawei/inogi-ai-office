@@ -122,7 +122,7 @@ function LocalClock({ name, role, lang }: { name: string; role?: string; lang: "
   const isDaytime = hour >= 7 && hour < 19;
   return (
     <span
-      className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-slate-400"
+      className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-muted-foreground"
       title={t("{name} 当地时间（{location}）", { name: displayName, location: displayLocation })}
     >
       {displayLocation} {time}
@@ -806,7 +806,7 @@ export default function UsCollabTaskDetailPage() {
               // 注：「分类路径」是研发侧 BOM 系统概念，协同任务不展示
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{row.label}</span>
                 <span className="min-w-0 truncate text-right font-medium text-slate-700">{row.value}</span>
               </div>
             ))}
@@ -828,16 +828,16 @@ export default function UsCollabTaskDetailPage() {
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">{t("主责人")}</span>
               {canManage && !task.archived && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setShowAddCollab(true)}
-                  className="cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+                  className="cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                 >
                   + {t("添加协作人")}
-                </button>
+                </Button>
               )}
             </div>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setPersonTasksFor(task.primary_owner)}
               className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
@@ -846,13 +846,13 @@ export default function UsCollabTaskDetailPage() {
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
               <LocalClock name={task.primary_owner} lang={lang} />
-            </button>
+            </Button>
             {(task.collaborators ?? []).length > 0 && (
               <>
                 <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">{t("协作人")}</div>
                 <div className="space-y-1">
                   {(task.collaborators ?? []).map((c) => (
-                    <button
+                    <Button variant="unstyled"
                       key={c.id}
                       type="button"
                       onClick={() => setPersonTasksFor(c.name)}
@@ -861,9 +861,9 @@ export default function UsCollabTaskDetailPage() {
                     >
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
-                      <span className="text-[11px] text-slate-400">{t(c.role)}</span>
+                      <span className="text-[11px] text-muted-foreground">{t(c.role)}</span>
                       <LocalClock name={c.name} role={c.role} lang={lang} />
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </>
@@ -943,18 +943,18 @@ export default function UsCollabTaskDetailPage() {
           {brief && (
             <div className="shrink-0 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3">
               <div className="mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1 text-xs font-semibold text-[#002fa7]">
+                <span className="flex items-center gap-1 text-xs font-semibold text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
                   {t("任务小结")}{brief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
                 </span>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setBrief(null)}
                   aria-label={t("关闭任务小结")}
-                  className="cursor-pointer rounded p-0.5 text-blue-400 transition-colors hover:bg-blue-100 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                  className="cursor-pointer rounded p-0.5 text-primary transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
               <AutoTranslatedText
                 as="p"
@@ -999,9 +999,9 @@ export default function UsCollabTaskDetailPage() {
                   <TabsTrigger
                     key={tabItem.key}
                     value={tabItem.key}
-                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
+                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
-                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-[#002fa7]" />}
+                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-primary" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
                       <span className={cn(
@@ -1049,18 +1049,18 @@ export default function UsCollabTaskDetailPage() {
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p>
+                    <p className="py-4 text-center text-sm text-muted-foreground">{t("暂无文档附件")}</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-slate-100 hover:bg-transparent">
-                            <TableHead className="text-xs text-slate-400">{t("文件名")}</TableHead>
-                            <TableHead className="text-xs text-slate-400">{t("来源任务")}</TableHead>
-                            <TableHead className="text-xs text-slate-400">{t("大小")}</TableHead>
-                            <TableHead className="text-xs text-slate-400">{t("上传时间")}</TableHead>
-                            <TableHead className="text-xs text-slate-400">{t("上传人")}</TableHead>
-                            <TableHead className="text-xs text-slate-400">{t("操作")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("文件名")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("来源任务")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("大小")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("上传时间")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("上传人")}</TableHead>
+                            <TableHead className="text-xs text-muted-foreground">{t("操作")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1068,15 +1068,15 @@ export default function UsCollabTaskDetailPage() {
                             <TableRow key={att.id} className="border-slate-50 hover:bg-slate-50/60">
                               <TableCell className="max-w-[320px]">
                                 {/* 文件名即预览入口：与留痕里的附件磁贴共用同一个弹窗 */}
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   onClick={() => setPreviewAttachment(att)}
                                   title={att.name}
-                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#002fa7]"
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-primary"
                                 >
-                                  <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                   <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
-                                </button>
+                                </Button>
                               </TableCell>
                               <TableCell className="max-w-[200px]">
                                 <span className="block min-w-0 truncate text-xs text-slate-500" title={sourceTaskTitle || sourceTaskId}>
@@ -1093,7 +1093,7 @@ export default function UsCollabTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-blue-800"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -1165,13 +1165,13 @@ export default function UsCollabTaskDetailPage() {
                     {composerFiles.map((f, i) => (
                       <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
                         {f.name}
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => setComposerFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="cursor-pointer text-slate-400 hover:text-slate-600"
+                          className="cursor-pointer text-muted-foreground hover:text-slate-600"
                         >
                           <X className="h-3 w-3" />
-                        </button>
+                        </Button>
                       </span>
                     ))}
                   </div>
@@ -1180,7 +1180,7 @@ export default function UsCollabTaskDetailPage() {
                   <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">
                     <FileText className="h-3.5 w-3.5" />
                     {t("附件")}
-                    <input
+                    <Input
                       type="file"
                       multiple
                       className="hidden"
@@ -1276,31 +1276,31 @@ export default function UsCollabTaskDetailPage() {
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
               <span>
                 {personTasksFor}
-                <span className="ml-2 text-[11px] font-normal text-slate-400">{t("名下活跃任务 {count} 条", { count: tasksOfPerson.length })}</span>
+                <span className="ml-2 text-[11px] font-normal text-muted-foreground">{t("名下活跃任务 {count} 条", { count: tasksOfPerson.length })}</span>
               </span>
             </DialogTitle>
           </DialogHeader>
           <div className="cockpit-scroll max-h-[50vh] space-y-1.5 overflow-y-auto">
             {tasksOfPerson.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-400">{t("暂无活跃任务")}</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{t("暂无活跃任务")}</p>
             ) : (
               tasksOfPerson.map((t) => {
                 const tCfg = STATUS_CONFIG[t.status] ?? STATUS_CONFIG.in_progress;
                 return (
-                  <button
+                  <Button variant="unstyled"
                     key={t.task_id}
                     type="button"
                     onClick={() => {
                       setPersonTasksFor(null);
                       if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
-                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-primary/25 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                   >
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
                     <span className={cn("shrink-0 text-[11px] font-medium", tCfg.text)}>{tCfg.label}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{t.progress}%</span>
-                  </button>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{t.progress}%</span>
+                  </Button>
                 );
               })
             )}
@@ -1352,7 +1352,7 @@ function EditTaskInfoDialog({
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-950">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7]" aria-hidden="true">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-primary" aria-hidden="true">
               <Pencil className="h-4 w-4" />
             </span>
             {t("编辑任务信息")}
@@ -1394,7 +1394,7 @@ function EditTaskInfoDialog({
             <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
               {t("取消")}
             </Button>
-            <Button type="submit" disabled={saving || !title.trim()} className="bg-[#002fa7] text-white hover:bg-[#002787]">
+            <Button type="submit" disabled={saving || !title.trim()} className="bg-primary text-white hover:bg-primary-hover">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               {saving ? t("保存中…") : t("保存")}
             </Button>

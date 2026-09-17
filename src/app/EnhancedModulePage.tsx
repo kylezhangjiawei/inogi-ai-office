@@ -4,6 +4,8 @@ import { ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Circle, Clock3, Se
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { moduleConfigs } from "./ModulePage";
+import { Input } from "./components/ui/input";
+import { Button } from "./components/ui/button";
 
 const sectionPageSize = 4;
 
@@ -106,8 +108,8 @@ export function EnhancedModulePage() {
       <section className="material-card p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative w-full max-w-md">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
               className="material-input pl-11"
               value={keyword}
               onChange={(event) => {
@@ -120,7 +122,7 @@ export function EnhancedModulePage() {
           <div className="flex flex-wrap items-center gap-3">
             <span className="material-chip bg-slate-100 text-slate-600">{keyword ? `筛选中：${keyword}` : "全部记录"}</span>
             <span className="material-chip bg-blue-50 text-blue-700">已选择 {selectedCount}</span>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => {
                 setKeyword("");
@@ -131,7 +133,7 @@ export function EnhancedModulePage() {
             >
               <Sparkles className="h-4 w-4" />
               重置筛选
-            </button>
+            </Button>
           </div>
         </div>
       </section>
@@ -144,15 +146,15 @@ export function EnhancedModulePage() {
               <p className="mt-1 text-sm text-slate-500">已选 {selectedCount} 条记录，可直接进入批量流转演示。</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => toast.success(`已将 ${selectedCount} 条记录提交到复核队列`)} className="material-button-primary">
+              <Button variant="unstyled" type="button" onClick={() => toast.success(`已将 ${selectedCount} 条记录提交到复核队列`)} className="material-button-primary">
                 批量提交复核
-              </button>
-              <button type="button" onClick={() => toast.success(`已为 ${selectedCount} 条记录生成跟进任务`)} className="material-button-secondary">
+              </Button>
+              <Button variant="unstyled" type="button" onClick={() => toast.success(`已为 ${selectedCount} 条记录生成跟进任务`)} className="material-button-secondary">
                 批量生成任务
-              </button>
-              <button type="button" onClick={clearSelection} className="material-button-secondary">
+              </Button>
+              <Button variant="unstyled" type="button" onClick={clearSelection} className="material-button-secondary">
                 清空选择
-              </button>
+              </Button>
             </div>
           </div>
         </section>
@@ -208,35 +210,35 @@ export function EnhancedModulePage() {
                       return (
                         <div key={item.title} className="rounded-[22px] border border-slate-100 bg-slate-50/80 p-4 transition hover:-translate-y-0.5">
                           <div className="flex items-start justify-between gap-3">
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => setSelectedDetail({ title: item.title, detail: item.subtitle, tag: item.tag })}
                               className="flex-1 text-left"
                             >
                               <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                               <div className="mt-2 text-sm leading-6 text-slate-500">{item.subtitle}</div>
-                            </button>
+                            </Button>
                             <div className="flex items-center gap-2">
                               {item.tag ? <span className="material-chip bg-white text-slate-600">{item.tag}</span> : null}
-                              <button
+                              <Button variant="unstyled"
                                 type="button"
                                 onClick={() => toggleRecord(recordKey)}
                                 className={cn(
                                   "flex h-8 w-8 items-center justify-center rounded-xl border transition",
                                   selectedRecords[recordKey]
-                                    ? "border-blue-200 bg-blue-50 text-primary"
-                                    : "border-slate-200 bg-white text-slate-400 hover:border-blue-200",
+                                    ? "border-primary/25 bg-accent text-primary"
+                                    : "border-slate-200 bg-white text-muted-foreground hover:border-primary/25",
                                 )}
                               >
                                 {selectedRecords[recordKey] ? "✓" : "+"}
-                              </button>
+                              </Button>
                             </div>
                           </div>
                           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                            <span className="text-xs text-slate-400">点击查看详情</span>
-                            <button type="button" onClick={() => toast.success(`${item.title} 已加入本模块跟进列表`)} className="text-xs font-semibold text-primary">
+                            <span className="text-xs text-muted-foreground">点击查看详情</span>
+                            <Button variant="unstyled" type="button" onClick={() => toast.success(`${item.title} 已加入本模块跟进列表`)} className="text-xs font-semibold text-primary">
                               加入跟进
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       );
@@ -264,18 +266,18 @@ export function EnhancedModulePage() {
                           return (
                             <tr key={`${section.title}-${index}`} className="cursor-pointer hover:bg-slate-50/70" onClick={() => setSelectedDetail({ title: row[0], detail: row.slice(1).join(" / ") })}>
                               <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   onClick={() => toggleRecord(recordKey)}
                                   className={cn(
                                     "flex h-8 w-8 items-center justify-center rounded-xl border transition",
                                     selectedRecords[recordKey]
-                                      ? "border-blue-200 bg-blue-50 text-primary"
-                                      : "border-slate-200 bg-white text-slate-400 hover:border-blue-200",
+                                      ? "border-primary/25 bg-accent text-primary"
+                                      : "border-slate-200 bg-white text-muted-foreground hover:border-primary/25",
                                   )}
                                 >
                                   {selectedRecords[recordKey] ? "✓" : "+"}
-                                </button>
+                                </Button>
                               </td>
                               {row.map((cell, cellIndex) => (
                                 <td key={`${cell}-${cellIndex}`} className="px-4 py-3 text-sm text-slate-700">
@@ -283,9 +285,9 @@ export function EnhancedModulePage() {
                                 </td>
                               ))}
                               <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                                <button type="button" onClick={() => toast.success(`${row[0]} 已推送到下游流程`)} className="text-xs font-semibold text-primary">
+                                <Button variant="unstyled" type="button" onClick={() => toast.success(`${row[0]} 已推送到下游流程`)} className="text-xs font-semibold text-primary">
                                   推进
-                                </button>
+                                </Button>
                               </td>
                             </tr>
                           );
@@ -301,7 +303,7 @@ export function EnhancedModulePage() {
                       const stepKey = `${section.title}-${item.title}`;
                       const currentStatus = stepStatuses[stepKey] ?? item.status;
                       return (
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           key={item.title}
                           onClick={() => {
@@ -312,19 +314,19 @@ export function EnhancedModulePage() {
                           className="flex w-full gap-4 rounded-[20px] border border-slate-100 bg-slate-50/60 p-4 text-left transition hover:-translate-y-0.5"
                         >
                           <div className="pt-0.5">
-                            {currentStatus === "done" ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : currentStatus === "current" ? <Clock3 className="h-5 w-5 text-blue-600" /> : <Circle className="h-5 w-5 text-slate-300" />}
+                            {currentStatus === "done" ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : currentStatus === "current" ? <Clock3 className="h-5 w-5 text-blue-600" /> : <Circle className="h-5 w-5 text-muted-foreground" />}
                           </div>
                           <div className="flex-1">
                             <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                             <div className="mt-1 text-sm text-slate-500">{item.detail}</div>
                             <div className="mt-2 flex items-center justify-between gap-3">
-                              <span className="text-xs text-slate-400">点击切换该步骤状态</span>
+                              <span className="text-xs text-muted-foreground">点击切换该步骤状态</span>
                               <span className="material-chip bg-white text-slate-500">
                                 {currentStatus === "done" ? "已完成" : currentStatus === "current" ? "处理中" : "待开始"}
                               </span>
                             </div>
                           </div>
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -341,31 +343,31 @@ export function EnhancedModulePage() {
                             return (
                               <div key={card.title} className="rounded-2xl bg-white p-4 shadow-sm transition hover:-translate-y-0.5">
                                 <div className="flex items-start justify-between gap-3">
-                                  <button
+                                  <Button variant="unstyled"
                                     type="button"
                                     onClick={() => setSelectedDetail({ title: card.title, detail: `${column.title} / ${card.detail}` })}
                                     className="flex-1 text-left"
                                   >
                                     <div className="text-sm font-semibold text-slate-800">{card.title}</div>
                                     <div className="mt-2 text-sm text-slate-500">{card.detail}</div>
-                                  </button>
-                                  <button
+                                  </Button>
+                                  <Button variant="unstyled"
                                     type="button"
                                     onClick={() => toggleRecord(recordKey)}
                                     className={cn(
                                       "flex h-8 w-8 items-center justify-center rounded-xl border transition",
                                       selectedRecords[recordKey]
-                                        ? "border-blue-200 bg-blue-50 text-primary"
-                                        : "border-slate-200 bg-white text-slate-400 hover:border-blue-200",
+                                        ? "border-primary/25 bg-accent text-primary"
+                                        : "border-slate-200 bg-white text-muted-foreground hover:border-primary/25",
                                     )}
                                   >
                                     {selectedRecords[recordKey] ? "✓" : "+"}
-                                  </button>
+                                  </Button>
                                 </div>
                                 <div className="mt-3 border-t border-slate-100 pt-3 text-right">
-                                  <button type="button" onClick={() => toast.success(`${card.title} 已指派到 ${column.title}`)} className="text-xs font-semibold text-primary">
+                                  <Button variant="unstyled" type="button" onClick={() => toast.success(`${card.title} 已指派到 ${column.title}`)} className="text-xs font-semibold text-primary">
                                     指派流转
-                                  </button>
+                                  </Button>
                                 </div>
                               </div>
                             );
@@ -385,12 +387,12 @@ export function EnhancedModulePage() {
                 <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
                   <div className="text-sm text-slate-500">第 {currentPage} / {totalPages} 页</div>
                   <div className="flex gap-2">
-                    <button className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage - 1)} disabled={currentPage === 1}>
+                    <Button variant="unstyled" className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage - 1)} disabled={currentPage === 1}>
                       <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <button className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage + 1)} disabled={currentPage === totalPages}>
+                    </Button>
+                    <Button variant="unstyled" className="material-button-secondary !px-3 !py-2" onClick={() => setSectionPage(currentPage + 1)} disabled={currentPage === totalPages}>
                       <ChevronRight className="h-4 w-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -406,9 +408,9 @@ export function EnhancedModulePage() {
                 <p className="mt-1 text-sm text-slate-500">点击卡片、表格或任务后，在这里查看详情与下一步动作。</p>
               </div>
               {selectedDetail ? (
-                <button type="button" onClick={() => setSelectedDetail(null)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200">
+                <Button variant="unstyled" type="button" onClick={() => setSelectedDetail(null)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200">
                   ×
-                </button>
+                </Button>
               ) : null}
             </div>
             {selectedDetail ? (
@@ -422,9 +424,9 @@ export function EnhancedModulePage() {
                 </div>
                 <div className="space-y-3">
                   {["加入重点关注", "创建跟进任务", "推送到下游"].map((action) => (
-                    <button key={action} type="button" onClick={() => toast.success(`${selectedDetail.title}：${action}`)} className="material-button-secondary w-full justify-center">
+                    <Button variant="unstyled" key={action} type="button" onClick={() => toast.success(`${selectedDetail.title}：${action}`)} className="material-button-secondary w-full justify-center">
                       {action}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -441,21 +443,21 @@ export function EnhancedModulePage() {
                 <h3 className="text-slate-900">快捷工具</h3>
                 <p className="mt-1 text-sm text-slate-500">给通用模块补上常用操作入口。</p>
               </div>
-              <button className="material-button-secondary" onClick={() => toast.success("当前模块列表已刷新")}>
+              <Button variant="unstyled" className="material-button-secondary" onClick={() => toast.success("当前模块列表已刷新")}>
                 <Sparkles className="h-4 w-4" />
                 刷新状态
-              </button>
+              </Button>
             </div>
             <div className="space-y-3">
               {["导出当前筛选结果", "生成模块周报", "同步到首页待办"].map((item) => (
-                <button
+                <Button variant="unstyled"
                   key={item}
                   type="button"
                   onClick={() => toast.success(`${item} 已执行`)}
                   className="w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                 >
                   {item}
-                </button>
+                </Button>
               ))}
             </div>
           </section>

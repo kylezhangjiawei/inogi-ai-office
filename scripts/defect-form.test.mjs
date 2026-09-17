@@ -37,6 +37,8 @@ function fixture({ kind = 'repair', submit, props: overrides = {} } = {}) {
   const dependencies = { react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, '../../lib/i18n': { useI18n: () => ({ t }), i18nLocale: () => 'zh-CN' }, '../../components/ui/utils': { cn: (...parts) => parts.filter(Boolean).join(' ') }, './defectTypes': types, './defectModel': model };
   const exports = {};
   new Function('exports', 'require', 'FileReader', 'Date', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name]; if (name.endsWith('.css')) return {};
     assert.ok(name === 'lucide-react' || name.startsWith('../../components/ui/'), `No external write dependency: ${name}`); return components;
   }, LocalFileReader, FixedDate);
@@ -59,7 +61,7 @@ function fixture({ kind = 'repair', submit, props: overrides = {} } = {}) {
     button: (label) => elements(tree).find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === label),
     fill(name, value) { const node = view.field(name); assert.ok(node, `${name} exists`); assert.equal(Boolean(node.props.disabled), false); node.props.onChange({ target: { value } }); return view.render(); },
     select(name, value) { const node = view.selectNode(name); assert.ok(node); assert.equal(Boolean(node.props.disabled), false); node.props.onValueChange(value); return view.render(); },
-    check(value = true) { const node = view.field('reviewed'); assert.equal(Boolean(node.props.disabled), false); node.props.onChange({ target: { checked: value } }); return view.render(); },
+    check(value = true) { const node = view.field('reviewed'); assert.equal(Boolean(node.props.disabled), false); node.props.onCheckedChange(value); return view.render(); },
     async photos(files) { await view.field('photos').props.onChange({ target: { files, value: 'chosen' } }); return view.render(); },
     removePhoto(name) { view.nodes().find((node) => node.props?.['aria-label'] === `移除照片 ${name}`).props.onClick(); return view.render(); },
     submit() { view.node('form').props.onSubmit({ preventDefault() {} }); return view.render(); },

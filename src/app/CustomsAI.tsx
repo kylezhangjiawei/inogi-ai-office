@@ -1,3 +1,4 @@
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import React, { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -85,7 +86,7 @@ const processLogs = [
 function statusTone(status: SourceFile["status"] | FieldComparison["status"] | TemplateCard["status"]) {
   if (status === "已上传" || status === "一致" || status === "已生成") return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (status === "待复核" || status === "差异") return "border-amber-100 bg-amber-50 text-amber-700";
-  return "border-blue-100 bg-blue-50 text-[#002fa7]";
+  return "border-blue-100 bg-blue-50 text-primary";
 }
 
 export function CustomsAI() {
@@ -135,7 +136,7 @@ export function CustomsAI() {
         <ol className="grid divide-y divide-slate-100 px-4 lg:grid-cols-3 lg:divide-x lg:divide-y-0 lg:px-0">
           {processLogs.map((item, index) => (
             <li key={item.time} className="flex min-w-0 gap-3 py-3 lg:px-4">
-              <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums", index === processLogs.length - 1 ? "bg-[#002fa7] text-white" : "bg-[#eef3ff] text-[#002fa7]")} aria-hidden="true">{index + 1}</span>
+              <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums", index === processLogs.length - 1 ? "bg-primary text-white" : "bg-accent text-primary")} aria-hidden="true">{index + 1}</span>
               <div className="min-w-0"><div className="flex flex-wrap items-start justify-between gap-2"><h3 className="text-balance text-sm font-semibold text-slate-800">{item.title}</h3><time className="text-xs text-slate-500 tabular-nums">{item.time}</time></div><p className="mt-1 text-xs text-pretty leading-5 text-slate-600">{item.helper}</p></div>
             </li>
           ))}
@@ -143,31 +144,31 @@ export function CustomsAI() {
       </section>
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <section className="hz-surface min-w-0 overflow-hidden">
+        <Tabs value={activeDoc} onValueChange={(value) => { setActiveDoc(value as "PI" | "CI" | "PL"); setComparisonPage(1); }} className="hz-surface min-w-0 gap-0 overflow-hidden">
           <HorizonSectionHeader Icon={Upload} title="单证文件" description="按 PI、CI、PL 分类查看。" trailing={<span className="text-xs text-slate-500 tabular-nums">{activeFiles.length} 个文件</span>} />
-          <div className="hz-toolbar flex flex-wrap gap-2 border-b px-4 py-3" role="tablist" aria-label="单证类型">
-            {(["PI", "CI", "PL"] as const).map((type) => (
-              <Button key={type} type="button" size="sm" variant={activeDoc === type ? "default" : "ghost"} role="tab" aria-selected={activeDoc === type} className={cn(activeDoc === type && "bg-[#002fa7] hover:bg-[#002581]")} onClick={() => { setActiveDoc(type); setComparisonPage(1); }}>{type}</Button>
-            ))}
-          </div>
+          <TabsList className="hz-toolbar h-auto w-full justify-start rounded-none border-b bg-transparent px-4 py-3" aria-label="单证类型">
+            {(["PI", "CI", "PL"] as const).map((type) => <TabsTrigger key={type} value={type} className="flex-none">{type}</TabsTrigger>)}
+          </TabsList>
+          <TabsContent value={activeDoc}>
           <div className="border-b border-slate-100 p-4">
             <Button type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal rounded-xl border-dashed px-3 py-3 text-left" onClick={uploadDemo}>
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true"><Upload className="size-4" /></span>
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden="true"><Upload className="size-4" /></span>
               <span className="min-w-0"><span className="block text-sm font-semibold text-slate-800">上传 {activeDoc} 文件</span><span className="mt-0.5 block text-xs text-pretty text-slate-500">追加一份演示单证并进入识别队列</span></span>
             </Button>
           </div>
           {activeFiles.length > 0 ? (
             <div className="divide-y divide-slate-100">
               {activeFiles.map((item) => (
-                <button key={item.id} type="button" onClick={() => setPreviewFile(item)} className="w-full min-w-0 px-4 py-3 text-left transition-colors hover:bg-[#f7f9ff]">
+                <Button variant="unstyled" key={item.id} type="button" onClick={() => setPreviewFile(item)} className="w-full min-w-0 px-4 py-3 text-left transition-colors hover:bg-[#f7f9ff]">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800" title={item.name}>{item.name}</div><time className="mt-1 block text-xs text-slate-500 tabular-nums">{item.uploadedAt}</time></div><span className={cn("shrink-0 rounded-full border px-2 py-1 text-xs font-semibold", statusTone(item.status))}>{item.status}</span></div>
-                </button>
+                </Button>
               ))}
             </div>
           ) : (
             <HorizonEmptyState Icon={FileText} title={`尚未上传 ${activeDoc} 文件`} description="上传文件后将自动进入字段识别。" action={<Button type="button" variant="outline" onClick={uploadDemo}>上传文件</Button>} />
           )}
-        </section>
+          </TabsContent>
+        </Tabs>
 
         <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
           <section className="hz-surface min-w-0 overflow-hidden">
@@ -186,13 +187,13 @@ export function CustomsAI() {
             <HorizonSectionHeader Icon={WandSparkles} title="模板回填" description="确认差异后生成可编辑草稿。" />
             <div className="divide-y divide-slate-100">
               {templateCards.map((item) => (
-                <button key={item.title} type="button" onClick={() => setPreviewTemplate(item)} className="w-full min-w-0 px-4 py-3 text-left transition-colors hover:bg-[#f7f9ff]">
+                <Button variant="unstyled" key={item.title} type="button" onClick={() => setPreviewTemplate(item)} className="w-full min-w-0 px-4 py-3 text-left transition-colors hover:bg-[#f7f9ff]">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="text-balance text-sm font-semibold text-slate-800">{item.title}</h3><p className="mt-1 text-xs text-pretty leading-5 text-slate-600">{item.helper}</p></div><span className={cn("shrink-0 rounded-full border px-2 py-1 text-xs font-semibold", statusTone(item.status))}>{item.status}</span></div>
                   <div className="mt-3 flex flex-wrap gap-1.5">{item.fields.map((field) => <span key={field} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{field}</span>)}</div>
-                </button>
+                </Button>
               ))}
             </div>
-            <div className="flex items-start gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-pretty text-blue-900"><WandSparkles className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" /><p>下一步：完成差异复核，导出模板并同步到对外资料归档。</p></div>
+            <div className="flex items-start gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-pretty text-blue-900"><WandSparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" /><p>下一步：完成差异复核，导出模板并同步到对外资料归档。</p></div>
           </section>
         </div>
       </div>
@@ -205,7 +206,7 @@ export function CustomsAI() {
         <div className="hz-surface min-w-0 overflow-hidden">
           <HorizonSectionHeader Icon={FileText} title="流程去向" description="将确认后的模板送入后续业务模块。" />
           <div className="divide-y divide-slate-100">
-            {[{ title: "同步到对外资料版本", detail: "将最终模板和说明归档到版本管理中心。", to: routePath("page:external-docs", "/external-docs") }, { title: "同步到注册项目里程碑", detail: "把需要注册配合的单证事项挂到项目看板。", to: routePath("page:registration-projects", "/registration-projects") }].map((item) => <Link key={item.title} to={item.to} className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[#f7f9ff]"><div className="min-w-0"><div className="text-sm font-semibold text-slate-800">{item.title}</div><p className="mt-1 text-xs text-pretty text-slate-600">{item.detail}</p></div><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true"><ArrowRight className="size-4" /></span></Link>)}
+            {[{ title: "同步到对外资料版本", detail: "将最终模板和说明归档到版本管理中心。", to: routePath("page:external-docs", "/external-docs") }, { title: "同步到注册项目里程碑", detail: "把需要注册配合的单证事项挂到项目看板。", to: routePath("page:registration-projects", "/registration-projects") }].map((item) => <Link key={item.title} to={item.to} className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[#f7f9ff]"><div className="min-w-0"><div className="text-sm font-semibold text-slate-800">{item.title}</div><p className="mt-1 text-xs text-pretty text-slate-600">{item.detail}</p></div><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden="true"><ArrowRight className="size-4" /></span></Link>)}
           </div>
         </div>
       </section>
@@ -215,7 +216,7 @@ export function CustomsAI() {
           <DialogHeader><DialogTitle className="text-balance text-slate-900">文件预览</DialogTitle><DialogDescription className="text-pretty">核对文件类型、上传时间和识别状态。</DialogDescription></DialogHeader>
           {previewFile ? <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200"><DialogInfo label="文件名" value={previewFile.name} /><DialogInfo label="单证类型" value={previewFile.type} /><DialogInfo label="上传时间" value={previewFile.uploadedAt} /><div className="grid gap-1 px-4 py-3 sm:grid-cols-[100px_minmax(0,1fr)]"><dt className="text-xs text-slate-500">识别状态</dt><dd><span className={cn("inline-flex rounded-full border px-2 py-1 text-xs font-semibold", statusTone(previewFile.status))}>{previewFile.status}</span></dd></div></dl> : null}
           <p className="text-sm text-pretty leading-6 text-slate-600">建议继续核对字段抽取结果，并确认该文件是否为最新外发版本。</p>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setPreviewFile(null)}>关闭</Button><Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => { setPreviewFile(null); toast.success("文件已进入人工复核队列"); }}><FileCheck2 className="size-4" />进入复核</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setPreviewFile(null)}>关闭</Button><Button type="button" className="bg-primary hover:bg-primary-hover" onClick={() => { setPreviewFile(null); toast.success("文件已进入人工复核队列"); }}><FileCheck2 className="size-4" />进入复核</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -223,7 +224,7 @@ export function CustomsAI() {
         <DialogContent className="horizon-portal sm:max-w-xl">
           <DialogHeader><DialogTitle className="text-balance text-slate-900">{previewTemplate?.title ?? "模板详情"}</DialogTitle><DialogDescription className="text-pretty">查看回填字段与当前生成状态。</DialogDescription></DialogHeader>
           {previewTemplate ? <div className="space-y-4"><p className="text-sm text-pretty leading-6 text-slate-600">{previewTemplate.helper}</p><div><div className="text-sm font-semibold text-slate-800">回填字段</div><div className="mt-2 flex flex-wrap gap-2">{previewTemplate.fields.map((field) => <span key={field} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{field}</span>)}</div></div><div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3"><span className="text-sm text-slate-500">模板状态</span><span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", statusTone(previewTemplate.status))}>{previewTemplate.status}</span></div></div> : null}
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setPreviewTemplate(null)}>关闭</Button><Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => { const action = previewTemplate?.status === "已生成" ? "模板草稿已打开" : "模板草稿已生成"; setPreviewTemplate(null); toast.success(action); }}><WandSparkles className="size-4" />{previewTemplate?.status === "已生成" ? "打开草稿" : "生成草稿"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setPreviewTemplate(null)}>关闭</Button><Button type="button" className="bg-primary hover:bg-primary-hover" onClick={() => { const action = previewTemplate?.status === "已生成" ? "模板草稿已打开" : "模板草稿已生成"; setPreviewTemplate(null); toast.success(action); }}><WandSparkles className="size-4" />{previewTemplate?.status === "已生成" ? "打开草稿" : "生成草稿"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

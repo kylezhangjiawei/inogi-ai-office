@@ -16,10 +16,10 @@ export function SiteRecordFooter({
   const linkClassName = cn(
     "rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2",
     tone === "dark"
-      ? "hover:text-blue-100 focus-visible:ring-blue-200"
+      ? "hover:text-primary-hover focus-visible:ring-primary"
       : tone === "horizon"
         ? "hover:text-primary focus-visible:ring-primary"
-        : "hover:text-indigo-600 focus-visible:ring-indigo-300",
+        : "hover:text-primary-hover focus-visible:ring-primary",
   );
 
   return (

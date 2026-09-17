@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { cn } from "../../components/ui/utils";
+import { Button } from "../../components/ui/button";
 
 /** 自动归类的哨兵值：Radix 不允许空字符串作为选中值，用它表示「解除显式归属」。 */
 const AUTO_NODE = "__auto__";
@@ -160,18 +161,18 @@ export function MoveTaskDialog({
             )}
           >
             {hasChildren ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={(event) => { event.stopPropagation(); toggle(node.id); }}
                 className="shrink-0 rounded p-0.5 hover:bg-slate-200"
                 aria-label={isOpen ? t("收起") : t("展开")}
               >
-                <ChevronRight className={cn("size-3.5 text-slate-400", isOpen && "rotate-90")} />
-              </button>
+                <ChevronRight className={cn("size-3.5 text-muted-foreground", isOpen && "rotate-90")} />
+              </Button>
             ) : (
               <span className="w-4.5 shrink-0" />
             )}
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-pressed={isSelected}
               onClick={() => { setSelected(node.id); setActionError(""); }}
@@ -182,9 +183,9 @@ export function MoveTaskDialog({
                 <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{node.taskCount}</span>
               ) : null}
               {node.id === currentNodeId ? (
-                <span className="shrink-0 text-[10px] text-slate-400">{t("当前")}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">{t("当前")}</span>
               ) : null}
-            </button>
+            </Button>
           </div>
           {hasChildren && isOpen ? renderNodes(node.children, depth + 1) : null}
         </div>
@@ -216,7 +217,7 @@ export function MoveTaskDialog({
             { label: t("选择目标归属"), complete: Boolean(selectedLabel) },
           ].map((step, index) => {
             const active = index === (batchMode && picked.size === 0 ? 0 : 1);
-            return <div key={step.label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-primary" : step.complete ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-primary bg-primary text-white" : step.complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>{step.complete && !active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{step.label}</span></div>;
+            return <div key={step.label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-primary" : step.complete ? "text-emerald-700" : "text-muted-foreground")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-primary bg-primary text-white" : step.complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>{step.complete && !active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{step.label}</span></div>;
           })}
         </div>
 
@@ -230,17 +231,17 @@ export function MoveTaskDialog({
                 placeholder={t("搜索单号 / 物料 / 负责人")}
                 className="h-8 flex-1 text-xs"
               />
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => { setPicked(allPicked ? new Set() : new Set(visibleCandidates.map((task) => task.id))); setActionError(""); }}
                 className="shrink-0 text-xs font-semibold text-primary hover:underline"
               >
                 {allPicked ? t("全部取消") : t("全部选中")}
-              </button>
+              </Button>
             </div>
             <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200">
               {visibleCandidates.length === 0 ? (
-                <p className="py-6 text-center text-xs text-slate-400">{t("没有匹配的任务")}</p>
+                <p className="py-6 text-center text-xs text-muted-foreground">{t("没有匹配的任务")}</p>
               ) : (
                 visibleCandidates.map((task) => (
                   <label key={task.id} className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-xs last:border-b-0 hover:bg-slate-50">
@@ -258,7 +259,7 @@ export function MoveTaskDialog({
                     />
                     <span className="shrink-0 font-mono text-slate-500">{task.code}</span>
                     <span className="min-w-0 flex-1 truncate text-slate-700">{task.materialName}</span>
-                    <span className="shrink-0 text-slate-400">{task.buyer}</span>
+                    <span className="shrink-0 text-muted-foreground">{task.buyer}</span>
                   </label>
                 ))
               )}
@@ -268,14 +269,14 @@ export function MoveTaskDialog({
 
         <div className="max-h-[52vh] overflow-y-auto px-4 py-3">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />{t("加载子系统树")}…
             </div>
           ) : error ? (
-            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-5 text-rose-600" /><p className="max-w-sm text-pretty text-sm text-rose-700">{error}</p><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载归属树")}</button></div>
+            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-5 text-rose-600" /><p className="max-w-sm text-pretty text-sm text-rose-700">{error}</p><Button variant="unstyled" type="button" onClick={() => setReloadKey((value) => value + 1)} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载归属树")}</Button></div>
           ) : (
             <>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 aria-pressed={selected === AUTO_NODE}
                 onClick={() => { setSelected(AUTO_NODE); setActionError(""); }}
@@ -284,7 +285,7 @@ export function MoveTaskDialog({
                   selected === AUTO_NODE ? "border-primary/40 bg-accent" : "border-slate-200 hover:bg-slate-50",
                 )}
               >
-                <Sparkles className={cn("mt-0.5 size-4 shrink-0", selected === AUTO_NODE ? "text-primary" : "text-slate-400")} />
+                <Sparkles className={cn("mt-0.5 size-4 shrink-0", selected === AUTO_NODE ? "text-primary" : "text-muted-foreground")} />
                 <span>
                   <span className={cn("block font-semibold", selected === AUTO_NODE ? "text-primary" : "text-slate-700")}>
                     {t("自动归类")}
@@ -293,9 +294,9 @@ export function MoveTaskDialog({
                     {t("解除手工归属，按物料自动挂到对应节点；物料重名时可能挂不上")}
                   </span>
                 </span>
-              </button>
+              </Button>
               {roots.length === 0 ? (
-                <p className="py-8 text-center text-pretty text-sm text-slate-400">{t("该产品还没有维护子系统树，可先保留自动归类。")}</p>
+                <p className="py-8 text-center text-pretty text-sm text-muted-foreground">{t("该产品还没有维护子系统树，可先保留自动归类。")}</p>
               ) : (
                 renderNodes(roots)
               )}
@@ -309,10 +310,10 @@ export function MoveTaskDialog({
             {t("目标")}：<span className="font-semibold text-slate-900">{selectedLabel || t("未选择")}</span>
           </p>
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2 text-xs disabled:opacity-50">
+            <Button variant="unstyled" type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2 text-xs disabled:opacity-50">
               {t("取消")}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => void handleConfirm()}
               disabled={saving || loading || unchanged || !selectedLabel || effectiveIds.length === 0}
@@ -320,7 +321,7 @@ export function MoveTaskDialog({
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderTree className="h-3.5 w-3.5" />}
               {saving ? t("正在移动…") : t("移动 {count} 个任务", { count: effectiveIds.length })}
-            </button>
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>

@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -74,6 +75,7 @@ import {
   HorizonMetricGrid,
   HorizonPageHeader,
 } from "./components/horizon/HorizonPage";
+import { Input } from "./components/ui/input";
 
 const AI_PROVIDER_DICT_KEY = "ai_provider";
 
@@ -129,7 +131,7 @@ function RadixSelectField({
 }) {
   return (
     <Select value={value || RADIX_ALL_VALUE} onValueChange={(nextValue) => onValueChange(nextValue === RADIX_ALL_VALUE ? "" : nextValue)} disabled={disabled}>
-      <SelectTrigger aria-label={ariaLabel} className={cn("h-9 min-w-32 rounded-lg border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-none hover:border-blue-300 focus:ring-blue-200", className)}>
+      <SelectTrigger aria-label={ariaLabel} className={cn("h-9 min-w-32 rounded-lg border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-none hover:border-primary/25 focus:ring-primary/25", className)}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent className="z-[80] max-h-72 rounded-xl border-slate-200 bg-white shadow-xl">
@@ -527,13 +529,13 @@ function WorkspaceErrorState({ message, onRetry }: { message: string; onRetry: (
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-rose-900">数据读取失败</div>
           <p className="mt-1 text-sm leading-6 text-rose-700 text-pretty">{message}</p>
-          <button
+          <Button variant="unstyled"
             type="button"
             className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
             onClick={onRetry}
           >
             重新加载
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -573,8 +575,8 @@ function GatewayRouteWorkspace({
   );
   const [saving, setSaving] = useState(false);
   const [fallbackScenesOpen, setFallbackScenesOpen] = useState(false);
-  const controlInputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
-  const iconButtonClass = "flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-35";
+  const controlInputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/25";
+  const iconButtonClass = "flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-35";
 
   useEffect(() => {
     const definition = GATEWAY_SCENES.find((item) => item.value === selectedScene) ?? GATEWAY_SCENES[0];
@@ -617,14 +619,14 @@ function GatewayRouteWorkspace({
           ? "专用路由已停用"
           : "默认回退";
     return (
-      <button
+      <Button variant="unstyled"
         key={scene.value}
         type="button"
         onClick={() => setSelectedScene(scene.value)}
         className={cn(
-          "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+          "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25",
           active
-            ? "border-blue-200 bg-white shadow-sm"
+            ? "border-primary/25 bg-white shadow-sm"
             : "border-transparent hover:border-slate-200 hover:bg-white/80",
         )}
       >
@@ -651,8 +653,8 @@ function GatewayRouteWorkspace({
           </span>
           <span className="mt-1 block truncate text-[10px] text-slate-500">{scene.description}</span>
         </span>
-        <ChevronRight className={cn("size-4 shrink-0", active ? "text-blue-700" : "text-slate-400")} />
-      </button>
+        <ChevronRight className={cn("size-4 shrink-0", active ? "text-blue-700" : "text-muted-foreground")} />
+      </Button>
     );
   }
 
@@ -726,7 +728,7 @@ function GatewayRouteWorkspace({
           </div>
         )}
         <Collapsible open={fallbackScenesOpen} onOpenChange={setFallbackScenesOpen} className="mt-2">
-          <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200">
+          <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-primary/25 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <span>
               <span className="block text-sm font-semibold text-slate-800">默认回退场景</span>
               <span className="mt-0.5 block text-xs text-slate-500">{fallbackScenes.length} 个场景沿用各业务模块原有模型，展开后可配置专用路由。</span>
@@ -785,29 +787,29 @@ function GatewayRouteWorkspace({
         </div>
         <div className="space-y-2.5 p-4">
           {loading ? (
-            <div className="py-12 text-center text-sm text-slate-400">正在读取路由策略...</div>
+            <div className="py-12 text-center text-sm text-muted-foreground">正在读取路由策略...</div>
           ) : selectedModels.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-12 text-center">
-              <Route className="mx-auto size-8 text-slate-400" />
+              <Route className="mx-auto size-8 text-muted-foreground" />
               <div className="mt-3 text-sm font-semibold text-slate-700">尚未配置专用路由</div>
               <div className="mt-1 text-xs text-slate-500">系统当前继续使用原有场景模型配置。添加 1 条连接可固定主模型，添加 2 条以上才会形成故障切换链。</div>
               {suggestedModel ? (
-                <button
+                <Button variant="unstyled"
                   type="button"
-                  className="mt-4 inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                  className="mt-4 inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-primary/25 bg-white px-3 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                   onClick={() => {
                     setConnectionIds([suggestedModel.id]);
                     setWeights({ [suggestedModel.id]: 100 });
                   }}
                 >
                   使用{suggestedModel.is_default_enabled ? "当前默认" : "首个可用"}连接：{suggestedModel.name}
-                </button>
+                </Button>
               ) : (
                 <div className="mt-3 text-xs font-medium text-amber-700">请先在“模型连接”中启用至少一个文本或多模态模型。</div>
               )}
             </div>
           ) : selectedModels.map((model, index) => (
-            <div key={model.id} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 transition-colors hover:border-blue-200 hover:bg-blue-50/30">
+            <div key={model.id} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 transition-colors hover:border-primary/25 hover:bg-accent/30">
               <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold", index === 0 ? "bg-blue-700 text-white" : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200")}>{index + 1}</div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -819,7 +821,7 @@ function GatewayRouteWorkspace({
               {strategy === "weighted" ? (
                 <label className="flex items-center gap-1 text-xs text-slate-500">
                   权重
-                  <input
+                  <Input
                     className={cn(controlInputClass, "!h-8 !w-16 !px-2 text-center")}
                     type="number"
                     min={1}
@@ -833,9 +835,9 @@ function GatewayRouteWorkspace({
                 </label>
               ) : null}
               <div className="flex items-center gap-1">
-                <button type="button" className={iconButtonClass} disabled={index === 0} onClick={() => move(index, -1)} aria-label={`上移 ${model.name}`}><ArrowUp className="size-3.5" /></button>
-                <button type="button" className={iconButtonClass} disabled={index === selectedModels.length - 1} onClick={() => move(index, 1)} aria-label={`下移 ${model.name}`}><ArrowDown className="size-3.5" /></button>
-                <button type="button" className={cn(iconButtonClass, "hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600")} onClick={() => setConnectionIds((current) => current.filter((id) => id !== model.id))} aria-label={`移除 ${model.name}`}><Trash2 className="size-3.5" /></button>
+                <Button variant="unstyled" type="button" className={iconButtonClass} disabled={index === 0} onClick={() => move(index, -1)} aria-label={`上移 ${model.name}`}><ArrowUp className="size-3.5" /></Button>
+                <Button variant="unstyled" type="button" className={iconButtonClass} disabled={index === selectedModels.length - 1} onClick={() => move(index, 1)} aria-label={`下移 ${model.name}`}><ArrowDown className="size-3.5" /></Button>
+                <Button variant="unstyled" type="button" className={cn(iconButtonClass, "hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600")} onClick={() => setConnectionIds((current) => current.filter((id) => id !== model.id))} aria-label={`移除 ${model.name}`}><Trash2 className="size-3.5" /></Button>
               </div>
             </div>
           ))}
@@ -861,7 +863,7 @@ function GatewayRouteWorkspace({
         <div className="mt-4 space-y-4">
           <div>
             <label htmlFor="gateway-route-name" className="mb-1.5 block text-xs font-semibold text-slate-600">策略名称</label>
-            <input id="gateway-route-name" className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
+            <Input id="gateway-route-name" className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-slate-600" title="流式场景下该超时只保护「到首个字节」；正文传输阶段由业务层的流空闲看门狗兜底">单次调用超时（首包）</label>
@@ -882,7 +884,7 @@ function GatewayRouteWorkspace({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="gateway-failure-threshold" className="mb-1.5 block text-xs font-semibold text-slate-600">失败阈值</label>
-              <input id="gateway-failure-threshold" className={controlInputClass} type="number" min={1} max={20} value={failureThreshold} onChange={(event) => setFailureThreshold(Number(event.target.value))} />
+              <Input id="gateway-failure-threshold" className={controlInputClass} type="number" min={1} max={20} value={failureThreshold} onChange={(event) => setFailureThreshold(Number(event.target.value))} />
             </div>
             <div>
               <div className="mb-1.5 text-xs font-semibold text-slate-600">冷却时间</div>
@@ -896,14 +898,14 @@ function GatewayRouteWorkspace({
           </div>
           <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
             <div><div className="text-sm font-medium text-slate-700">启用专用路由</div><div className="mt-0.5 text-xs text-slate-500">关闭后回退原场景配置</div></div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} className="data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300" aria-label="启用专用路由" />
+            <Switch checked={enabled} onCheckedChange={setEnabled} className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-slate-300" aria-label="启用专用路由" />
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
             连续失败达到阈值后连接会进入临时熔断，冷却期间直接跳到下一连接，避免重复等待故障服务。
           </div>
-          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-blue-700 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          <Button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl text-sm font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</Button>
           {existing && (
-            <button type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</button>
+            <Button variant="unstyled" type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</Button>
           )}
         </div>
       </section>
@@ -994,21 +996,21 @@ function GatewayMonitorWorkspace({
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-200">
+                <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-sm hover:border-primary/25">
                   <Switch
                     checked={autoRefresh}
                     onCheckedChange={onAutoRefreshChange}
-                    className="data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300"
+                    className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-slate-300"
                     aria-label="每 30 秒自动刷新监控"
                   />
                   自动刷新
                 </label>
                 <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
                   {RANGE_OPTIONS.map((option) => (
-                    <button key={option.value} type="button" onClick={() => onRangeChange(option.value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200", range === option.value ? "bg-blue-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>{option.label}</button>
+                    <Button variant="unstyled" key={option.value} type="button" onClick={() => onRangeChange(option.value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25", range === option.value ? "bg-primary text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>{option.label}</Button>
                   ))}
                 </div>
-                <button type="button" className="flex size-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={onReload} aria-label="刷新监控"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
+                <Button variant="unstyled" type="button" className="flex size-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-primary/25 hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={onReload} aria-label="刷新监控"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <span className={cn("size-1.5 rounded-full", autoRefresh ? "animate-pulse bg-emerald-500" : "bg-slate-300")} />
@@ -1074,8 +1076,8 @@ function GatewayMonitorWorkspace({
                     {scene.reasons.slice(0, 3).map((reason) => <li key={reason} className="flex gap-2"><span className={cn("mt-2 size-1.5 shrink-0 rounded-full", critical ? "bg-rose-500" : "bg-amber-500")} />{reason}</li>)}
                   </ul>
                   <div className="mt-4 flex items-center justify-between gap-3">
-                    <span className="text-[11px] tabular-nums text-slate-400">{formatNumber(scene.requests)} 次请求 · {scene.failed_requests} 次最终失败</span>
-                    <button type="button" className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => onInspectScene(scene.scene)}>查看调用明细 →</button>
+                    <span className="text-[11px] tabular-nums text-muted-foreground">{formatNumber(scene.requests)} 次请求 · {scene.failed_requests} 次最终失败</span>
+                    <Button variant="unstyled" type="button" className="cursor-pointer text-xs font-semibold text-primary hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={() => onInspectScene(scene.scene)}>查看调用明细 →</Button>
                   </div>
                 </article>
               );
@@ -1084,7 +1086,7 @@ function GatewayMonitorWorkspace({
         ) : diagnostics && diagnostics.scenes.length > 0 ? (
           <div className="flex items-center gap-3 px-5 py-6 text-sm text-emerald-700"><CheckCircle2 className="size-5" />当前统计区间没有需要处理的异常场景。</div>
         ) : (
-          <div className="px-6 py-12 text-center text-sm text-slate-400">暂无足够调用数据，产生真实请求后将自动诊断。</div>
+          <div className="px-6 py-12 text-center text-sm text-muted-foreground">暂无足够调用数据，产生真实请求后将自动诊断。</div>
         )}
       </section>
 
@@ -1096,8 +1098,8 @@ function GatewayMonitorWorkspace({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative min-w-48 flex-1 xl:flex-none">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-              <input value={connectionKeyword} onChange={(event) => { setConnectionKeyword(event.target.value); setConnectionPage(1); }} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 xl:w-56" placeholder="搜索名称、供应商、模型" aria-label="搜索模型连接" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={connectionKeyword} onChange={(event) => { setConnectionKeyword(event.target.value); setConnectionPage(1); }} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none hover:border-primary/25 focus:border-primary focus:ring-2 focus:ring-primary/25 xl:w-56" placeholder="搜索名称、供应商、模型" aria-label="搜索模型连接" />
             </label>
             <RadixSelectField value={connectionProvider} onValueChange={(value) => { setConnectionProvider(value); setConnectionPage(1); }} options={[
               { value: "", label: "全部供应商" },
@@ -1114,7 +1116,7 @@ function GatewayMonitorWorkspace({
             {visibleConnections.map((connection) => {
               const statusMeta = connectionStatusMeta[connection.status];
               return (
-                <button key={connection.id} type="button" onClick={(event) => { connectionDialogTriggerRef.current = event.currentTarget; setSelectedConnection(connection); }} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" aria-label={`查看 ${connection.name} 监控详情`}>
+                <Button variant="unstyled" key={connection.id} type="button" onClick={(event) => { connectionDialogTriggerRef.current = event.currentTarget; setSelectedConnection(connection); }} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-left transition-colors hover:border-primary/25 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" aria-label={`查看 ${connection.name} 监控详情`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{connection.name}</div><div className="mt-1 truncate font-mono text-[10px] text-slate-500">{connection.provider} / {connection.model}</div></div>
                     <span className={cn("material-chip shrink-0 ring-1 ring-inset", statusMeta.className)}>{statusMeta.label}</span>
@@ -1125,14 +1127,14 @@ function GatewayMonitorWorkspace({
                     <div><dt className="text-[10px] text-slate-500">平均延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{connection.requests ? `${formatNumber(connection.average_latency_ms)} ms` : "—"}</dd></div>
                   </dl>
                   <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500"><span>{connection.last_called_at ? `最近调用 ${formatDate(connection.last_called_at)}` : "尚无网关调用"}</span><span className="font-semibold text-blue-700">查看详情 →</span></div>
-                </button>
+                </Button>
               );
             })}
           </div>
-        ) : <div className="px-6 py-14 text-center text-sm text-slate-400">暂无符合筛选条件的模型连接</div>}
+        ) : <div className="px-6 py-14 text-center text-sm text-muted-foreground">暂无符合筛选条件的模型连接</div>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500">
           <div className="flex items-center gap-2"><span>共 {filteredConnections.length} 条 · 第 {safeConnectionPage} / {connectionTotalPages} 页</span><RadixSelectField value={String(connectionPageSize)} onValueChange={(value) => { setConnectionPageSize(Number(value)); setConnectionPage(1); }} options={[{ value: "6", label: "6 条/页" }, { value: "9", label: "9 条/页" }, { value: "12", label: "12 条/页" }]} ariaLabel="每页模型监控数量" className="h-8 min-w-24" /></div>
-          <div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage <= 1 || loading} onClick={() => setConnectionPage(safeConnectionPage - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage >= connectionTotalPages || loading} onClick={() => setConnectionPage(safeConnectionPage + 1)}>下一页</button></div>
+          <div className="flex gap-2"><Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage <= 1 || loading} onClick={() => setConnectionPage(safeConnectionPage - 1)}>上一页</Button><Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage >= connectionTotalPages || loading} onClick={() => setConnectionPage(safeConnectionPage + 1)}>下一页</Button></div>
         </div>
       </section>
 
@@ -1165,7 +1167,7 @@ function GatewayMonitorWorkspace({
               {selectedConnection.last_error_code || selectedConnection.last_error_message ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800"><div className="font-semibold">{selectedConnection.last_error_code ?? "UPSTREAM_ERROR"}</div><div className="mt-1 break-words">{selectedConnection.last_error_message ?? "上游调用失败"}</div></div> : null}
             </div>
           ) : null}
-          <DialogFooter><button type="button" className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => setSelectedConnection(null)}>关闭</button><button type="button" className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={() => { if (selectedConnection) onInspectConnection(selectedConnection.id); setSelectedConnection(null); }}>查看该连接的调用明细</button></DialogFooter>
+          <DialogFooter><Button variant="unstyled" type="button" className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={() => setSelectedConnection(null)}>关闭</Button><Button type="button" className="h-9 rounded-lg px-4 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2" onClick={() => { if (selectedConnection) onInspectConnection(selectedConnection.id); setSelectedConnection(null); }}>查看该连接的调用明细</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1185,13 +1187,13 @@ function GatewayMonitorWorkspace({
                       <div className="text-slate-300">降级率 {item.fallback_rate}% · {formatNumber(item.total_tokens)} Token</div>
                     </div>
                     <div className="flex h-40 w-full items-end rounded-lg bg-slate-100 p-1">
-                      <div className="w-full rounded-md bg-blue-600 transition-colors duration-200 group-hover:bg-blue-700" style={{ height: `${Math.max(8, (item.requests / maxTrendRequests) * 100)}%` }} />
+                      <div className="w-full rounded-md bg-blue-600 transition-colors duration-200 group-hover:bg-primary-hover" style={{ height: `${Math.max(8, (item.requests / maxTrendRequests) * 100)}%` }} />
                     </div>
-                    <div className="whitespace-nowrap text-[10px] tabular-nums text-slate-400">{new Date(item.date).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</div>
+                    <div className="whitespace-nowrap text-[10px] tabular-nums text-muted-foreground">{new Date(item.date).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</div>
                   </div>
                 ))}
               </div>
-            ) : <div className="py-16 text-center text-sm text-slate-400">当前区间暂无趋势数据</div>}
+            ) : <div className="py-16 text-center text-sm text-muted-foreground">当前区间暂无趋势数据</div>}
           </div>
         </section>
 
@@ -1203,7 +1205,7 @@ function GatewayMonitorWorkspace({
                 <div className="flex min-w-0 items-center gap-3"><span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600"><XCircle className="size-4" /></span><span className="truncate font-mono text-xs font-semibold text-slate-700">{item.error_code}</span></div>
                 <span className="text-sm font-semibold tabular-nums text-slate-900">{formatNumber(item.requests)}</span>
               </div>
-            )) : <div className="px-6 py-16 text-center text-sm text-slate-400">当前区间没有失败请求</div>}
+            )) : <div className="px-6 py-16 text-center text-sm text-muted-foreground">当前区间没有失败请求</div>}
           </div>
         </section>
       </div>
@@ -1211,7 +1213,7 @@ function GatewayMonitorWorkspace({
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-4 py-3.5">
           <div><div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ShieldCheck className="size-4 text-emerald-600" />连接熔断状态</div><div className="mt-1 text-xs text-slate-500">按业务场景隔离故障；开启时请求会直接尝试下一连接</div></div>
-          <button type="button" className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={!circuits.length || resettingCircuit !== null} onClick={() => void resetCircuit()}><RefreshCw className={cn("size-3.5", resettingCircuit === "all" && "animate-spin")} />全部重置</button>
+          <Button variant="unstyled" type="button" className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" disabled={!circuits.length || resettingCircuit !== null} onClick={() => void resetCircuit()}><RefreshCw className={cn("size-3.5", resettingCircuit === "all" && "animate-spin")} />全部重置</Button>
         </div>
         {circuits.length ? (
           <div className="grid gap-2.5 p-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1224,12 +1226,12 @@ function GatewayMonitorWorkspace({
                     <span className={cn("material-chip shrink-0", circuit.state === "open" ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700")}>{circuit.state === "open" ? "熔断中" : "已关闭"}</span>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><div className="text-slate-500">业务场景</div><div className="mt-1 font-medium text-slate-700">{formatGatewayScene(circuit.scene)}</div></div><div><div className="text-slate-500">连续失败</div><div className="mt-1 font-semibold tabular-nums text-slate-800">{circuit.consecutiveFailures} 次</div></div></div>
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200 pt-3"><div className="text-[11px] text-slate-500">最近失败 {formatDate(circuit.lastFailureAt)}</div><button type="button" className="cursor-pointer text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50" disabled={resettingCircuit !== null} onClick={() => void resetCircuit(circuit)}>{resettingCircuit === key ? "重置中..." : "手动重置"}</button></div>
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200 pt-3"><div className="text-[11px] text-slate-500">最近失败 {formatDate(circuit.lastFailureAt)}</div><Button variant="unstyled" type="button" className="cursor-pointer text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50" disabled={resettingCircuit !== null} onClick={() => void resetCircuit(circuit)}>{resettingCircuit === key ? "重置中..." : "手动重置"}</Button></div>
                 </article>
               );
             })}
           </div>
-        ) : <div className="px-6 py-14 text-center text-sm text-slate-400">当前进程没有记录到连接失败，所有路由均可正常调度</div>}
+        ) : <div className="px-6 py-14 text-center text-sm text-muted-foreground">当前进程没有记录到连接失败，所有路由均可正常调度</div>}
       </section>
 
       <div className="grid gap-3 xl:grid-cols-2">
@@ -1242,7 +1244,7 @@ function GatewayMonitorWorkspace({
                 <div className="text-right"><div className="text-sm font-semibold tabular-nums text-emerald-700">{item.success_rate}%</div><div className="text-[10px] text-slate-500">成功率</div></div>
                 <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-slate-800">{item.average_latency_ms} ms</div><div className="text-[10px] text-slate-500">平均延迟</div></div>
               </div>
-            )) : <div className="px-6 py-14 text-center text-sm text-slate-400">当前区间暂无网关调用</div>}
+            )) : <div className="px-6 py-14 text-center text-sm text-muted-foreground">当前区间暂无网关调用</div>}
           </div>
         </section>
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -1255,11 +1257,11 @@ function GatewayMonitorWorkspace({
                 <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</div><div className="text-[10px] text-slate-500">入 {formatNumber(item.prompt_tokens)} / 出 {formatNumber(item.completion_tokens)}</div></div>
                 <div className="w-20 text-right">
                   {item.cost === null
-                    ? <><div className="text-sm font-semibold tabular-nums text-slate-400">—</div><div className="text-[10px] text-slate-400">未配价</div></>
+                    ? <><div className="text-sm font-semibold tabular-nums text-muted-foreground">—</div><div className="text-[10px] text-muted-foreground">未配价</div></>
                     : <><div className="text-sm font-semibold tabular-nums text-blue-700">{formatCost(item.cost)}</div><div className="text-[10px] text-slate-500">成本</div></>}
                 </div>
               </div>
-            )) : <div className="px-6 py-14 text-center text-sm text-slate-400">当前区间暂无模型调用</div>}
+            )) : <div className="px-6 py-14 text-center text-sm text-muted-foreground">当前区间暂无模型调用</div>}
           </div>
         </section>
       </div>
@@ -1324,7 +1326,7 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div><span className="text-xs font-bold text-slate-500">#{attempt.sequence}</span><span className="ml-2 text-sm font-semibold text-slate-800">{attempt.provider} / {attempt.model}</span></div>
-                  <div className="mt-1 truncate font-mono text-[10px] text-slate-400" title={attempt.connection_id ?? "未关联模型连接"}>连接 ID：{attempt.connection_id ?? "未关联模型连接"}</div>
+                  <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={attempt.connection_id ?? "未关联模型连接"}>连接 ID：{attempt.connection_id ?? "未关联模型连接"}</div>
                 </div>
                 <div className="flex items-center gap-3 text-xs">
                   <span className={cn("font-medium", attempt.status === "success" ? "text-emerald-700" : attempt.status === "failed" ? "text-rose-700" : "text-amber-700")}>{gatewayStatusLabel(attempt.status)}</span>
@@ -1380,32 +1382,32 @@ function GatewayRequestWorkspace({
           <RadixSelectField value={scene} onValueChange={onSceneChange} options={[{ value: "", label: "全部场景" }, ...GATEWAY_SCENES.map((item) => ({ value: item.value, label: item.label }))]} ariaLabel="按业务场景筛选请求" className="min-w-40" />
           <RadixSelectField value={connectionId} onValueChange={onConnectionChange} options={[{ value: "", label: "全部模型连接" }, ...models.map((item) => ({ value: item.id, label: `${item.name} · ${item.model}` }))]} ariaLabel="按模型连接筛选请求" className="min-w-48" />
           <RadixSelectField value={status} onValueChange={(value) => onStatusChange(value as "" | "success" | "failed")} options={[{ value: "", label: "全部状态" }, { value: "success", label: "成功" }, { value: "failed", label: "失败" }]} ariaLabel="按状态筛选请求" className="min-w-28" />
-          <button type="button" className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={onReload} aria-label="刷新请求明细"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
+          <Button variant="unstyled" type="button" className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={onReload} aria-label="刷新请求明细"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
         </div>
       </div>
       <div className="material-scrollbar overflow-x-auto">
         <table className="w-full min-w-[980px] text-left">
           <thead className="bg-slate-50 text-[10px] font-semibold text-slate-500"><tr><th scope="col" className="w-12 px-5 py-3"><span className="sr-only">展开</span></th><th scope="col" className="px-3 py-3">时间 / 请求 ID</th><th scope="col" className="px-3 py-3">场景</th><th scope="col" className="px-3 py-3">最终模型</th><th scope="col" className="px-3 py-3">状态</th><th scope="col" className="px-3 py-3">路由</th><th scope="col" className="px-3 py-3 text-right">延迟</th><th scope="col" className="px-5 py-3 text-right">Token</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {loading && !data ? <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-slate-400">正在读取调用明细...</td></tr> : data?.items.length ? data.items.map((item) => {
+            {loading && !data ? <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-muted-foreground">正在读取调用明细...</td></tr> : data?.items.length ? data.items.map((item) => {
               const expanded = expandedId === item.id;
               return (
                 <React.Fragment key={item.id}>
-                  <tr className="hover:bg-blue-50/40">
-                    <td className="px-5 py-4 text-slate-400">
-                      <button
+                  <tr className="hover:bg-accent/40">
+                    <td className="px-5 py-4 text-muted-foreground">
+                      <Button variant="unstyled"
                         type="button"
-                        className="flex size-8 cursor-pointer items-center justify-center rounded-lg hover:bg-blue-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        className="flex size-8 cursor-pointer items-center justify-center rounded-lg hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                         onClick={() => setExpandedId(expanded ? null : item.id)}
                         aria-expanded={expanded}
                         aria-label={`${expanded ? "收起" : "展开"}请求 ${item.id} 明细`}
                       >
                         {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                      </button>
+                      </Button>
                     </td>
-                    <td className="px-3 py-3"><div className="text-xs text-slate-700">{formatDate(item.created_at)}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400" title={item.id}>{item.id}</div></td>
-                    <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{item.scene}</div></td>
-                    <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400">{item.model ?? "未完成"}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs text-slate-700">{formatDate(item.created_at)}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-muted-foreground" title={item.id}>{item.id}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-muted-foreground">{item.scene}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-muted-foreground">{item.model ?? "未完成"}</div></td>
                     <td className="px-3 py-3"><span className={cn("material-chip", item.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{item.status === "success" ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}{gatewayStatusLabel(item.status)}</span></td>
                     <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-blue-700" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums text-slate-700">{formatNumber(item.latency_ms)} ms</td>
@@ -1414,11 +1416,11 @@ function GatewayRequestWorkspace({
                   {expanded ? <tr><td colSpan={8} className="bg-slate-50/80 px-6 py-5"><GatewayRequestDetail item={item} /></td></tr> : null}
                 </React.Fragment>
               );
-            }) : <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-slate-400">暂无符合条件的网关请求</td></tr>}
+            }) : <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-muted-foreground">暂无符合条件的网关请求</td></tr>}
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500"><div className="flex items-center gap-2"><span>共 {data?.pagination.total ?? 0} 条 · 第 {page} / {data?.pagination.total_pages ?? 1} 页</span><RadixSelectField value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))} options={[{ value: "10", label: "10 条/页" }, { value: "20", label: "20 条/页" }, { value: "50", label: "50 条/页" }]} ariaLabel="每页请求明细数量" className="h-8 min-w-24" /></div><div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page <= 1 || loading} onClick={() => onPageChange(page - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page >= (data?.pagination.total_pages ?? 1) || loading} onClick={() => onPageChange(page + 1)}>下一页</button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500"><div className="flex items-center gap-2"><span>共 {data?.pagination.total ?? 0} 条 · 第 {page} / {data?.pagination.total_pages ?? 1} 页</span><RadixSelectField value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))} options={[{ value: "10", label: "10 条/页" }, { value: "20", label: "20 条/页" }, { value: "50", label: "50 条/页" }]} ariaLabel="每页请求明细数量" className="h-8 min-w-24" /></div><div className="flex gap-2"><Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" disabled={page <= 1 || loading} onClick={() => onPageChange(page - 1)}>上一页</Button><Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" disabled={page >= (data?.pagination.total_pages ?? 1) || loading} onClick={() => onPageChange(page + 1)}>下一页</Button></div></div>
     </section>
   );
 }
@@ -2214,7 +2216,7 @@ export function AiModelManagementPage() {
   const visibleHealthyCount = rows.filter((row) => row.current_status === "运行正常").length;
   const visibleIssueCount = rows.filter((row) => row.current_status === "连接异常").length;
   const visibleConfiguredCount = rows.filter((row) => Boolean(row.base_url)).length;
-  const headerActionButtonClass = "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50";
+  const headerActionButtonClass = "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="horizon-theme hz-page mx-auto w-full max-w-[1680px] min-w-0">
@@ -2225,7 +2227,7 @@ export function AiModelManagementPage() {
         description="统一管理模型连接、路由优先级、运行状态与逐次故障切换记录。"
         meta={<span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />INOGI 内置服务</span>}
         actions={workspaceTab === "connections" ? <div className="flex max-w-full flex-wrap items-center justify-end gap-2" aria-label="模型配置操作">
-            <button
+            <Button variant="unstyled"
               type="button"
               className={headerActionButtonClass}
               onClick={() => void handleTestAllConnections()}
@@ -2238,8 +2240,8 @@ export function AiModelManagementPage() {
                   ? `测试中 ${bulkTestProgress.completed}/${bulkTestProgress.total || "-"}`
                   : "全部测试"}
               </span>
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               className={headerActionButtonClass}
               onClick={() => { rememberDialogTrigger(); importFileRef.current?.click(); }}
@@ -2247,8 +2249,8 @@ export function AiModelManagementPage() {
             >
               <Upload className="h-4 w-4" />
               导入
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               className={headerActionButtonClass}
               onClick={() => void openExportDialog()}
@@ -2257,8 +2259,8 @@ export function AiModelManagementPage() {
             >
               <Download className="h-4 w-4" />
               {exportLoading ? "读取中..." : "导出"}
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               className={headerActionButtonClass}
               onClick={() => void openPresetDialog()}
@@ -2266,8 +2268,8 @@ export function AiModelManagementPage() {
             >
               <PackagePlus className="h-4 w-4" />
               百炼预设
-            </button>
-            <input
+            </Button>
+            <Input
               ref={importFileRef}
               type="file"
               accept="application/json,.json"
@@ -2275,7 +2277,7 @@ export function AiModelManagementPage() {
               aria-label="选择模型配置 JSON 文件"
               onChange={(event) => void handleImportFile(event)}
             />
-            <button
+            <Button variant="unstyled"
               type="button"
               className={headerActionButtonClass}
               onClick={openCreateEmbedding}
@@ -2283,11 +2285,11 @@ export function AiModelManagementPage() {
             >
               <Plus className="h-4 w-4" />
               新增 Embedding
-            </button>
-            <button type="button" className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={openCreate}>
+            </Button>
+            <Button type="button" className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2" onClick={openCreate}>
               <Plus className="h-4 w-4" />
               新增模型
-            </button>
+            </Button>
           </div> : null}
       />
 
@@ -2304,7 +2306,7 @@ export function AiModelManagementPage() {
       <TabsList className="relative flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-slate-100 bg-slate-50/80 px-3 py-2" aria-label="AI 控制台工作区">
         {GATEWAY_TABS.map((tab) => {
           const Icon = tab.icon;
-          return <TabsTrigger key={tab.value} value={tab.value} title={tab.description} className="group h-10 flex-none cursor-pointer gap-2 rounded-lg border border-transparent px-3 text-left text-slate-500 data-[state=active]:border-blue-200 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm hover:border-slate-200 hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-blue-200"><Icon className="size-4 text-slate-400 group-data-[state=active]:text-blue-700" /><span className="text-xs font-semibold">{tab.label}</span></TabsTrigger>;
+          return <TabsTrigger key={tab.value} value={tab.value} title={tab.description} className="group h-10 flex-none cursor-pointer gap-2 rounded-lg border border-transparent px-3 text-left text-slate-500 data-[state=active]:border-primary/25 data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm hover:border-slate-200 hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-primary/25"><Icon className="size-4 text-muted-foreground group-data-[state=active]:text-primary" /><span className="text-xs font-semibold">{tab.label}</span></TabsTrigger>;
         })}
       </TabsList>
 
@@ -2318,9 +2320,9 @@ export function AiModelManagementPage() {
         <div className="border-b border-slate-100 p-3 md:p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-              <input
-                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/25"
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="搜索模型、服务商或模型标识"
@@ -2340,7 +2342,7 @@ export function AiModelManagementPage() {
               {Array.from({ length: Math.min(pageSize, 6) }, (_, index) => <div key={index} className="h-52 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />)}
             </div>
           ) : rows.length === 0 ? (
-            <HorizonEmptyState Icon={ServerCog} title="没有找到模型连接" description={normalizedKeyword ? "调整搜索条件，或清空关键词后重试。" : "新增一个模型连接，或从百炼预设批量导入。"} action={!normalizedKeyword ? <button type="button" className="material-button-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={openCreate}>新增模型</button> : undefined} />
+            <HorizonEmptyState Icon={ServerCog} title="没有找到模型连接" description={normalizedKeyword ? "调整搜索条件，或清空关键词后重试。" : "新增一个模型连接，或从百炼预设批量导入。"} action={!normalizedKeyword ? <Button variant="unstyled" type="button" className="material-button-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={openCreate}>新增模型</Button> : undefined} />
           ) : (
             <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
               {rows.map((row) => {
@@ -2350,7 +2352,7 @@ export function AiModelManagementPage() {
                 const failed = row.current_status === "连接异常";
                 const providerMark = (row.provider || row.name).trim().slice(0, 2).toUpperCase();
                 return (
-                  <article key={row.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-colors hover:border-blue-200">
+                  <article key={row.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-colors hover:border-primary/25">
                     <div className={cn("absolute inset-x-0 top-0 h-0.5", healthy ? "bg-emerald-500" : failed ? "bg-rose-500" : "bg-slate-300")} />
                     <div className="flex items-start gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 font-mono text-[11px] font-bold text-blue-700 ring-1 ring-inset ring-blue-100">{providerMark}</span>
@@ -2365,7 +2367,7 @@ export function AiModelManagementPage() {
                         checked={row.enabled}
                         onCheckedChange={(checked) => void handleToggleEnabled(row, checked)}
                         aria-label={`${row.enabled ? "停用" : "启用"} ${row.name}`}
-                        className="shrink-0 data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300"
+                        className="shrink-0 data-[state=checked]:bg-primary data-[state=unchecked]:bg-slate-300"
                       />
                     </div>
 
@@ -2379,10 +2381,10 @@ export function AiModelManagementPage() {
                     {row.last_error_message ? <div className="mt-2 truncate rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-700" title={row.last_error_message}>{row.last_error_message}</div> : null}
 
                     <div className="mt-3 grid grid-cols-4 divide-x divide-slate-100 border-y border-slate-100 py-2.5 text-center">
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">延迟</div><div className="mt-1 truncate text-xs font-semibold tabular-nums text-slate-800">{typeof row.last_latency_ms === "number" ? `${row.last_latency_ms}ms` : "—"}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">请求</div><div className="mt-1 text-xs font-semibold tabular-nums text-sky-700">{formatNumber(row.today_requests)}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">今日 Token</div><div className="mt-1 text-xs font-semibold tabular-nums text-blue-700">{formatNumber(row.today_tokens)}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">累计</div><div className="mt-1 text-xs font-semibold tabular-nums text-amber-700">{formatNumber(row.total_tokens ?? row.today_tokens ?? 0)}</div></div>
+                      <div className="px-1"><div className="text-[9px] font-medium text-muted-foreground">延迟</div><div className="mt-1 truncate text-xs font-semibold tabular-nums text-slate-800">{typeof row.last_latency_ms === "number" ? `${row.last_latency_ms}ms` : "—"}</div></div>
+                      <div className="px-1"><div className="text-[9px] font-medium text-muted-foreground">请求</div><div className="mt-1 text-xs font-semibold tabular-nums text-sky-700">{formatNumber(row.today_requests)}</div></div>
+                      <div className="px-1"><div className="text-[9px] font-medium text-muted-foreground">今日 Token</div><div className="mt-1 text-xs font-semibold tabular-nums text-blue-700">{formatNumber(row.today_tokens)}</div></div>
+                      <div className="px-1"><div className="text-[9px] font-medium text-muted-foreground">累计</div><div className="mt-1 text-xs font-semibold tabular-nums text-amber-700">{formatNumber(row.total_tokens ?? row.today_tokens ?? 0)}</div></div>
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-2">
@@ -2391,9 +2393,9 @@ export function AiModelManagementPage() {
                         <div className="truncate">最近成功 {formatDate(row.last_success_at)} · {row.operator_name}</div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleTestRowConnection(row)} disabled={rowTestingId !== null || bulkTestProgress !== null} title="测试连通性" aria-label={`测试 ${row.name} 连通性`}><Wifi className={cn("size-3.5", (rowTestingId === row.id || bulkTestProgress !== null) && "animate-pulse text-blue-600")} /></button>
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => openEdit(row)} title="编辑" aria-label={`编辑 ${row.name}`}><Pencil className="size-3.5" /></button>
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200" onClick={() => openDelete(row)} title="删除" aria-label={`删除 ${row.name}`}><Trash2 className="size-3.5" /></button>
+                        <Button variant="unstyled" type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleTestRowConnection(row)} disabled={rowTestingId !== null || bulkTestProgress !== null} title="测试连通性" aria-label={`测试 ${row.name} 连通性`}><Wifi className={cn("size-3.5", (rowTestingId === row.id || bulkTestProgress !== null) && "animate-pulse text-blue-600")} /></Button>
+                        <Button variant="unstyled" type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={() => openEdit(row)} title="编辑" aria-label={`编辑 ${row.name}`}><Pencil className="size-3.5" /></Button>
+                        <Button variant="unstyled" type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200" onClick={() => openDelete(row)} title="删除" aria-label={`删除 ${row.name}`}><Trash2 className="size-3.5" /></Button>
                       </div>
                     </div>
                   </article>
@@ -2409,13 +2411,13 @@ export function AiModelManagementPage() {
             <div className="flex items-center gap-1.5">每页<RadixSelectField value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))} options={[9, 18, 36, 90].map((size) => ({ value: String(size), label: `${size} 条` }))} ariaLabel="每页模型数量" className="h-8 min-w-20" /></div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>上一页</button>
-            <button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>下一页</button>
+            <Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>上一页</Button>
+            <Button variant="unstyled" type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>下一页</Button>
             <label className="ml-1 flex items-center gap-1.5">
               跳转
-              <input className="h-8 w-12 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs text-slate-600 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" value={jumpInput} onChange={(event) => setJumpInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleJump()} placeholder={String(page)} inputMode="numeric" aria-label="跳转页码" />
+              <Input className="h-8 w-12 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs text-slate-600 outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" value={jumpInput} onChange={(event) => setJumpInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleJump()} placeholder={String(page)} inputMode="numeric" aria-label="跳转页码" />
             </label>
-            <button type="button" className="h-8 cursor-pointer rounded-lg bg-blue-700 px-2.5 text-[10px] font-bold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40" onClick={handleJump} disabled={loading}>跳转</button>
+            <Button type="button" className="h-8 cursor-pointer rounded-lg px-2.5 text-[10px] font-bold focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40" onClick={handleJump} disabled={loading}>跳转</Button>
           </div>
         </div>
       </section></TabsContent>
@@ -2436,7 +2438,7 @@ export function AiModelManagementPage() {
           <div className="grid gap-4 pt-1 md:grid-cols-2">
             <div>
               <label htmlFor="ai-model-name" className="mb-1.5 block text-xs font-semibold text-slate-600">模型名称</label>
-              <input id="ai-model-name" className="material-input w-full" value={name} onChange={(event) => setName(event.target.value)} placeholder="如：GPT-5 主模型" />
+              <Input id="ai-model-name" className="material-input w-full" value={name} onChange={(event) => setName(event.target.value)} placeholder="如：GPT-5 主模型" />
             </div>
             <div>
               <div className="mb-1.5 text-xs font-semibold text-slate-600">服务商</div>
@@ -2444,11 +2446,11 @@ export function AiModelManagementPage() {
             </div>
             <div>
               <label htmlFor="ai-model-identifier" className="mb-1.5 block text-xs font-semibold text-slate-600">模型标识</label>
-              <input id="ai-model-identifier" className="material-input w-full" value={model} onChange={(event) => setModel(event.target.value)} placeholder="如：gpt-5" />
+              <Input id="ai-model-identifier" className="material-input w-full" value={model} onChange={(event) => setModel(event.target.value)} placeholder="如：gpt-5" />
             </div>
             <div>
               <label htmlFor="ai-model-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">API Key</label>
-              <input
+              <Input
                 id="ai-model-api-key"
                 className="material-input w-full"
                 type="password"
@@ -2459,14 +2461,14 @@ export function AiModelManagementPage() {
             </div>
             <div className="md:col-span-2">
               <label htmlFor="ai-model-base-url" className="mb-1.5 block text-xs font-semibold text-slate-600">Base URL</label>
-              <input
+              <Input
                 id="ai-model-base-url"
                 className="material-input w-full"
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder="如：https://api.openai.com/v1 或你的代理/网关地址"
               />
-              <p className="mt-1.5 text-xs leading-5 text-slate-400">
+              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                 不填写时默认走后端环境中的官方地址；如果浏览器能通、服务端不能通，优先在这里配置代理或网关地址。
               </p>
             </div>
@@ -2490,7 +2492,7 @@ export function AiModelManagementPage() {
                 ariaLabel="模型用途类型"
                 className="w-full"
               />
-              <p className="mt-1.5 text-xs leading-5 text-slate-400">
+              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                 手动指定后，系统将精准分配此模型到对应场景（对话、图片生成等），避免模型出现在不兼容的选择列表中。
               </p>
             </div>
@@ -2498,7 +2500,7 @@ export function AiModelManagementPage() {
               <label htmlFor="ai-model-input-price" className="mb-1.5 block text-xs font-semibold text-slate-600">
                 输入单价（元 / 千 token）
               </label>
-              <input
+              <Input
                 id="ai-model-input-price"
                 className="material-input w-full"
                 type="number"
@@ -2513,7 +2515,7 @@ export function AiModelManagementPage() {
               <label htmlFor="ai-model-output-price" className="mb-1.5 block text-xs font-semibold text-slate-600">
                 输出单价（元 / 千 token）
               </label>
-              <input
+              <Input
                 id="ai-model-output-price"
                 className="material-input w-full"
                 type="number"
@@ -2525,7 +2527,7 @@ export function AiModelManagementPage() {
               />
             </div>
             <div className="md:col-span-2 -mt-2">
-              <p className="text-xs leading-5 text-slate-400">
+              <p className="text-xs leading-5 text-muted-foreground">
                 按服务商计费页填写。成本在查询时按用量实时折算，改价后历史成本会跟着重算；两项都留空的模型不计入成本合计。
               </p>
             </div>
@@ -2549,16 +2551,16 @@ export function AiModelManagementPage() {
             ) : null}
           </div>
           <DialogFooter className="border-t border-slate-100 pt-4">
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={saving || testingConnection}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={closeDialog} disabled={saving || testingConnection}>
             取消
-          </button>
-          <button type="button" className="material-button-secondary" onClick={() => void handleTestConnection()} disabled={saving || testingConnection}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => void handleTestConnection()} disabled={saving || testingConnection}>
             <Wifi className="h-4 w-4" />
             {testingConnection ? "测试中..." : "测试连通性"}
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => void handleSave()} disabled={saving || testingConnection}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={() => void handleSave()} disabled={saving || testingConnection}>
             {saving ? "保存中..." : "确认"}
-          </button>
+          </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2587,7 +2589,7 @@ export function AiModelManagementPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label htmlFor="preset-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">API Key（Token，可稍后填写）</label>
-                <input
+                <Input
                   id="preset-api-key"
                   className="material-input w-full"
                   type="password"
@@ -2598,7 +2600,7 @@ export function AiModelManagementPage() {
               </div>
               <div>
                 <label htmlFor="preset-base-url" className="mb-1.5 block text-xs font-semibold text-slate-600">Base URL</label>
-                <input
+                <Input
                   id="preset-base-url"
                   className="material-input w-full"
                   value={presetBaseUrl}
@@ -2610,12 +2612,12 @@ export function AiModelManagementPage() {
             <div className="flex items-center justify-between">
               <div className="text-sm text-slate-500">已选 {presetSelected.size} 个模型</div>
               <div className="flex gap-2">
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={selectAllPresetModels}>
+                <Button variant="unstyled" type="button" className="material-button-secondary !px-3 !py-2" onClick={selectAllPresetModels}>
                   全选未添加
-                </button>
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setPresetSelected(new Set())}>
+                </Button>
+                <Button variant="unstyled" type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setPresetSelected(new Set())}>
                   清空
-                </button>
+                </Button>
               </div>
             </div>
             <div className="material-scrollbar max-h-[360px] space-y-4 overflow-y-auto rounded-2xl border border-slate-200 p-4">
@@ -2649,7 +2651,7 @@ export function AiModelManagementPage() {
                               <span className="truncate">{item.model}</span>
                               {exists && <span className="material-chip shrink-0 bg-slate-100 text-slate-500">已存在</span>}
                             </span>
-                            <span className="mt-0.5 block text-xs text-slate-400">{item.capability}</span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">{item.capability}</span>
                           </span>
                         </label>
                       );
@@ -2660,12 +2662,12 @@ export function AiModelManagementPage() {
             </div>
           </div>
           <DialogFooter className="border-t border-slate-100 pt-4">
-          <button type="button" className="material-button-secondary" onClick={() => setPresetOpen(false)} disabled={presetSaving}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => setPresetOpen(false)} disabled={presetSaving}>
             取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => void handlePresetCreate()} disabled={presetSaving}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={() => void handlePresetCreate()} disabled={presetSaving}>
             {presetSaving ? "新增中..." : `新增所选（${presetSelected.size}）`}
-          </button>
+          </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2681,12 +2683,12 @@ export function AiModelManagementPage() {
             <div className="flex items-center justify-between">
               <div className="text-sm text-slate-500">已选 {exportSelected.size} / {exportRows.length}</div>
               <div className="flex gap-2">
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set(exportRows.map((row) => row.id)))}>
+                <Button variant="unstyled" type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set(exportRows.map((row) => row.id)))}>
                   全选
-                </button>
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set())}>
+                </Button>
+                <Button variant="unstyled" type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set())}>
                   清空
-                </button>
+                </Button>
               </div>
             </div>
             <div className="material-scrollbar max-h-[320px] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 p-3">
@@ -2701,7 +2703,7 @@ export function AiModelManagementPage() {
                   <Checkbox className="mt-1" checked={exportSelected.has(row.id)} onCheckedChange={() => toggleExportRow(row.id)} />
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-slate-800">{row.name}</span>
-                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                       {row.provider} / {row.model}{row.base_url ? ` · ${row.base_url}` : ""}
                     </span>
                   </span>
@@ -2710,12 +2712,12 @@ export function AiModelManagementPage() {
             </div>
           </div>
           <DialogFooter className="border-t border-slate-100 pt-4">
-          <button type="button" className="material-button-secondary" onClick={() => setExportOpen(false)}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => setExportOpen(false)}>
             取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={handleExport}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={handleExport}>
             导出所选（{exportSelected.size}）
-          </button>
+          </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2730,7 +2732,7 @@ export function AiModelManagementPage() {
             </p>
             <div>
               <label htmlFor="import-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">统一 API Key（可选）</label>
-              <input
+              <Input
                 id="import-api-key"
                 className="material-input w-full"
                 type="password"
@@ -2755,7 +2757,7 @@ export function AiModelManagementPage() {
                       <span className="truncate">{entry.name}</span>
                       {entry.duplicate && <span className="material-chip shrink-0 bg-amber-50 text-amber-700">重复</span>}
                     </span>
-                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                       {entry.provider} / {entry.model}{entry.base_url ? ` · ${entry.base_url}` : ""}
                     </span>
                   </span>
@@ -2764,12 +2766,12 @@ export function AiModelManagementPage() {
             </div>
           </div>
           <DialogFooter className="border-t border-slate-100 pt-4">
-          <button type="button" className="material-button-secondary" onClick={() => setImportOpen(false)} disabled={importSaving}>
+          <Button variant="unstyled" type="button" className="material-button-secondary" onClick={() => setImportOpen(false)} disabled={importSaving}>
             取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => void handleImportCreate()} disabled={importSaving}>
+          </Button>
+          <Button variant="unstyled" type="button" className="material-button-primary" onClick={() => void handleImportCreate()} disabled={importSaving}>
             {importSaving ? "导入中..." : `导入所选（${importSelected.size}）`}
-          </button>
+          </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

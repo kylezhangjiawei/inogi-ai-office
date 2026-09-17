@@ -114,7 +114,7 @@ const mockRecords: InspectionRecord[] = [
 ];
 
 const typeColors: Record<InspectionType, string> = {
-  IQC: "bg-[#eef3ff] text-[#002fa7]",
+  IQC: "bg-accent text-primary",
   IPQC: "bg-slate-100 text-slate-700",
   FQC: "bg-sky-50 text-sky-700",
 };
@@ -222,7 +222,7 @@ export function InspectionReleasePage() {
             {records.map((record) => {
               const selectedNow = selectedId === record.id;
               return (
-                <button
+                <Button variant="unstyled"
                   key={record.id}
                   type="button"
                   aria-pressed={selectedNow}
@@ -230,14 +230,14 @@ export function InspectionReleasePage() {
                   onClick={() => setSelectedId(record.id)}
                   className={cn(
                     "relative min-w-[235px] rounded-xl border border-transparent px-3 py-3 text-left transition-colors xl:w-full xl:min-w-0",
-                    selectedNow ? "border-[#cfdafe] bg-[#eef3ff] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-[#002fa7]" : "bg-slate-50/70 hover:bg-slate-100",
+                    selectedNow ? "border-[#cfdafe] bg-accent before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "bg-slate-50/70 hover:bg-slate-100",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2"><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", typeColors[record.type])}>{record.type}</span><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", releaseColors[record.releaseStatus])}>{record.releaseStatus}</span></div>
                   <div className="mt-2 truncate text-sm font-semibold text-[#1b2559] tabular-nums">{record.batch}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-500 tabular-nums">{record.date} · {record.inspector}</span><span className={cn("inline-flex items-center gap-1 font-semibold", record.result === "合格" ? "text-emerald-700" : "text-rose-700")}>{record.result === "合格" ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}{record.result}</span></div>
                   {record.releaseStatus === "待放行" ? <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500"><Lock className="size-3" />未放行，不可出库</div> : null}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -268,7 +268,7 @@ export function InspectionReleasePage() {
 
             {selected.releaseStatus === "待放行" ? (
               <div className="rounded-xl border border-[#dce4f8] bg-[#f8faff] p-4">
-                <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]"><BadgeCheck className="size-5" /></span><div><h3 className="text-sm font-semibold text-[#1b2559]">QA 放行审批</h3><p className="mt-1 text-pretty text-xs leading-5 text-slate-600">确认后将更新批次放行状态。请复核批号、检验结论和检验人信息。</p></div></div>
+                <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><BadgeCheck className="size-5" /></span><div><h3 className="text-sm font-semibold text-[#1b2559]">QA 放行审批</h3><p className="mt-1 text-pretty text-xs leading-5 text-slate-600">确认后将更新批次放行状态。请复核批号、检验结论和检验人信息。</p></div></div>
                 {selected.result === "不合格" ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs font-medium text-amber-800">当前整体判定为不合格；如需让步接收，请先核对 NCR 处置依据。</div> : null}
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row"><Button type="button" className="hz-primary-action sm:flex-1" onClick={() => setReleaseConfirmOpen(true)}><CheckCircle2 className="size-4" />批准放行</Button><Button type="button" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50 sm:flex-1" onClick={() => { setRejectAttempted(false); setRejectConfirmOpen(true); }}><XCircle className="size-4" />拒绝放行</Button></div>
               </div>
@@ -299,7 +299,7 @@ export function InspectionReleasePage() {
                   return <div key={field.key} className="space-y-1.5"><Label htmlFor={id}>{field.label}{field.required ? <span className="text-rose-600">*</span> : null}</Label><Input id={id} type={field.type ?? "text"} required={field.required} aria-invalid={invalid} value={(newForm as Record<string, string>)[field.key]} onChange={(event) => setNewForm((prev) => ({ ...prev, [field.key]: event.target.value }))} /></div>;
                 })}
               </div>
-              <fieldset><legend className="text-sm font-medium text-slate-800">检验类型</legend><div className="mt-2 grid grid-cols-3 gap-2">{(["IQC", "IPQC", "FQC"] as InspectionType[]).map((type) => <Button key={type} type="button" variant="outline" aria-pressed={newForm.type === type} className={cn("rounded-lg", newForm.type === type && "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]")} onClick={() => setNewForm((prev) => ({ ...prev, type }))}>{type}</Button>)}</div></fieldset>
+              <fieldset><legend className="text-sm font-medium text-slate-800">检验类型</legend><div className="mt-2 grid grid-cols-3 gap-2">{(["IQC", "IPQC", "FQC"] as InspectionType[]).map((type) => <Button key={type} type="button" variant="outline" aria-pressed={newForm.type === type} className={cn("rounded-lg", newForm.type === type && "border-primary bg-accent text-primary")} onClick={() => setNewForm((prev) => ({ ...prev, type }))}>{type}</Button>)}</div></fieldset>
               <fieldset className="space-y-3"><legend className="text-sm font-semibold text-[#1b2559]">检验项目</legend>{newItems.map((item, index) => {
                 const actualId = `inspection-item-${index}`;
                 const invalid = formAttempted && (!item.actual.trim() || !item.result);

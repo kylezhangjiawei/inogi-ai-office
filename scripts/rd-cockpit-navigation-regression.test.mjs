@@ -246,7 +246,7 @@ function stateDependent(node) {
 }
 
 test("搜索输入常驻，不因空关键词、大屏切换、searchOpen 或失焦而卸载", () => {
-  assert.equal(searchInput.tagName.getText(ast), "input");
+  assert.equal(searchInput.tagName.getText(ast), "Input");
   assert.equal(jsxExpression(searchInput, "ref"), "searchInputRef");
   for (let node = searchInput; node && node !== cockpit; node = node.parent) {
     if (ts.isConditionalExpression(node)) {

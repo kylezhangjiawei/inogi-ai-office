@@ -55,6 +55,8 @@ import { cn } from "./components/ui/utils";
 import { opsCenterApi, type OpsCenterSectionData, type OpsErrorAnalysis } from "./lib/opsCenterApi";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 
 type OpsSection = "overview" | "api-errors" | "database" | "services-tasks" | "alerts-audit";
 type Tone = "healthy" | "info" | "warning" | "danger" | "neutral";
@@ -413,10 +415,10 @@ const statusColors: Record<Tone, string> = {
   neutral: "border-slate-200 bg-slate-100 text-slate-600",
 };
 
-const chartColors = ["#002fa7", "#1d4ed8", "#0284c7", "#f59e0b", "#dc2626"];
-const selectTriggerClass = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none outline-none transition-colors focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100";
-const inputClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100";
-const secondaryActionClass = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-none transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-50";
+const chartColors = ["var(--primary)", "#1d4ed8", "#0284c7", "#f59e0b", "#dc2626"];
+const selectTriggerClass = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none outline-none transition-colors focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary";
+const inputClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-300 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25";
+const secondaryActionClass = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-none transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-50";
 const primaryActionClass = "hz-primary-action inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 const chipClass = "inline-flex items-center rounded-md border px-2 py-1 text-xs font-semibold";
 const OPS_TABLE_PAGE_SIZE = 8;
@@ -487,7 +489,7 @@ function PaginationControls({
         共 {total} 条，第 {page} / {totalPages} 页
       </div>
       <div className="flex gap-2">
-        <button
+        <Button variant="unstyled"
           type="button"
           className={secondaryActionClass}
           onClick={() => onPageChange(Math.max(1, page - 1))}
@@ -495,8 +497,8 @@ function PaginationControls({
           aria-label="上一页"
         >
           上一页
-        </button>
-        <button
+        </Button>
+        <Button variant="unstyled"
           type="button"
           className={secondaryActionClass}
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
@@ -504,7 +506,7 @@ function PaginationControls({
           aria-label="下一页"
         >
           下一页
-        </button>
+        </Button>
       </div>
     </nav>
   );
@@ -647,7 +649,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
                 <XAxis dataKey="time" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <Tooltip />
-                <Area type="monotone" dataKey="api" name="接口错误" stroke="#002fa7" fill="#e7efff" strokeWidth={2} />
+                <Area type="monotone" dataKey="api" name="接口错误" stroke="var(--primary)" fill="#e7efff" strokeWidth={2} />
                 <Line type="monotone" dataKey="task" name="任务错误" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="db" name="数据库错误" stroke="#e11d48" strokeWidth={2} dot={false} />
               </AreaChart>
@@ -707,7 +709,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
               <Link
                 key={item.id}
                 to={routePath("page:ops-api-errors", "/ops-center/api-errors")}
-                className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/40"
+                className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-primary/25 hover:bg-accent/40"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -789,18 +791,18 @@ function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: 
   return (
     <div className="min-w-0 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#002fa7]">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
           <Sparkles className="size-3.5" aria-hidden="true" />
           AI 报错归因
         </div>
-        <button
+        <Button variant="unstyled"
           type="button"
           className={cn(secondaryActionClass, "min-h-8 px-2.5 py-1.5 text-xs")}
           disabled={loading}
           onClick={() => run(!!result)}
         >
           {loading ? "分析中…" : result ? "重新分析" : "AI 分析原因"}
-        </button>
+        </Button>
       </div>
       {aiReady === false && !result ? (
         <p className="mt-2 text-xs text-amber-600">未配置可用 AI 模型，请到「集成管理 → AI 模型」启用后再试。</p>
@@ -812,7 +814,7 @@ function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: 
           {result.impact ? <div><span className="font-semibold text-slate-800">影响面：</span>{result.impact}</div> : null}
           {result.investigation_steps.length ? <AiList title="排查建议" items={result.investigation_steps} /> : null}
           {result.fix_suggestions.length ? <AiList title="修复方向" items={result.fix_suggestions} /> : null}
-          <div className="pt-1 text-[11px] text-slate-400">
+          <div className="pt-1 text-[11px] text-muted-foreground">
             近 7 天同类 {result.occurrences} 次 · {result.cached ? "缓存结果" : "实时生成"}{result.model ? ` · ${result.model}` : ""} · {result.analyzed_at}
           </div>
         </div>
@@ -869,14 +871,14 @@ function EndpointStatsPanel() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">加载中…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
             ) : pagedRows.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="p-0 whitespace-normal"><HorizonEmptyState Icon={Activity} title="暂无调用数据" description="当前统计窗口内没有可展示的接口调用。" action={<button type="button" className={secondaryActionClass} onClick={() => setReloadKey((key) => key + 1)}>重新加载</button>} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="p-0 whitespace-normal"><HorizonEmptyState Icon={Activity} title="暂无调用数据" description="当前统计窗口内没有可展示的接口调用。" action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => setReloadKey((key) => key + 1)}>重新加载</Button>} /></TableCell></TableRow>
             ) : pagedRows.map((row: any) => (
               <TableRow key={`${row.method} ${row.path}`}>
                 <TableCell>
                   <div className="font-mono text-xs font-semibold text-slate-800">{row.method} {row.path}</div>
-                  <div className="mt-1 text-[11px] text-slate-400">{row.service}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{row.service}</div>
                 </TableCell>
                 <TableCell className="tabular-nums">{row.calls}</TableCell>
                 <TableCell className={cn("tabular-nums font-semibold", row.errors > 0 ? "text-rose-600" : "text-slate-500")}>{row.errors}</TableCell>
@@ -979,8 +981,8 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <PanelTitle icon={Clock3} title="慢 SQL 列表" action={`${filteredSlowRows.length} 条`} />
             <div className="relative w-full sm:w-[320px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" name="slow-query-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={slowKeyword} onChange={(event) => setSlowKeyword(event.target.value)} placeholder="搜索来源或 Prisma 操作…" aria-label="搜索慢 SQL" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="search" name="slow-query-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={slowKeyword} onChange={(event) => setSlowKeyword(event.target.value)} placeholder="搜索来源或 Prisma 操作…" aria-label="搜索慢 SQL" />
             </div>
           </div>
           <div className="mt-5 overflow-hidden rounded border border-slate-200">
@@ -1002,7 +1004,7 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
                         Icon={Search}
                         title="暂无匹配慢 SQL"
                         description="清除搜索条件后查看全部慢查询。"
-                        action={<button type="button" className={secondaryActionClass} onClick={() => setSlowKeyword("")}>清除搜索</button>}
+                        action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => setSlowKeyword("")}>清除搜索</Button>}
                       />
                     </TableCell>
                   </TableRow>
@@ -1087,7 +1089,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
                 <MiniMetric label="成功率" value={item.successRate} />
                 <MiniMetric label="平均耗时" value={item.latency} />
               </div>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 className={cn(secondaryActionClass, "mt-4 w-full")}
                 disabled={testingName === item.name}
@@ -1095,7 +1097,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
               >
                 <RefreshCw className={cn("h-4 w-4", testingName === item.name && "animate-spin")} />
                 {testingName === item.name ? "检测中…" : "测试连接"}
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -1176,8 +1178,8 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             <PanelTitle icon={BellRing} title="告警规则" action={`${filteredRules.length} 条`} />
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative w-full sm:w-[280px]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input type="search" name="alert-rule-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={ruleKeyword} onChange={(event) => setRuleKeyword(event.target.value)} placeholder="搜索规则、条件、渠道…" aria-label="搜索告警规则" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input type="search" name="alert-rule-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={ruleKeyword} onChange={(event) => setRuleKeyword(event.target.value)} placeholder="搜索规则、条件、渠道…" aria-label="搜索告警规则" />
               </div>
               <SelectControl
                 value={ruleLevelFilter}
@@ -1209,7 +1211,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
                         Icon={BellRing}
                         title="暂无匹配告警规则"
                         description="清除关键词和级别筛选后查看全部规则。"
-                        action={<button type="button" className={secondaryActionClass} onClick={() => { setRuleKeyword(""); setRuleLevelFilter("全部"); }}>清除筛选</button>}
+                        action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => { setRuleKeyword(""); setRuleLevelFilter("全部"); }}>清除筛选</Button>}
                       />
                     </TableCell>
                   </TableRow>
@@ -1247,8 +1249,8 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={FileSearch} title="日志保留策略" action={`${filteredPolicies.length} 条`} />
           <div className="relative w-full sm:w-[320px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input type="search" name="log-policy-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={policyKeyword} onChange={(event) => setPolicyKeyword(event.target.value)} placeholder="搜索日志类型、内容、状态…" aria-label="搜索日志策略" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="search" name="log-policy-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={policyKeyword} onChange={(event) => setPolicyKeyword(event.target.value)} placeholder="搜索日志类型、内容、状态…" aria-label="搜索日志策略" />
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded border border-slate-200">
@@ -1271,7 +1273,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
                       Icon={FileSearch}
                       title="暂无匹配日志策略"
                       description="清除搜索条件后查看全部保留策略。"
-                      action={<button type="button" className={secondaryActionClass} onClick={() => setPolicyKeyword("")}>清除搜索</button>}
+                      action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => setPolicyKeyword("")}>清除搜索</Button>}
                     />
                   </TableCell>
                 </TableRow>
@@ -1369,8 +1371,8 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
           <PanelTitle icon={Activity} title="请求记录" action={loading ? "加载中…" : `${total} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <div className="relative w-full sm:w-[240px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" name="api-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、错误信息、Request ID…" aria-label="搜索接口请求记录" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="search" name="api-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、错误信息、Request ID…" aria-label="搜索接口请求记录" />
             </div>
             <SelectControl value={range} onValueChange={setRange} options={OPS_RANGE_PRESETS.map((p) => ({ label: p.label, value: p.value }))} className="w-full sm:w-32" ariaLabel="筛选请求时间范围" />
             <SelectControl value={methodFilter} onValueChange={setMethodFilter} options={["全部", "GET", "POST", "PATCH", "PUT", "DELETE"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-28" ariaLabel="筛选请求方法" />
@@ -1400,7 +1402,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">加载中…</TableCell>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">加载中…</TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
@@ -1409,7 +1411,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
                       Icon={Search}
                       title="暂无匹配接口日志"
                       description="清除查询条件后重新加载请求记录。"
-                      action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); setMethodFilter("全部"); setRange("24h"); }}>清除筛选</button>}
+                      action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); setMethodFilter("全部"); setRange("24h"); }}>清除筛选</Button>}
                     />
                   </TableCell>
                 </TableRow>
@@ -1417,7 +1419,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
                 <TableRow
                   key={row.id}
                   className={cn(
-                    "cursor-pointer align-top transition-colors hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]",
+                    "cursor-pointer align-top transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
                     selected?.id === row.id && "bg-blue-50/70 ring-1 ring-inset ring-blue-200",
                   )}
                   onClick={() => setSelectedLogId(row.id)}
@@ -1433,7 +1435,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
                   <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.time}</TableCell>
                   <TableCell>
                     <div className="font-mono text-xs font-semibold text-slate-800">{row.method} {row.path}</div>
-                    <div className="mt-1 font-mono text-[11px] text-slate-400">{row.id}</div>
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">{row.id}</div>
                   </TableCell>
                   <TableCell><span className={cn(chipClass, statusColors[toneForCode(row.status)])}>{row.status}</span></TableCell>
                   <TableCell className={cn("font-semibold", row.duration > 2000 ? "text-amber-700" : "text-slate-600")}>{row.duration}ms</TableCell>
@@ -1474,7 +1476,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
             </div>
           </>
         ) : (
-          <div className="py-10 text-center text-sm text-slate-400">选择左侧一条请求查看详情</div>
+          <div className="py-10 text-center text-sm text-muted-foreground">选择左侧一条请求查看详情</div>
         )}
       </DetailPanel>
     </div>
@@ -1530,8 +1532,8 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
           <PanelTitle icon={Siren} title="错误聚合" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" name="error-group-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索错误、接口、服务、状态…" aria-label="搜索错误聚合" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="search" name="error-group-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索错误、接口、服务、状态…" aria-label="搜索错误聚合" />
             </div>
             <SelectControl
               value={severityFilter}
@@ -1549,14 +1551,14 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                 Icon={Search}
                 title="暂无匹配错误聚合"
                 description="清除关键词和严重级别后查看全部错误簇。"
-                action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setSeverityFilter("全部"); }}>清除筛选</button>}
+                action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setSeverityFilter("全部"); }}>清除筛选</Button>}
               />
             </div>
           ) : pagedRows.map((item: any) => (
             <article
               key={item.id}
               className={cn(
-                "rounded-lg border bg-white p-5 transition-colors hover:border-blue-200 hover:bg-blue-50/30",
+                "rounded-lg border bg-white p-5 transition-colors hover:border-primary/25 hover:bg-accent/30",
                 selectedIssue?.id === item.id ? "border-blue-300 bg-blue-50/40 ring-1 ring-blue-200" : "border-slate-200",
               )}
             >
@@ -1573,16 +1575,16 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                 <MiniMetric label="状态" value={statusOverrides[item.id] ?? item.status} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button
+                <Button variant="unstyled"
                   type="button"
-                  className={cn(secondaryActionClass, selectedIssue?.id === item.id && "border-blue-200 bg-blue-50 text-[#002fa7]")}
+                  className={cn(secondaryActionClass, selectedIssue?.id === item.id && "border-primary/25 bg-accent text-primary")}
                   aria-pressed={selectedIssue?.id === item.id}
                   onClick={() => setSelectedIssueId(item.id)}
                 >
                   <Eye className="size-4" aria-hidden="true" />
                   查看建议
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   type="button"
                   className={secondaryActionClass}
                   onClick={(event) => {
@@ -1594,8 +1596,8 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                 >
                   <FileSearch className="h-4 w-4" />
                   关联日志
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   type="button"
                   className={secondaryActionClass}
                   onClick={(event) => {
@@ -1608,7 +1610,7 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   {(statusOverrides[item.id] ?? item.status) === "已解决" ? "重新打开" : "标记处理"}
-                </button>
+                </Button>
               </div>
             </article>
           ))}
@@ -1675,8 +1677,8 @@ function TaskLogsPage({ data }: { data: OpsCenterSectionData | null }) {
           <PanelTitle icon={Bot} title="任务执行记录" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" name="task-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索模块、动作、执行人、结果…" aria-label="搜索任务执行记录" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="search" name="task-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索模块、动作、执行人、结果…" aria-label="搜索任务执行记录" />
             </div>
             <SelectControl
               value={statusFilter}
@@ -1705,7 +1707,7 @@ function TaskLogsPage({ data }: { data: OpsCenterSectionData | null }) {
               {pagedRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="p-0 whitespace-normal">
-                    <HorizonEmptyState Icon={Bot} title="暂无匹配任务日志" description="清除任务关键词和状态筛选后重试。" action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); }}>清除筛选</button>} />
+                    <HorizonEmptyState Icon={Bot} title="暂无匹配任务日志" description="清除任务关键词和状态筛选后重试。" action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); }}>清除筛选</Button>} />
                   </TableCell>
                 </TableRow>
               ) : pagedRows.map((row: any) => (
@@ -1764,8 +1766,8 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
           <PanelTitle icon={ShieldCheck} title="用户操作审计" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" name="audit-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索用户、操作、模块、IP…" aria-label="搜索用户操作审计" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input type="search" name="audit-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索用户、操作、模块、IP…" aria-label="搜索用户操作审计" />
             </div>
             <SelectControl
               value={riskFilter}
@@ -1794,7 +1796,7 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
               {pagedRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="p-0 whitespace-normal">
-                    <HorizonEmptyState Icon={ShieldCheck} title="暂无匹配审计日志" description="清除用户关键词和风险级别后重试。" action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setRiskFilter("全部"); }}>清除筛选</button>} />
+                    <HorizonEmptyState Icon={ShieldCheck} title="暂无匹配审计日志" description="清除用户关键词和风险级别后重试。" action={<Button variant="unstyled" type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setRiskFilter("全部"); }}>清除筛选</Button>} />
                   </TableCell>
                 </TableRow>
               ) : pagedRows.map((row: any) => (
@@ -1802,7 +1804,7 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
                   <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.time}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 font-semibold text-slate-800">
-                      <UserRound className="h-4 w-4 text-slate-400" />
+                      <UserRound className="h-4 w-4 text-muted-foreground" />
                       {row.user}
                     </div>
                   </TableCell>
@@ -1976,7 +1978,7 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
         }
         actions={
           <>
-            <button
+            <Button variant="unstyled"
               type="button"
               className={secondaryActionClass}
               disabled={loading}
@@ -1987,11 +1989,11 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
             >
               <RefreshCw className={cn("size-4", loading && "animate-spin")} aria-hidden="true" />
               {loading ? "刷新中…" : "刷新数据"}
-            </button>
-            <button type="button" className={primaryActionClass} onClick={handleExport}>
+            </Button>
+            <Button variant="unstyled" type="button" className={primaryActionClass} onClick={handleExport}>
               <Download className="size-4" aria-hidden="true" />
               导出当前视图
-            </button>
+            </Button>
           </>
         }
       />
@@ -2009,9 +2011,9 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 break-words">实时数据加载失败，当前展示示例降级视图（非实时）：{loadError}</span>
           </div>
-          <button type="button" className={cn(secondaryActionClass, "shrink-0")} onClick={() => setReloadKey((key) => key + 1)}>
+          <Button variant="unstyled" type="button" className={cn(secondaryActionClass, "shrink-0")} onClick={() => setReloadKey((key) => key + 1)}>
             重新连接
-          </button>
+          </Button>
         </div>
       ) : null}
 

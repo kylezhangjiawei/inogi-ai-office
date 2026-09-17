@@ -55,9 +55,9 @@ test("头像选择使用标准 Dialog、懒加载和焦点恢复", () => {
   assert.match(page, /onCloseAutoFocus=\{\(event\) =>/);
   assert.match(page, /returnFocusRef\.current\?\.focus\(\)/);
   assert.match(page, /if \(open && tab === "gallery" && !loadedRef\.current\) loadPresets\(\)/);
-  assert.match(page, /role="tablist" aria-label="头像来源"/);
-  assert.equal((page.match(/role="tab"/g) ?? []).length, 2);
-  assert.equal((page.match(/role="tabpanel"/g) ?? []).length, 2);
+  assert.match(page, /<TabsList aria-label="头像来源"/);
+  assert.equal((page.match(/<TabsTrigger value=/g) ?? []).length, 2);
+  assert.equal((page.match(/<TabsContent value=/g) ?? []).length, 2);
   assert.match(page, /aria-label=\{`选择默认头像 \$\{index \+ 1\}`\}/);
   assert.match(page, /actionError[\s\S]{0,180}?role="alert"/);
   assert.doesNotMatch(page, /fixed\s+inset-0/);

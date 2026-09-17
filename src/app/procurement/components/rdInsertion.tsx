@@ -28,6 +28,8 @@ import { usePermission } from "../../hooks/usePermission";
 import { currentRdWorkspace } from "../../lib/rdApi";
 import { fetchRdTechnicalDocuments, type RdTechnicalDocument } from "../../lib/rdTechnicalDocumentsApi";
 import { mergeRdTransferAttachments } from "../../lib/rdProcurementTransfer";
+import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 
 /** 转采购可携带的研发任务附件。fileKey 用于采购侧按需重签访问地址。 */
 export type TransferAttachmentInput = {
@@ -100,7 +102,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   if (task.status === "pending_rd_review" && canTransfer) {
     return (
-      <button
+      <Button variant="unstyled"
         type="button"
         disabled={continuing}
         onClick={async (event) => {
@@ -116,11 +118,11 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
             setContinuing(false);
           }
         }}
-        className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7] hover:bg-[#dce6ff] disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-[#dce6ff] disabled:opacity-50"
       >
         {continuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShoppingCart className="h-3 w-3" />}
         {t("继续转采购")}
-      </button>
+      </Button>
     );
   }
   if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
@@ -131,7 +133,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
     );
   }
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       onClick={() => onJump(task.id)}
       className="inline-flex items-center gap-1 rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
@@ -139,7 +141,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
     >
       {t("关联采购：")}{t(statusLabel)}
       <ExternalLink className="h-3 w-3" />
-    </button>
+    </Button>
   );
 }
 
@@ -172,18 +174,18 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
       {showSample ? <div className="mb-3 rounded-lg border border-[var(--primary-soft-border)] bg-white/80 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-primary"><FlaskConical className="size-4" aria-hidden="true" />{t("样品验证")} · {t(sampleResult)}</p>
-          {canOpenSample ? <button type="button" onClick={() => navigate(`/rd-my-workspace?sampleTest=${encodeURIComponent(task.id)}`)} className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary hover:bg-accent">{t(sample?.result === null && sample.testerUserId === user?.id && task.status === "testing" ? "填写测试结论" : "查看样品记录")}<ExternalLink className="size-3.5" aria-hidden="true" /></button> : null}
+          {canOpenSample ? <Button variant="unstyled" type="button" onClick={() => navigate(`/rd-my-workspace?sampleTest=${encodeURIComponent(task.id)}`)} className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary hover:bg-accent">{t(sample?.result === null && sample.testerUserId === user?.id && task.status === "testing" ? "填写测试结论" : "查看样品记录")}<ExternalLink className="size-3.5" aria-hidden="true" /></Button> : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">{t("测试人")}：{sample?.testerName || t("待指定")} · {t("当前采购节点")}：{t(statusLabel)}</p>
         {sample?.note ? <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-700">{sample.note}</p> : null}
-        {sample?.confirmedAt ? <p className="mt-1 text-xs text-slate-400">{t("本人确认")}：{sample.confirmedByName || sample.testerName} · {new Date(sample.confirmedAt).toLocaleString()}</p> : null}
+        {sample?.confirmedAt ? <p className="mt-1 text-xs text-muted-foreground">{t("本人确认")}：{sample.confirmedByName || sample.testerName} · {new Date(sample.confirmedAt).toLocaleString()}</p> : null}
         {task.sampleStatusNeedsReview ? <p className="mt-2 text-xs text-amber-700">{t("历史样品状态待核对，请由指定测试人补充结论。")}</p> : null}
       </div> : null}
       {isResearchWorkspace ? latest ? <details className="mb-3 rounded-lg border border-[var(--primary-soft-border)] bg-white/80 p-3">
         <summary className="cursor-pointer text-sm font-medium text-primary">{t("本次交付资料")} · {latest.attachments.length} {t("份")} · {latest.submittedByName}</summary>
         <p className="mt-2 break-words text-xs text-slate-600">{latest.requirement.materialName} · {latest.requirement.spec || t("规格未填写")} · {latest.requirement.quantity} {latest.requirement.unit}</p>
-        <p className="mt-1 text-xs text-slate-400">{t("按提交时内容保存；研发后续换版不会替换这次交付。")}</p>
-        <ul className="mt-2 space-y-2">{latest.attachments.map((attachment, index) => <li key={`${attachment.technicalDocumentVersionId || attachment.fileName}-${index}`} className="flex min-w-0 items-start gap-2 text-xs"><Paperclip className="mt-0.5 size-3.5 shrink-0 text-slate-400" aria-hidden="true" /><a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="min-w-0 break-words text-primary underline underline-offset-2">{attachment.fileName}</a><span className="shrink-0 text-slate-500">{attachment.version ? `${t("版本")} ${attachment.version}` : t("未登记版本")}</span></li>)}</ul>
+        <p className="mt-1 text-xs text-muted-foreground">{t("按提交时内容保存；研发后续换版不会替换这次交付。")}</p>
+        <ul className="mt-2 space-y-2">{latest.attachments.map((attachment, index) => <li key={`${attachment.technicalDocumentVersionId || attachment.fileName}-${index}`} className="flex min-w-0 items-start gap-2 text-xs"><Paperclip className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /><a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="min-w-0 break-words text-primary underline underline-offset-2">{attachment.fileName}</a><span className="shrink-0 text-slate-500">{attachment.version ? `${t("版本")} ${attachment.version}` : t("未登记版本")}</span></li>)}</ul>
         {snapshots.length > 1 ? <details className="mt-3 border-t border-slate-100 pt-2"><summary className="cursor-pointer text-xs text-slate-500">{t("历史交付")}（{snapshots.length - 1}）</summary><ul className="mt-2 space-y-2">{snapshots.slice(0, -1).reverse().map((snapshot) => <li key={snapshot.id} className="text-xs text-slate-500"><p>{new Date(snapshot.submittedAt).toLocaleString()} · {snapshot.submittedByName} · {snapshot.requirement.materialName} · {snapshot.requirement.quantity} {snapshot.requirement.unit}</p><p className="mt-1 break-words">{snapshot.attachments.map((attachment) => `${attachment.fileName} (${attachment.version || t("未登记版本")})`).join("、")}</p></li>)}</ul></details> : null}
       </details> : <p className="mb-3 text-xs text-slate-500">{t("历史采购未保存交付版本快照，原附件与记录仍保留。")}</p> : null}
       {task.logs.length > 0 ? (
@@ -193,13 +195,13 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
               <span className="rd-procurement-activity__dot mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
               <div>
                 <AutoTranslatedText as="div" className="text-slate-600" text={event.text} />
-                <div className="text-[11px] text-slate-400">{event.at}</div>
+                <div className="text-[11px] text-muted-foreground">{event.at}</div>
               </div>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="text-xs text-slate-400">{t("暂无采购动态")}</div>
+        <div className="text-xs text-muted-foreground">{t("暂无采购动态")}</div>
       )}
     </div>
   );
@@ -490,7 +492,7 @@ export function ScopedTransferToProcurementModal({
           className={cn("mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15", type === "number" && "tabular-nums", (key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : key === "unit" ? errors.unit : false) && "border-rose-300")}
         />
       )}
-      {hint && <span className="mt-0.5 block text-[10px] text-slate-400">{t(hint)}</span>}
+      {hint && <span className="mt-0.5 block text-[10px] text-muted-foreground">{t(hint)}</span>}
       {key === "materialName" && errors.materialName && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.materialName}</span>}
       {key === "quantity" && errors.quantity && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.quantity}</span>}
       {key === "unit" && errors.unit && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.unit}</span>}
@@ -521,12 +523,12 @@ export function ScopedTransferToProcurementModal({
           <DialogTitle className="text-balance text-base font-bold text-slate-900">
             {resubmitFrom ? t("转采购 · 重新提交 {code}", { code: resubmitFrom.code }) : t("转采购 · 生成采购任务")}
           </DialogTitle>
-          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t("核对采购物料、数量和图纸附件，提交后直接进入采购待处理并分配采购负责人。")}</DialogDescription>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-muted-foreground">{t("核对采购物料、数量和图纸附件，提交后直接进入采购待处理并分配采购负责人。")}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
           {[t("核对物料"), t("确认图纸附件"), t("生成采购任务")].map((label, index) => {
             const active = !form.materialName.trim() || !(Number(form.quantity) > 0) ? 0 : files.length === 0 ? 1 : 2;
-            return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-primary" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
+            return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-primary" : index < active ? "text-emerald-700" : "text-muted-foreground")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
           })}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -570,7 +572,7 @@ export function ScopedTransferToProcurementModal({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500">
                   {t("图纸附件（{count}）", { count: files.length })}
-                  <span className="ml-1 font-normal text-slate-400">{t("请明确勾选本次交付资料")}</span>
+                  <span className="ml-1 font-normal text-muted-foreground">{t("请明确勾选本次交付资料")}</span>
                 </span>
                 <div className="flex items-center gap-2">
                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 py-1 text-[11px] font-medium text-primary hover:bg-accent">
@@ -580,17 +582,17 @@ export function ScopedTransferToProcurementModal({
                 </div>
               </div>
               {documentsLoading ? <p role="status" className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t("正在核对技术资料版本…")}</p> : null}
-              {documentsError ? <div role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p className="break-words">{documentsError}</p><button type="button" disabled={submitting || draftWriting} onClick={() => { if (canEdit()) setDocumentsReload((value) => value + 1); }} className="mt-1 min-h-10 underline underline-offset-2">{t("重新读取技术资料")}</button></div> : null}
-              {isResearchWorkspace && taskRows.length > 0 ? <fieldset className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2"><legend className="px-1 text-xs text-slate-500">{t("可交付的研发资料")}</legend>{taskRows.map((row) => <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 py-2 text-xs hover:bg-accent"><input type="checkbox" checked={selectedKeys.has(row.key)} disabled={submitting || draftWriting || documentsLoading || Boolean(documentsError)} onChange={(event) => { if (!canEdit() || documentsLoading || documentsError) return; const checked = event.target.checked; setFiles((current) => checked ? [...current.filter((item) => item.key !== row.key), row] : current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="size-4 shrink-0 accent-[var(--primary)]" aria-label={`${t("交付附件：{name}", { name: row.name })} · ${row.technicalDocumentVersionId ? `${t("版本")} ${row.versionName || ""}` : t("未登记版本")}`} /><span className="min-w-0 flex-1 break-words text-slate-700">{row.name}<span className="mt-1 block text-[11px] text-slate-400">{row.technicalDocumentVersionId ? `${t("已登记版本")} ${row.versionName || ""}` : t("未登记版本，按本次原文件交付")}</span></span>{row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}</label>)}</fieldset> : null}
+              {documentsError ? <div role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p className="break-words">{documentsError}</p><Button variant="unstyled" type="button" disabled={submitting || draftWriting} onClick={() => { if (canEdit()) setDocumentsReload((value) => value + 1); }} className="mt-1 min-h-10 underline underline-offset-2">{t("重新读取技术资料")}</Button></div> : null}
+              {isResearchWorkspace && taskRows.length > 0 ? <fieldset className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2"><legend className="px-1 text-xs text-slate-500">{t("可交付的研发资料")}</legend>{taskRows.map((row) => <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 py-2 text-xs hover:bg-accent"><Checkbox checked={selectedKeys.has(row.key)} disabled={submitting || draftWriting || documentsLoading || Boolean(documentsError)} onCheckedChange={(checkedValue) => { if (!canEdit() || documentsLoading || documentsError) return; const checked = (checkedValue === true); setFiles((current) => checked ? [...current.filter((item) => item.key !== row.key), row] : current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="size-4 shrink-0 accent-[var(--primary)]" aria-label={`${t("交付附件：{name}", { name: row.name })} · ${row.technicalDocumentVersionId ? `${t("版本")} ${row.versionName || ""}` : t("未登记版本")}`} /><span className="min-w-0 flex-1 break-words text-slate-700">{row.name}<span className="mt-1 block text-[11px] text-muted-foreground">{row.technicalDocumentVersionId ? `${t("已登记版本")} ${row.versionName || ""}` : t("未登记版本，按本次原文件交付")}</span></span>{row.size ? <span className="shrink-0 text-[10px] text-muted-foreground">{formatRdFileSize(row.size)}</span> : null}</label>)}</fieldset> : null}
               {files.length > 0 ? (
                 <ul className="mt-1.5 max-h-36 space-y-1.5 overflow-y-auto">
                   {files.map((row) => (
                     <li key={row.key} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
-                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
-                      {row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}
+                      {row.size ? <span className="shrink-0 text-[10px] text-muted-foreground">{formatRdFileSize(row.size)}</span> : null}
                       <span className={row.source === "task" ? "shrink-0 rounded-full bg-accent px-1.5 text-[10px] text-primary" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
-                      <button type="button" aria-label={t("移除附件：{name}", { name: row.name })} disabled={submitting || draftWriting} onClick={() => { if (!canEdit()) return; setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
+                      <Button variant="unstyled" type="button" aria-label={t("移除附件：{name}", { name: row.name })} disabled={submitting || draftWriting} onClick={() => { if (!canEdit()) return; setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></Button>
                     </li>
                   ))}
                 </ul>
@@ -612,11 +614,11 @@ export function ScopedTransferToProcurementModal({
         <div className="shrink-0 border-t border-slate-100 px-6 py-3">
           <p role={blockingTask ? "alert" : "status"} className={cn("mb-2 text-pretty text-xs leading-5", blockingTask ? "text-amber-800" : "text-slate-500")}>{blockingTask ? linkedTaskMessage(blockingTask.code) : t(submitting ? "正在上传附件并生成采购任务，请等待处理完成。" : dirty ? "填写内容尚未提交，可保存草稿后继续处理。" : "确认生成后才会提交需求与附件。")}</p>
           <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" disabled={submitting || draftWriting} onClick={requestClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
-          <button type="button" disabled={files.length === 0 || submitting || draftWriting || documentsLoading || Boolean(documentsError) || Boolean(blockingTask)} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
+          <Button variant="unstyled" type="button" disabled={submitting || draftWriting} onClick={requestClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</Button>
+          <Button variant="unstyled" type="button" disabled={files.length === 0 || submitting || draftWriting || documentsLoading || Boolean(documentsError) || Boolean(blockingTask)} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
             {submitting ? t("正在生成…") : t("确认生成采购任务")}
-          </button>
+          </Button>
           </div>
         </div>
       </DialogContent>

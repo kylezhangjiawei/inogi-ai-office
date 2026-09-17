@@ -9,6 +9,7 @@ import { listQuotations, type Quotation } from "../../lib/procurementApi";
 import { fmtMoney } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { i18nLocale, useI18n } from "../../lib/i18n";
+import { Button } from "../../components/ui/button";
 
 type SortKey = "date" | "price";
 
@@ -151,9 +152,9 @@ export function PriceHistoryModal({ materialId, materialName, open, onClose }: {
               <div className="h-48 rounded-xl bg-slate-100" />
             </div>
           ) : error ? (
-            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-6 text-rose-600" /><p className="max-w-full break-words text-pretty text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button></div>
+            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-6 text-rose-600" /><p className="max-w-full break-words text-pretty text-sm text-rose-700">{error}</p><Button variant="unstyled" type="button" onClick={() => void load()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</Button></div>
           ) : rows.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center"><History className="size-6 text-slate-300" /><p className="text-pretty text-sm text-slate-400">{t(exactMaterialId ? '该正式物料暂无已关联的历史报价。' : '未读取到同名候选报价。')}</p><button type="button" onClick={onClose} className="material-button-secondary px-3 py-2 text-xs">{t("关闭并返回")}</button></div>
+            <div className="flex flex-col items-center gap-3 py-10 text-center"><History className="size-6 text-muted-foreground" /><p className="text-pretty text-sm text-muted-foreground">{t(exactMaterialId ? '该正式物料暂无已关联的历史报价。' : '未读取到同名候选报价。')}</p><Button variant="unstyled" type="button" onClick={onClose} className="material-button-secondary px-3 py-2 text-xs">{t("关闭并返回")}</Button></div>
           ) : (
             <>
               <p className="mb-3 text-pretty text-xs text-slate-500">{t("已读取 {count} 条报价，不代表全部历史。", { count: rows.length })}</p>
@@ -172,7 +173,7 @@ export function PriceHistoryModal({ materialId, materialName, open, onClose }: {
                   { icon: CalendarDays, label: t("最近报价"), value: latest ? fmtQuotationPrice(latest.unitPrice, activeCurrency) : "—", detail: latest?.quoteDate ?? "—" },
                   { icon: ArrowDownUp, label: t("已读均价"), value: fmtQuotationPrice(average, activeCurrency), detail: t("基于 {count} 条同币种报价", { count: comparableRows.length }) },
                   { icon: History, label: t("供应商覆盖"), value: t("{count} 家", { count: supplierCount }), detail: t("共 {count} 条同币种记录", { count: comparableRows.length }) },
-                ].map((item) => <div key={item.label} className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-2.5"><div className="flex items-center gap-1.5 text-[11px] text-slate-500"><item.icon className="size-3.5 shrink-0" />{item.label}</div><strong className="mt-1 block break-all text-sm tabular-nums text-slate-900" title={item.value}>{item.value}</strong><span className="mt-0.5 block truncate text-[10px] text-slate-400" title={item.detail}>{item.detail}</span></div>)}
+                ].map((item) => <div key={item.label} className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-2.5"><div className="flex items-center gap-1.5 text-[11px] text-slate-500"><item.icon className="size-3.5 shrink-0" />{item.label}</div><strong className="mt-1 block break-all text-sm tabular-nums text-slate-900" title={item.value}>{item.value}</strong><span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={item.detail}>{item.detail}</span></div>)}
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
                 <div className="mb-1 text-xs font-medium text-slate-500">{t('{currency} 价格趋势（按时间）', { currency: activeCurrency })}</div>

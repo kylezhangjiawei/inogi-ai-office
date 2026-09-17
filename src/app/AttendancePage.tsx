@@ -1,3 +1,4 @@
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -77,6 +78,10 @@ import {
 } from './lib/attendanceApi';
 import { exportMonthlyAttendanceWorkbook } from './lib/attendanceWorkbook';
 import { routePath } from './lib/routePaths';
+import { NativeSelect } from "./components/ui/native-select";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { Checkbox } from "./components/ui/checkbox";
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -290,31 +295,31 @@ function AttendanceEditor({
             <div className="space-y-5 px-6 py-5">
               <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-3">
                 <label className="text-xs font-semibold text-slate-600">考勤类型
-                  <select value={draft.manualStatus} onChange={(event) => update('manualStatus', event.target.value as AttendanceManualStatus)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400">
+                  <NativeSelect value={draft.manualStatus} onChange={(event) => update('manualStatus', event.target.value as AttendanceManualStatus)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400">
                     {manualStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
+                  </NativeSelect>
                 </label>
                 <label className="text-xs font-semibold text-slate-600">应上班
-                  <input type="time" required value={draft.scheduledStart ?? ''} onChange={(event) => update('scheduledStart', event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
+                  <Input type="time" required value={draft.scheduledStart ?? ''} onChange={(event) => update('scheduledStart', event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
                 </label>
                 <label className="text-xs font-semibold text-slate-600">应下班
-                  <input type="time" required value={draft.scheduledEnd ?? ''} onChange={(event) => update('scheduledEnd', event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
+                  <Input type="time" required value={draft.scheduledEnd ?? ''} onChange={(event) => update('scheduledEnd', event.target.value)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
                 </label>
               </section>
 
               <section className={cn('grid gap-4 rounded-2xl border p-4 sm:grid-cols-2', usesClockTimes ? 'border-emerald-100 bg-emerald-50/40' : 'border-slate-100 bg-slate-50 opacity-65')}>
                 <label className="text-xs font-semibold text-slate-600">上午打卡
-                  <input type="time" disabled={!usesClockTimes} value={draft.checkInTime ?? ''} onChange={(event) => update('checkInTime', event.target.value || undefined)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100" />
+                  <Input type="time" disabled={!usesClockTimes} value={draft.checkInTime ?? ''} onChange={(event) => update('checkInTime', event.target.value || undefined)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100" />
                 </label>
                 <label className="text-xs font-semibold text-slate-600">下午打卡
-                  <input type="time" disabled={!usesClockTimes} value={draft.checkOutTime ?? ''} onChange={(event) => update('checkOutTime', event.target.value || undefined)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100" />
+                  <Input type="time" disabled={!usesClockTimes} value={draft.checkOutTime ?? ''} onChange={(event) => update('checkOutTime', event.target.value || undefined)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100" />
                 </label>
                 <p className="text-xs leading-5 text-slate-500 sm:col-span-2">选择“自动判定”时按班次计算正常、迟到和早退；选择请假、轮休等类型时不要求打卡。</p>
               </section>
 
               <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-3">
                 <label className="text-xs font-semibold text-slate-600">倒挂扣时（分钟）
-                  <input
+                  <Input
                     type="number"
                     min={0}
                     max={1440}
@@ -325,14 +330,14 @@ function AttendanceEditor({
                   />
                 </label>
                 <label className="text-xs font-semibold text-slate-600">加班（分钟）
-                  <input type="number" min={0} max={1440} value={draft.overtimeMinutes} onChange={(event) => update('overtimeMinutes', Number(event.target.value) || 0)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
+                  <Input type="number" min={0} max={1440} value={draft.overtimeMinutes} onChange={(event) => update('overtimeMinutes', Number(event.target.value) || 0)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
                 </label>
                 <label className="text-xs font-semibold text-slate-600">加班类型
-                  <select disabled={draft.overtimeMinutes <= 0} value={draft.overtimeType} onChange={(event) => update('overtimeType', event.target.value as AttendanceOvertimeType)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100">
+                  <NativeSelect disabled={draft.overtimeMinutes <= 0} value={draft.overtimeType} onChange={(event) => update('overtimeType', event.target.value as AttendanceOvertimeType)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none disabled:bg-slate-100">
                     <option value="workday">工作日加班</option>
                     <option value="sunday">周日加班</option>
                     <option value="holiday">法定节假日加班</option>
-                  </select>
+                  </NativeSelect>
                 </label>
                 <p className="text-xs leading-5 text-slate-500 sm:col-span-3">
                   仅填写公司安排少做、后续需要补回的工时；迟到和早退只记考勤异常，不会自动计入倒挂。
@@ -341,7 +346,7 @@ function AttendanceEditor({
               </section>
 
               <label className="block text-xs font-semibold text-slate-600">备注说明
-                <textarea rows={3} maxLength={500} value={draft.note ?? ''} onChange={(event) => update('note', event.target.value)} placeholder="补卡原因、审批单号或其他说明" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400" />
+                <Textarea rows={3} maxLength={500} value={draft.note ?? ''} onChange={(event) => update('note', event.target.value)} placeholder="补卡原因、审批单号或其他说明" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400" />
               </label>
             </div>
 
@@ -378,11 +383,11 @@ function AttendanceEditor({
                 ) : null}
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={onClose} disabled={saving || deleting} className="material-button-secondary px-4 py-2.5 text-sm">取消</button>
-                <button type="submit" disabled={saving || deleting} className="material-button-primary min-w-28 px-4 py-2.5 text-sm disabled:opacity-60">
+                <Button variant="unstyled" type="button" onClick={onClose} disabled={saving || deleting} className="material-button-secondary px-4 py-2.5 text-sm">取消</Button>
+                <Button variant="unstyled" type="submit" disabled={saving || deleting} className="material-button-primary min-w-28 px-4 py-2.5 text-sm disabled:opacity-60">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   {saving ? '保存中' : '保存考勤'}
-                </button>
+                </Button>
               </div>
             </DialogFooter>
           </form>
@@ -462,22 +467,21 @@ function MonthAdjustmentEditor({
           >
             <DialogHeader className="border-b border-slate-100 bg-slate-50/80 px-6 py-5 pr-14">
               <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-2xl bg-[#002fa7] text-white"><Settings2 className="size-4" /></span>
+                <span className="flex size-10 items-center justify-center rounded-2xl bg-primary text-white"><Settings2 className="size-4" /></span>
                 <div><DialogTitle>月度结余与审核字段</DialogTitle><DialogDescription className="mt-1">{item.employee.name} · {monthLabel(month)} · 保存后同步到正式导出表</DialogDescription></div>
               </div>
             </DialogHeader>
             <div className="space-y-5 px-6 py-5">
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={deductsInverted}
-                  onChange={(event) => setDeductsInverted(event.target.checked)}
+                  onCheckedChange={(checkedValue) => setDeductsInverted((checkedValue === true))}
                   disabled={saving}
-                  className="mt-0.5 size-4 cursor-pointer accent-[#002fa7]"
+                  className="mt-0.5 size-4 cursor-pointer accent-primary"
                 />
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-slate-800">参与倒挂抵扣</span>
-                  <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
                     生产没任务时工资照发，公司安排少做且后续需要补回的工时可单独记为倒挂扣时，后续加班优先冲抵。
                     这是<span className="font-semibold text-slate-700">人员长期设置</span>（保存到员工档案），不只影响本月；
                     未勾选的人不记倒挂扣时，迟到和早退也不会自动计入。
@@ -487,22 +491,22 @@ function MonthAdjustmentEditor({
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {numberFields.map((field) => (
                   <label key={field.key} className="text-xs font-semibold text-slate-600">{field.label}
-                    <span className="relative mt-1.5 block"><input type="number" min={0} step="0.01" value={Number(draft[field.key]) || 0} onChange={(event) => updateNumber(field.key, event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 px-3 pr-12 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-normal text-slate-400">{field.unit}</span></span>
-                    {field.hint ? <span className="mt-1 block text-[10px] font-normal leading-tight text-slate-400">{field.hint}</span> : null}
+                    <span className="relative mt-1.5 block"><Input type="number" min={0} step="0.01" value={Number(draft[field.key]) || 0} onChange={(event) => updateNumber(field.key, event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 px-3 pr-12 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-normal text-muted-foreground">{field.unit}</span></span>
+                    {field.hint ? <span className="mt-1 block text-xs font-normal leading-tight text-muted-foreground">{field.hint}</span> : null}
                   </label>
                 ))}
               </div>
               <label className="block text-xs font-semibold text-slate-600">员工签字
-                <input value={draft.signature} onChange={(event) => setDraft((current) => current ? { ...current, signature: event.target.value } : current)} placeholder="可留空，打印后手写" className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500" />
+                <Input value={draft.signature} onChange={(event) => setDraft((current) => current ? { ...current, signature: event.target.value } : current)} placeholder="可留空，打印后手写" className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-primary" />
               </label>
               <label className="block text-xs font-semibold text-slate-600">月度备注
-                <textarea rows={3} maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="结余说明、倒挂原因或其他月度备注" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                <Textarea rows={3} maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="结余说明、倒挂原因或其他月度备注" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-primary" />
               </label>
               <div className="rounded-xl bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">年度带薪病假额度固定为 5 天。生产部门人员的工作日加班会自动抵扣剩余倒挂工时；法定节假日加班自动计入调休余额。此处只维护期初结余和人工调整。</div>
             </div>
             <DialogFooter className="border-t border-slate-100 px-6 py-4">
-              <button type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2.5 text-sm">取消</button>
-              <button type="submit" disabled={saving} className="material-button-primary min-w-32 px-4 py-2.5 text-sm disabled:opacity-60">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{saving ? '保存中' : '保存月度字段'}</button>
+              <Button variant="unstyled" type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2.5 text-sm">取消</Button>
+              <Button variant="unstyled" type="submit" disabled={saving} className="material-button-primary min-w-32 px-4 py-2.5 text-sm disabled:opacity-60">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{saving ? '保存中' : '保存月度字段'}</Button>
             </DialogFooter>
           </form>
         ) : null}
@@ -567,20 +571,20 @@ function EmployeeAttendanceDetailDialog({
             {rules.alerts.length > 0 ? <section className="grid gap-2 sm:grid-cols-2">{rules.alerts.map((alert) => <div key={alert} className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700"><AlertTriangle className="h-4 w-4 shrink-0" />{alert}</div>)}</section> : null}
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold text-slate-500">可统计加班</p><strong className="mt-1 block text-2xl text-slate-950">{rules.countableOvertimeHours}h</strong><p className="mt-1 text-[11px] text-slate-400">已排除倒挂抵扣与调休入账</p></div>
-              <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><p className="text-xs font-semibold text-amber-700">倒挂抵扣 / 剩余</p><strong className="mt-1 block text-2xl text-amber-950">{rules.invertedOffsetHours} / {rules.remainingInvertedHours}h</strong><p className="mt-1 text-[11px] text-amber-700/70">仅生产部门倒挂人员适用</p></div>
-              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><p className="text-xs font-semibold text-cyan-700">调休增加 / 余额</p><strong className="mt-1 block text-2xl text-cyan-950">+{rules.compTimeEarnedHours} / {rules.compTimeBalanceHours}h</strong><p className="mt-1 text-[11px] text-cyan-700/70">法定节假日加班自动入账</p></div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold text-slate-500">可统计加班</p><strong className="mt-1 block text-2xl text-slate-950">{rules.countableOvertimeHours}h</strong><p className="mt-1 text-xs text-muted-foreground">已排除倒挂抵扣与调休入账</p></div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><p className="text-xs font-semibold text-amber-700">倒挂抵扣 / 剩余</p><strong className="mt-1 block text-2xl text-amber-950">{rules.invertedOffsetHours} / {rules.remainingInvertedHours}h</strong><p className="mt-1 text-xs text-amber-700/70">仅生产部门倒挂人员适用</p></div>
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><p className="text-xs font-semibold text-cyan-700">调休增加 / 余额</p><strong className="mt-1 block text-2xl text-cyan-950">+{rules.compTimeEarnedHours} / {rules.compTimeBalanceHours}h</strong><p className="mt-1 text-xs text-cyan-700/70">法定节假日加班自动入账</p></div>
               <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-cyan-800">年度带薪病假</p><HeartPulse className="size-4 text-cyan-600" /></div><strong className="mt-1 block text-2xl text-cyan-950 tabular-nums">{rules.annualSickLeaveDays} / {rules.annualPaidSickLeaveAllowanceDays}天</strong><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-cyan-100"><div className={cn('h-full rounded-full', rules.excessSickLeaveDays > 0 ? 'bg-red-500' : 'bg-cyan-600')} style={{ width: `${sickProgress}%` }} /></div></div>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between"><div><h4 className="text-sm font-semibold text-slate-900">每日考勤</h4><p className="mt-0.5 text-xs text-slate-500">点击日期可直接补录或修改</p></div><span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">可编辑</span></div>
+              <div className="flex items-center justify-between"><div><h4 className="text-sm font-semibold text-slate-900">每日考勤</h4><p className="mt-0.5 text-xs text-slate-500">点击日期可直接补录或修改</p></div><span className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">可编辑</span></div>
               <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7 lg:grid-cols-10">
                 {Array.from({ length: detail.daysInMonth }, (_, index) => index + 1).map((day) => {
                   const date = dateForDay(detail.month, day);
                   const record = recordByDate.get(date);
                   const meta = record ? statusMeta[record.status] : null;
-                  return <button key={day} type="button" onClick={() => onEdit(detail.employee, day, record)} className={cn('rounded-xl border px-2 py-2 text-left transition hover:border-blue-200 hover:shadow-sm', record ? 'border-transparent' : 'border-dashed border-slate-200 bg-slate-50', meta?.tone)}><span className="block text-[10px] font-semibold opacity-70">{day}日 · 周{weekdayForDay(detail.month, day)}</span><span className="mt-1 block truncate text-xs font-bold">{record ? meta?.short : '未录入'}</span><span className="mt-0.5 block truncate font-mono text-[10px] opacity-70">{record?.checkInTime || '--'} / {record?.checkOutTime || '--'}</span></button>;
+                  return <Button variant="unstyled" key={day} type="button" onClick={() => onEdit(detail.employee, day, record)} className={cn('rounded-xl border px-2 py-2 text-left transition hover:border-primary/25 hover:shadow-sm', record ? 'border-transparent' : 'border-dashed border-slate-200 bg-slate-50', meta?.tone)}><span className="block text-xs font-semibold opacity-70">{day}日 · 周{weekdayForDay(detail.month, day)}</span><span className="mt-1 block truncate text-xs font-bold">{record ? meta?.short : '未录入'}</span><span className="mt-0.5 block truncate font-mono text-xs opacity-70">{record?.checkInTime || '--'} / {record?.checkOutTime || '--'}</span></Button>;
                 })}
               </div>
             </section>
@@ -615,13 +619,13 @@ function OvertimeLedger({
           ['倒挂抵扣', `${data.summary.invertedOffsetHours}h`, '生产部门工作日加班'],
           ['计入调休', `${data.summary.compTimeEarnedHours}h`, '法定节假日加班'],
           ['可统计加班', `${data.summary.countableOvertimeHours}h`, '抵扣与调休分流后'],
-        ].map(([label, value, helper], index) => <div key={label} className={cn('rounded-2xl border p-4', index === 3 ? 'border-slate-900 bg-slate-950 text-white' : 'border-slate-200 bg-white')}><p className={cn('text-xs font-semibold', index === 3 ? 'text-slate-300' : 'text-slate-500')}>{label}</p><strong className="mt-1 block text-2xl">{value}</strong><p className={cn('mt-1 text-[11px]', index === 3 ? 'text-slate-400' : 'text-slate-400')}>{helper}</p></div>)}
+        ].map(([label, value, helper], index) => <div key={label} className={cn('rounded-2xl border p-4', index === 3 ? 'border-slate-900 bg-slate-950 text-white' : 'border-slate-200 bg-white')}><p className={cn('text-xs font-semibold', index === 3 ? 'text-slate-300' : 'text-slate-500')}>{label}</p><strong className="mt-1 block text-2xl">{value}</strong><p className={cn('mt-1 text-xs', index === 3 ? 'text-slate-300' : 'text-muted-foreground')}>{helper}</p></div>)}
       </section>
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <table className="w-full min-w-[1180px] text-left text-xs">
           <caption className="sr-only">{monthLabel(data.month)}人员加班时长与调休结余</caption>
           <thead className="bg-slate-50 text-slate-500"><tr>{['人员', '规则', '工作日加班', '倒挂抵扣', '可计工作日', '周日加班', '节假日→调休', '调休使用', '调休余额', '可统计合计', '操作'].map((label) => <th key={label} scope="col" className="border-b border-slate-200 px-4 py-3 font-semibold">{label}</th>)}</tr></thead>
-          <tbody>{data.items.map((item) => <tr key={item.employee.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.employee.name}</p><p className="mt-0.5 text-[10px] text-slate-400">{item.employee.department} · {item.employee.title}</p></td><td className="px-4 py-3"><span className={cn('rounded-full px-2.5 py-1 text-[10px] font-semibold', item.rules.ruleType === 'production_inverted' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{item.rules.ruleType === 'production_inverted' ? '倒挂抵扣' : '常规统计'}</span></td><td className="px-4 py-3 font-mono">{item.summary.workdayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-amber-700">-{item.rules.invertedOffsetHours}h</td><td className="px-4 py-3 font-mono">{item.rules.countableWorkdayOvertimeHours}h</td><td className="px-4 py-3 font-mono">{item.rules.sundayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-cyan-700">+{item.rules.compTimeEarnedHours}h</td><td className="px-4 py-3 font-mono">-{item.rules.compTimeUsedHours}h</td><td className={cn('px-4 py-3 font-mono font-semibold', item.rules.compTimeBalanceHours < 0 ? 'text-red-600' : 'text-cyan-800')}>{item.rules.compTimeBalanceHours}h</td><td className="px-4 py-3 font-mono text-sm font-bold text-slate-950">{item.rules.countableOvertimeHours}h</td><td className="px-4 py-3"><button type="button" onClick={() => onDetail(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-200"><Eye className="h-3.5 w-3.5" />详情</button></td></tr>)}</tbody>
+          <tbody>{data.items.map((item) => <tr key={item.employee.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.employee.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{item.employee.department} · {item.employee.title}</p></td><td className="px-4 py-3"><span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', item.rules.ruleType === 'production_inverted' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{item.rules.ruleType === 'production_inverted' ? '倒挂抵扣' : '常规统计'}</span></td><td className="px-4 py-3 font-mono">{item.summary.workdayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-amber-700">-{item.rules.invertedOffsetHours}h</td><td className="px-4 py-3 font-mono">{item.rules.countableWorkdayOvertimeHours}h</td><td className="px-4 py-3 font-mono">{item.rules.sundayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-cyan-700">+{item.rules.compTimeEarnedHours}h</td><td className="px-4 py-3 font-mono">-{item.rules.compTimeUsedHours}h</td><td className={cn('px-4 py-3 font-mono font-semibold', item.rules.compTimeBalanceHours < 0 ? 'text-red-600' : 'text-cyan-800')}>{item.rules.compTimeBalanceHours}h</td><td className="px-4 py-3 font-mono text-sm font-bold text-slate-950">{item.rules.countableOvertimeHours}h</td><td className="px-4 py-3"><Button variant="unstyled" type="button" onClick={() => onDetail(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-200"><Eye className="h-3.5 w-3.5" />详情</Button></td></tr>)}</tbody>
         </table>
       </div>
     </div>
@@ -797,7 +801,7 @@ export function AttendancePage() {
   const rowLabels = ['上午打卡', '上午判定', '下午打卡', '下午判定', '倒挂扣时'];
 
   return (
-    <div className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1800px] min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5 xl:h-full xl:min-h-0">
+    <Tabs value={activeView} onValueChange={(value) => setActiveView(value as "attendance" | "overtime")} className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1800px] min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5 xl:h-full xl:min-h-0">
       <HorizonPageHeader
         Icon={CalendarDays}
         eyebrow="HR OPERATIONS · ATTENDANCE"
@@ -832,20 +836,20 @@ export function AttendancePage() {
           Icon={activeView === 'attendance' ? Table2 : Clock3}
           title={activeView === 'attendance' ? '月度考勤矩阵' : '加班时长核算'}
           description={activeView === 'attendance' ? '点击日期单元格补录或修正，点击姓名查看完整人员详情。' : '自动执行生产部门倒挂抵扣、节假日调休入账和常规加班统计。'}
-          trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">{activeView === 'attendance' ? '可编辑' : '规则自动核算'}</span>}
+          trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">{activeView === 'attendance' ? '可编辑' : '规则自动核算'}</span>}
         />
 
         <div className="hz-toolbar flex shrink-0 flex-col gap-3 border-b px-4 py-3 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
-          <div role="tablist" aria-label="考勤视图" className="flex w-fit items-center rounded-xl bg-slate-100 p-1">
-            <button type="button" role="tab" aria-selected={activeView === 'attendance'} aria-controls="attendance-view-panel" onClick={() => setActiveView('attendance')} className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'attendance' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Table2 className="size-3.5" />考勤明细</button>
-            <button type="button" role="tab" aria-selected={activeView === 'overtime'} aria-controls="attendance-view-panel" onClick={() => setActiveView('overtime')} className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'overtime' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Clock3 className="size-3.5" />加班时长</button>
-          </div>
+          <TabsList aria-label="考勤视图" className="w-fit">
+            <TabsTrigger value="attendance"><Table2 className="size-3.5" />考勤明细</TabsTrigger>
+            <TabsTrigger value="overtime"><Clock3 className="size-3.5" />加班时长</TabsTrigger>
+          </TabsList>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1">
-              <button type="button" aria-label="查看上个月" onClick={() => setMonth(moveMonth(month, -1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronLeft className="size-4" /></button>
+              <Button variant="unstyled" type="button" aria-label="查看上个月" onClick={() => setMonth(moveMonth(month, -1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronLeft className="size-4" /></Button>
               <label htmlFor="attendance-month" className="sr-only">考勤月份</label>
-              <input id="attendance-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="h-8 w-[130px] border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 outline-none" />
-              <button type="button" aria-label="查看下个月" onClick={() => setMonth(moveMonth(month, 1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronRight className="size-4" /></button>
+              <Input id="attendance-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="h-8 w-[130px] border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 outline-none" />
+              <Button variant="unstyled" type="button" aria-label="查看下个月" onClick={() => setMonth(moveMonth(month, 1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronRight className="size-4" /></Button>
             </div>
             {month !== currentMonth ? <Button type="button" size="sm" variant="outline" onClick={() => setMonth(currentMonth)}>回到本月</Button> : null}
             <Button type="button" size="sm" variant="outline" onClick={reload} disabled={loading}><RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />刷新</Button>
@@ -855,18 +859,18 @@ export function AttendancePage() {
         <div className="grid shrink-0 gap-2 border-b border-slate-100 bg-white px-4 py-3 sm:px-5 md:grid-cols-[minmax(260px,1fr)_220px]">
           <label className="relative block">
             <span className="sr-only">搜索考勤人员</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索姓名、工号、部门或岗位" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索姓名、工号、部门或岗位" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-primary" />
           </label>
           <label className="block">
             <span className="sr-only">筛选部门</span>
-            <select value={department} onChange={(event) => setDepartment(event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"><option value="">全部部门</option>{data.departments.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+            <NativeSelect value={department} onChange={(event) => setDepartment(event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary"><option value="">全部部门</option>{data.departments.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
           </label>
         </div>
 
         {activeView === 'overtime' ? (
-          <div id="attendance-view-panel" role="tabpanel" className="contents"><OvertimeLedger data={overtimeData} loading={overtimeLoading} error={overtimeError} onDetail={setDetailEmployee} /></div>
-        ) : <div id="attendance-view-panel" role="tabpanel" className="min-h-0 flex-1 overflow-auto">
+          <TabsContent value="overtime" className="contents"><OvertimeLedger data={overtimeData} loading={overtimeLoading} error={overtimeError} onDetail={setDetailEmployee} /></TabsContent>
+        ) : <TabsContent value="attendance" className="min-h-0 flex-1 overflow-auto">
           {loadError ? (
             <HorizonEmptyState Icon={AlertTriangle} title="月度考勤读取失败" description={loadError} action={<Button type="button" variant="outline" onClick={reload}><RefreshCw className="size-4" />重新加载</Button>} />
           ) : loading && data.items.length === 0 ? (
@@ -874,7 +878,7 @@ export function AttendancePage() {
           ) : data.items.length === 0 ? (
             <HorizonEmptyState Icon={Users} title="暂无考勤人员" description="请先在员工入职归档中维护在职人员，再回来生成月度考勤矩阵。" action={<Button asChild variant="outline"><Link to={routePath('page:employee-archive', '/employee-archive')}>前往员工档案</Link></Button>} />
           ) : (
-            <table className="border-separate border-spacing-0 text-center text-[11px]" style={{ minWidth: `${280 + data.daysInMonth * 72 + 13 * 86}px` }}>
+            <table className="border-separate border-spacing-0 text-center text-xs" style={{ minWidth: `${280 + data.daysInMonth * 72 + 13 * 86}px` }}>
               <caption className="sr-only">{monthLabel(month)}人员每日考勤与月度汇总矩阵</caption>
               <thead className="sticky top-0 z-30 bg-slate-50 text-slate-600">
                 <tr>
@@ -901,18 +905,18 @@ export function AttendancePage() {
                       {rowLabels.map((rowLabel, rowIndex) => (
                         <tr key={rowLabel} className={cn(rowIndex === 4 && 'border-b-2 border-slate-300')}>
                           {rowIndex === 0 ? <td rowSpan={5} className="sticky left-0 z-20 border-b border-r border-slate-200 bg-white px-2 font-semibold text-slate-500">{itemIndex + 1}</td> : null}
-                          {rowIndex === 0 ? <th scope="rowgroup" rowSpan={5} className="sticky left-12 z-20 border-b border-r border-slate-200 bg-white px-3 py-2 text-left"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="font-semibold text-slate-900 hover:text-blue-700 hover:underline">{item.employee.name}</button><p className="mt-1 text-[10px] font-normal text-slate-400">{item.employee.rosterNo || '未设置工号'}</p><p className="mt-0.5 text-[10px] font-normal text-slate-500">{item.employee.department} · {item.employee.title}</p>{item.rules.alerts.length > 0 ? <p className="mt-1 truncate text-[10px] font-semibold text-red-600">{item.rules.alerts[0]}</p> : null}<div className="mt-2 flex flex-wrap gap-1"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-200"><Eye className="size-3" />详情</button><button type="button" onClick={() => setAdjustmentItem(item)} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"><Settings2 className="size-3" />月度结余</button>{todayClockType ? <button type="button" disabled={clockingEmployeeId === item.employee.id} onClick={() => void handleClock(item, todayClockType)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">{clockingEmployeeId === item.employee.id ? <Loader2 className="size-3 animate-spin" /> : <Fingerprint className="size-3" />}{todayClockType === 'check-in' ? '上班打卡' : '下班打卡'}</button> : null}</div></th> : null}
+                          {rowIndex === 0 ? <th scope="rowgroup" rowSpan={5} className="sticky left-12 z-20 border-b border-r border-slate-200 bg-white px-3 py-2 text-left"><Button variant="unstyled" type="button" onClick={() => setDetailEmployee(item.employee)} className="font-semibold text-slate-900 hover:text-primary-hover hover:underline">{item.employee.name}</Button><p className="mt-1 text-xs font-normal text-muted-foreground">{item.employee.rosterNo || '未设置工号'}</p><p className="mt-0.5 text-xs font-normal text-slate-500">{item.employee.department} · {item.employee.title}</p>{item.rules.alerts.length > 0 ? <p className="mt-1 truncate text-xs font-semibold text-red-600">{item.rules.alerts[0]}</p> : null}<div className="mt-2 flex flex-wrap gap-1"><Button variant="unstyled" type="button" onClick={() => setDetailEmployee(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-200"><Eye className="size-3" />详情</Button><Button variant="unstyled" type="button" onClick={() => setAdjustmentItem(item)} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2 py-1 text-xs font-semibold text-primary transition hover:bg-accent"><Settings2 className="size-3" />月度结余</Button>{todayClockType ? <Button variant="unstyled" type="button" disabled={clockingEmployeeId === item.employee.id} onClick={() => void handleClock(item, todayClockType)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">{clockingEmployeeId === item.employee.id ? <Loader2 className="size-3 animate-spin" /> : <Fingerprint className="size-3" />}{todayClockType === 'check-in' ? '上班打卡' : '下班打卡'}</Button> : null}</div></th> : null}
                           <th scope="row" className={cn('sticky left-52 z-20 border-b border-r border-slate-200 px-2 py-1.5 font-medium', rowIndex === 4 ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-600')}>{rowLabel}</th>
                           {dayColumns.map((day) => {
                             const record = byDate.get(dateForDay(month, day));
                             const isSpecial = specialRecord(record);
                             if (isSpecial && rowIndex > 0) return null;
-                            const tone = record ? statusMeta[record.status].tone : 'text-slate-300 bg-white';
+                            const tone = record ? statusMeta[record.status].tone : 'text-muted-foreground bg-white';
                             return (
                               <td key={day} rowSpan={isSpecial ? 5 : 1} className={cn('border-b border-r border-slate-200 p-0', tone)}>
-                                <button type="button" onClick={() => openEditor(item.employee, day, record)} title={`${item.employee.name} ${dateForDay(month, day)}：${record ? statusMeta[record.status].label : '未录入'}`} className={cn('flex h-full min-h-7 w-full items-center justify-center px-1 py-1 leading-tight transition hover:ring-2 hover:ring-inset hover:ring-blue-300', rowIndex === 0 && !isSpecial && 'font-mono font-semibold')}>
+                                <Button variant="unstyled" type="button" onClick={() => openEditor(item.employee, day, record)} title={`${item.employee.name} ${dateForDay(month, day)}：${record ? statusMeta[record.status].label : '未录入'}`} className={cn('flex h-full min-h-7 w-full items-center justify-center px-1 py-1 leading-tight transition hover:ring-2 hover:ring-inset hover:ring-primary/25', rowIndex === 0 && !isSpecial && 'font-mono font-semibold')}>
                                   {isSpecial && record ? statusMeta[record.status].short : dayCellValue(record, rowIndex)}
-                                </button>
+                                </Button>
                               </td>
                             );
                           })}
@@ -925,7 +929,7 @@ export function AttendancePage() {
               </tbody>
             </table>
           )}
-        </div>}
+        </TabsContent>}
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-500">
           <span>{activeView === 'attendance' ? '出勤√　事假○　病假☆　学习△　旷工×　迟到※　早退◇　市内出差▲　调休●' : '工作日加班先抵扣生产部门倒挂工时；法定节假日加班进入调休余额'}</span>
@@ -945,6 +949,6 @@ export function AttendancePage() {
           reload();
         }}
       />
-    </div>
+    </Tabs>
   );
 }

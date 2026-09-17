@@ -9,7 +9,7 @@ const source = readFileSync(
 
 test("移动研发驾驶舱统一使用 Horizon 蓝灰视觉并清除旧样式", () => {
   assert.match(source, /className="horizon-theme hz-page/);
-  assert.match(source, /#002fa7/);
+  assert.match(source, /primary/);
 
   const forbidden = [
     [/\bbg-gradient-|linear-gradient|radial-gradient/i, "渐变"],

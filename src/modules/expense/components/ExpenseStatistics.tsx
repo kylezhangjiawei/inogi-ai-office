@@ -45,7 +45,7 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
     <div className="material-panel flex flex-col px-4 py-3">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <div className="text-sm font-bold text-slate-800">{title}</div>
-        {subtitle ? <div className="text-xs text-slate-400">{subtitle}</div> : null}
+        {subtitle ? <div className="text-xs text-muted-foreground">{subtitle}</div> : null}
       </div>
       {children}
     </div>
@@ -90,7 +90,7 @@ export function ExpenseStatistics({
   };
   if (!dashboard && loading) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-400">
+      <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> {t('正在加载统计数据…')}
       </div>
     );

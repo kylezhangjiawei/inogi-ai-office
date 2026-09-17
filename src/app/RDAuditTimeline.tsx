@@ -32,6 +32,8 @@ import {
   type AuditActorIdentity,
   type AuditLog,
 } from "./lib/auditLog";
+import { Button } from "./components/ui/button";
+import { Textarea } from "./components/ui/textarea";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
 
@@ -90,7 +92,7 @@ const TONE_STYLES: Record<
   emerald: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-100" },
   amber: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-100" },
   red: { dot: "bg-rose-500", bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-100" },
-  violet: { dot: "bg-[#002fa7]", bg: "bg-[#eef3ff]", text: "text-[#002fa7]", border: "border-[#dce6ff]" },
+  violet: { dot: "bg-primary", bg: "bg-accent", text: "text-primary", border: "border-[#dce6ff]" },
   slate: { dot: "bg-slate-400", bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" },
 };
 
@@ -354,23 +356,23 @@ function AuditLogEntry({
         {/* Action line */}
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm">
           {onActorClick ? (
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-pressed={actorSelected}
               onClick={() => onActorClick({ id: log.actor.id, name: log.actor.name })}
               title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
               className={cn(
-                "cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-900 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                actorSelected && "bg-[#dce6ff] text-[#002fa7] ring-1 ring-inset ring-[#002fa7]/20",
+                "cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-900 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                actorSelected && "bg-[#dce6ff] text-primary ring-1 ring-inset ring-primary/20",
               )}
             >
               {log.actor.name}
-            </button>
+            </Button>
           ) : (
             <span className="font-semibold text-slate-900">{log.actor.name}</span>
           )}
           {log.actor.role && (
-            <span className="text-[10px] text-slate-400">{t(log.actor.role)}</span>
+            <span className="text-[10px] text-muted-foreground">{t(log.actor.role)}</span>
           )}
           {/* 动作动词表（auditLog META）中文即 key，展示时本地化 */}
           <span className="text-slate-600">{t(meta.verb)}</span>
@@ -387,7 +389,7 @@ function AuditLogEntry({
             </span>
           )}
           {log.source === "ai" && (
-            <span className="inline-flex items-center gap-0.5 rounded-md border border-[#dce6ff] bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">
+            <span className="inline-flex items-center gap-0.5 rounded-md border border-[#dce6ff] bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-primary">
               <Bot className="h-2.5 w-2.5" />
               AI
             </span>
@@ -403,11 +405,11 @@ function AuditLogEntry({
                 className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-100 bg-white/80 px-2 py-1 text-[11px]"
               >
                 <span className="font-semibold text-slate-600">{labelForField(c.field)}</span>
-                <span className="text-slate-400">:</span>
+                <span className="text-muted-foreground">:</span>
                 <span className="rounded bg-rose-50 px-1 py-0.5 text-rose-600 line-through decoration-rose-300">
                   {labelForValue(c.field, c.before)}
                 </span>
-                <ArrowRight className="h-3 w-3 text-slate-400" />
+                <ArrowRight className="h-3 w-3 text-muted-foreground" />
                 <span className="rounded bg-emerald-50 px-1 py-0.5 font-semibold text-emerald-700">
                   {labelForValue(c.field, c.after)}
                 </span>
@@ -421,7 +423,7 @@ function AuditLogEntry({
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
             {metaEntries.map(([k, v]) => (
               <span key={k}>
-                <span className="text-slate-400">{labelForField(k)}：</span>
+                <span className="text-muted-foreground">{labelForField(k)}：</span>
                 <span className="font-medium text-slate-700">{labelForValue(k, v)}</span>
               </span>
             ))}
@@ -431,7 +433,7 @@ function AuditLogEntry({
         {/* Comment：审计正文是存库中文，英文用户可点 Translate 按需翻译（AI+缓存） */}
         {log.comment && (
           <div className="mt-1.5 rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-pretty text-xs leading-relaxed text-slate-600">
-            <MessageSquare className="mr-1 inline h-3 w-3 text-slate-400" />
+            <MessageSquare className="mr-1 inline h-3 w-3 text-muted-foreground" />
             <AutoTranslatedText text={log.comment} as="span" className="align-middle" />
           </div>
         )}
@@ -465,7 +467,7 @@ function AuditLogEntry({
           <div className="mt-2">
             {adding ? (
               <div className="rounded-md border border-amber-200 bg-white p-2">
-                <textarea
+                <Textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value.slice(0, 200))}
                   rows={2}
@@ -487,10 +489,10 @@ function AuditLogEntry({
                   </div>
                 )}
                 <div className="mt-1.5 flex items-center justify-end gap-1.5">
-                  <span className={cn("mr-auto text-[10px] tabular-nums", draft.length >= 200 ? "text-rose-500" : "text-slate-400")}>
+                  <span className={cn("mr-auto text-[10px] tabular-nums", draft.length >= 200 ? "text-rose-500" : "text-muted-foreground")}>
                     {draft.length}/200
                   </span>
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => {
                       setAdding(false);
@@ -501,8 +503,8 @@ function AuditLogEntry({
                     className="rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                   >
                     取消
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => void submitNote()}
                     disabled={saving || !draft.trim()}
@@ -510,31 +512,31 @@ function AuditLogEntry({
                   >
                     {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                     提交备注
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setAdding(true)}
                 className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
               >
                 <StickyNote className="h-3 w-3" />
                 {t("添加备注")}
-              </button>
+              </Button>
             )}
           </div>
         )}
 
         {/* Timestamp */}
         {/* 时间加秒后这行更宽：允许整体换行、但单个时间值本身不折断，窄屏下退化为换行而非溢出裁切 */}
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
           <span className="whitespace-nowrap" title={formatAbsolute(log.timestamp)}>{formatRelative(log.timestamp)}</span>
-          <span className="text-slate-300">·</span>
+          <span className="text-muted-foreground">·</span>
           <span className="whitespace-nowrap tabular-nums">{formatAbsolute(log.timestamp)}</span>
           {log.source !== "web" && (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-muted-foreground">·</span>
               <span className="rounded border border-slate-200 bg-white px-1 text-[9px] font-semibold text-slate-500">
                 {LOG_SOURCE_LABELS[log.source] ?? log.source}
               </span>
@@ -578,7 +580,7 @@ export function AuditTimeline({
   if (logs.length === 0) {
     return (
       <div className={cn("rounded-lg border border-dashed border-slate-200 bg-white/70 py-8 text-center", className)}>
-        <History className="mx-auto mb-2 h-5 w-5 text-slate-300" />
+        <History className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
         <p className="text-pretty text-xs text-slate-500">{emptyText ?? t("暂无操作记录")}</p>
       </div>
     );

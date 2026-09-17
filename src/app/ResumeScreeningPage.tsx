@@ -98,6 +98,9 @@ import { usePermission } from "./hooks/usePermission";
 import { PERMISSIONS } from "./lib/permissions";
 import { useAuth } from "./auth";
 import { getStoredUser } from "./lib/authSession";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
+import { Textarea } from "./components/ui/textarea";
 
 type RuleFormState = {
   id?: string;
@@ -589,7 +592,7 @@ function TooltipIconButton({
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
 }) {
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       aria-label={label}
       title={label}
@@ -603,7 +606,7 @@ function TooltipIconButton({
       )}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -2353,7 +2356,7 @@ export function ResumeScreeningPage() {
         <HorizonMetric Icon={Target} label="平均分" value={stats.average} note="AI 初筛平均得分" tone="neutral" />
       </HorizonMetricGrid>
 
-      <input
+      <Input
         ref={uploadFolderInputRef}
         type="file"
         aria-label="上传简历文件夹"
@@ -2362,7 +2365,7 @@ export function ResumeScreeningPage() {
         className="hidden"
         onChange={(event) => void handleUploadResumes(event)}
       />
-      <input
+      <Input
         ref={uploadFilesInputRef}
         type="file"
         aria-label="上传简历文件"
@@ -2396,14 +2399,14 @@ export function ResumeScreeningPage() {
               options={[{ label: "全部岗位 / 自动匹配", value: "" }, ...jobRules.map((item) => ({ label: item.name, value: item.id }))]}
               placeholder={loadingRules ? "正在加载岗位..." : "全部岗位 / 自动匹配"}
             />
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setShowJobRuleManager(true)}
               className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
             >
               <Database className="h-4 w-4" />
               管理规则
-            </button>
+            </Button>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 xl:items-end 2xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_96px_96px_auto_auto_auto]">
@@ -2454,7 +2457,7 @@ export function ResumeScreeningPage() {
                 }));
               }}
             />
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
@@ -2462,17 +2465,17 @@ export function ResumeScreeningPage() {
             >
               {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               同步
-            </button>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   disabled={uploadingFolder}
                   className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
                 >
                   {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   上传
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px]">
                 <DropdownMenuItem onSelect={() => uploadFilesInputRef.current?.click()}>
@@ -2485,14 +2488,14 @@ export function ResumeScreeningPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setShowSyncSettings(true)}
               className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
             >
               <Clock3 className="h-4 w-4" />
               设置
-            </button>
+            </Button>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
@@ -2534,18 +2537,18 @@ export function ResumeScreeningPage() {
 
           <div className="mt-7 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="material-neu-inset rounded-xl p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-400">
+              <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                 <Database className="h-4 w-4" />
                 规则列表
               </div>
               <div className="material-scrollbar mt-4 max-h-[520px] space-y-3 overflow-y-auto">
                 {loadingRules && !jobRules.length ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-muted-foreground">
                     <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     正在加载规则...
                   </div>
                 ) : jobRules.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-muted-foreground">
                     暂无岗位规则
                   </div>
                 ) : (
@@ -2566,8 +2569,8 @@ export function ResumeScreeningPage() {
                         className={cn(
                           "w-full cursor-pointer rounded-lg px-4 py-4 text-left transition",
                           active
-                            ? "border border-blue-200 bg-[#eef3ff] text-blue-950"
-                            : "border border-transparent bg-white hover:border-blue-100 hover:bg-blue-50 hover:text-blue-800",
+                            ? "border border-blue-200 bg-accent text-blue-950"
+                            : "border border-transparent bg-white hover:border-primary/25 hover:bg-accent hover:text-primary-hover",
                         )}
                       >
                         <OverflowTooltipText text={jobRule.name} className="text-base font-semibold leading-6 text-slate-900" />
@@ -2626,7 +2629,7 @@ export function ResumeScreeningPage() {
                 <div className="mt-2 text-sm font-semibold text-slate-900">
                   {derivedRuleName || "等待输入岗位描述后识别"}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-slate-400">
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   直接粘贴完整岗位描述即可，系统会自动识别岗位名称和岗位职责
                 </p>
               </div>
@@ -2638,7 +2641,7 @@ export function ResumeScreeningPage() {
                 className="h-[320px] min-h-[320px] resize-none overflow-y-auto"
               />
               <div className="flex flex-wrap items-center gap-3">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => void handleSaveRule()}
                   disabled={savingRule}
@@ -2646,23 +2649,22 @@ export function ResumeScreeningPage() {
                 >
                   {savingRule ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                   {ruleForm.id ? "保存规则" : "新建规则"}
-                </button>
+                </Button>
                 <label className="material-neu-button inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-[4px] px-4 text-sm font-semibold text-slate-600">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     className="h-4 w-4"
                     checked={ruleForm.enabled}
-                    onChange={(event) => setRuleForm((current) => ({ ...current, enabled: event.target.checked }))}
+                    onCheckedChange={(checkedValue) => setRuleForm((current) => ({ ...current, enabled: (checkedValue === true) }))}
                   />
                   启用
                 </label>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={resetRuleForm}
                   className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
                 >
                   重置
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -2678,14 +2680,14 @@ export function ResumeScreeningPage() {
                 检查环境、手动同步，也可配置每天定时轮询自动抓取简历邮件。
               </DialogDescription>
             </DialogHeader>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void Promise.all([loadHealth(), loadMailConfigs(), loadOpenAiConfigs(), loadSchedule(), loadCandidates()])}
               className="material-neu-button inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-[4px] px-4 text-sm font-medium text-slate-600 transition sm:absolute sm:right-8 sm:top-8"
             >
               <RefreshCw className="h-4 w-4" />
               刷新
-            </button>
+            </Button>
           </div>
 
           <div className="mt-6">
@@ -2695,7 +2697,7 @@ export function ResumeScreeningPage() {
               <span>支持 PDF / DOCX，扫描 PDF、图片版或旧 DOC 暂不保证解析效果。</span>
             </div>
             <div className="material-neu-inset rounded-lg p-5">
-              <div className="text-sm font-semibold text-slate-400">同步参数</div>
+              <div className="text-sm font-semibold text-muted-foreground">同步参数</div>
               <div className="mt-4 grid gap-4 xl:grid-cols-4 sm:grid-cols-2">
                 <MaterialSelect
                   label="企业邮箱"
@@ -2759,7 +2761,7 @@ export function ResumeScreeningPage() {
 
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex flex-wrap gap-3 justify-between">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
@@ -2767,17 +2769,17 @@ export function ResumeScreeningPage() {
             >
               {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               执行一次同步
-            </button>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   disabled={uploadingFolder}
                   className="material-neu-button inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-slate-700 transition disabled:opacity-60"
                 >
                   {uploadingFolder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
                   上传简历
-                </button>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[200px]">
                 <DropdownMenuItem onSelect={() => uploadFilesInputRef.current?.click()}>
@@ -2820,7 +2822,7 @@ export function ResumeScreeningPage() {
                     </div>
                   ) : null}
                   {lastSyncResult.actual_screening_model ? (
-                    <div className="mt-1 text-xs text-slate-400">实际筛选模型：{lastSyncResult.actual_screening_model}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">实际筛选模型：{lastSyncResult.actual_screening_model}</div>
                   ) : null}
                 </div>
                 <div className="rounded-[4px] border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
@@ -2846,7 +2848,7 @@ export function ResumeScreeningPage() {
                             {statusMeta.icon}
                             {mail.status}
                           </div>
-                          <div className="mt-2 text-xs text-slate-400">{formatDate(mail.received_at)}</div>
+                          <div className="mt-2 text-xs text-muted-foreground">{formatDate(mail.received_at)}</div>
                         </div>
                       </div>
                       {mail.candidate_name ? (
@@ -2854,7 +2856,7 @@ export function ResumeScreeningPage() {
                       ) : null}
                       {mail.preview ? (
                         <details className="mt-3">
-                          <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">
+                          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-slate-600">
                             查看邮件正文预览（{mail.preview.length} 字符）
                           </summary>
                           <pre className="mt-2 max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
@@ -2862,7 +2864,7 @@ export function ResumeScreeningPage() {
                           </pre>
                         </details>
                       ) : (
-                        <div className="mt-3 text-xs text-slate-400">邮件正文为空</div>
+                        <div className="mt-3 text-xs text-muted-foreground">邮件正文为空</div>
                       )}
                       {mail.error_message ? (
                         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
@@ -2872,7 +2874,7 @@ export function ResumeScreeningPage() {
                     </div>
                   )})
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-muted-foreground">
                     本次没有可回溯的邮件摘要。
                   </div>
                 )}
@@ -2898,7 +2900,7 @@ export function ResumeScreeningPage() {
                     </div>
                   ) : null}
                   {lastUploadResult.actual_extract_model || lastUploadResult.actual_screening_model ? (
-                    <div className="mt-1 space-y-1 text-xs text-slate-400">
+                    <div className="mt-1 space-y-1 text-xs text-muted-foreground">
                       {lastUploadResult.actual_extract_model ? (
                         <div>实际文件读取模型：{lastUploadResult.actual_extract_model}</div>
                       ) : null}
@@ -2929,7 +2931,7 @@ export function ResumeScreeningPage() {
                               {statusMeta.icon}
                               {file.status}
                             </div>
-                            <div className="mt-2 text-xs text-slate-400">{formatDate(file.received_at)}</div>
+                            <div className="mt-2 text-xs text-muted-foreground">{formatDate(file.received_at)}</div>
                           </div>
                         </div>
                         {file.candidate_name ? (
@@ -2937,7 +2939,7 @@ export function ResumeScreeningPage() {
                         ) : null}
                         {file.preview ? (
                           <details className="mt-3">
-                            <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">
+                            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-slate-600">
                               查看解析文本预览（{file.preview.length} 字符）
                             </summary>
                             <pre className="mt-2 max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
@@ -2945,7 +2947,7 @@ export function ResumeScreeningPage() {
                             </pre>
                           </details>
                         ) : (
-                          <div className="mt-3 text-xs text-slate-400">当前没有可展示的文本预览</div>
+                          <div className="mt-3 text-xs text-muted-foreground">当前没有可展示的文本预览</div>
                         )}
                         {file.error_message ? (
                           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
@@ -2956,7 +2958,7 @@ export function ResumeScreeningPage() {
                     );
                   })
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-muted-foreground">
                     本次没有需要展示的上传摘要。
                   </div>
                 )}
@@ -3046,14 +3048,14 @@ export function ResumeScreeningPage() {
             />
           </div>
           <div className="border-b border-slate-200 bg-slate-50/80 px-4 pb-4 sm:px-5">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => setShowMoreFilters((current) => !current)}
-              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[#002fa7] transition hover:text-blue-800"
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-primary transition hover:text-primary-hover"
             >
               {showMoreFilters ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               更多筛选{advancedFilterCount ? `（已设 ${advancedFilterCount} 项）` : ""}
-            </button>
+            </Button>
           </div>
           {showMoreFilters ? (
             <div className="grid gap-3 border-b border-slate-200 bg-slate-50/80 px-4 pb-4 md:grid-cols-3 sm:px-5">
@@ -3089,11 +3091,11 @@ export function ResumeScreeningPage() {
             </div>
           ) : null}
 
-          <div className="mx-4 mt-4 border-l-4 border-l-[#002fa7] bg-[#f7f9ff] p-4 sm:mx-5">
+          <div className="mx-4 mt-4 border-l-4 border-l-[var(--primary)] bg-[#f7f9ff] p-4 sm:mx-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-[#002fa7]" />
+                  <Sparkles className="h-4 w-4 text-primary" />
                   AI 迭代筛选
                 </div>
                 <div className="mt-1 text-xs leading-5 text-slate-600">
@@ -3114,14 +3116,14 @@ export function ResumeScreeningPage() {
                   placeholder="选择筛选版本"
                   className="h-10"
                 />
-                {canScreenCandidates ? <button
+                {canScreenCandidates ? <Button variant="unstyled"
                   type="button"
                   onClick={() => setShowFilterDialog(true)}
                   className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-4 text-sm font-semibold text-white transition"
                 >
                   <Sparkles className="h-4 w-4" />
                   AI 二次筛选
-                </button> : null}
+                </Button> : null}
               </div>
             </div>
 
@@ -3181,7 +3183,7 @@ export function ResumeScreeningPage() {
                     <col className="w-[124px]" />
                     <col className={canDeleteCandidate ? "w-[280px]" : "w-[210px]"} />
                   </colgroup>
-                  <thead className="sticky top-0 z-10 bg-[#eef3ff] text-xs font-semibold text-slate-700">
+                  <thead className="sticky top-0 z-10 bg-accent text-xs font-semibold text-slate-700">
                     <tr className="border-b border-blue-100">
                       {canDeleteCandidate ? (
                         <th scope="col" className="px-4 py-3">
@@ -3223,7 +3225,7 @@ export function ResumeScreeningPage() {
                           key={candidate.id}
                           className={cn(
                             "transition-colors",
-                            selected ? "bg-[#eef3ff] shadow-[inset_3px_0_0_#002fa7]" : "bg-white hover:bg-slate-50",
+                            selected ? "bg-accent shadow-[inset_3px_0_0_var(--primary)]" : "bg-white hover:bg-slate-50",
                           )}
                         >
                           {canDeleteCandidate ? (
@@ -3273,7 +3275,7 @@ export function ResumeScreeningPage() {
                                 {decisionMeta[candidate.decision].label}
                               </span>
                             ) : (
-                              <span className="text-xs text-slate-400">-</span>
+                              <span className="text-xs text-muted-foreground">-</span>
                             )}
                           </td>
                           <td className="px-3 py-3">
@@ -3286,7 +3288,7 @@ export function ResumeScreeningPage() {
                           </td>
                           <td className="px-3 py-3 text-xs leading-5 text-slate-500 tabular-nums">
                             <div>{received.date}</div>
-                            {received.time ? <div className="text-[11px] text-slate-400">{received.time}</div> : null}
+                            {received.time ? <div className="text-[11px] text-muted-foreground">{received.time}</div> : null}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-2">
@@ -3345,17 +3347,17 @@ export function ResumeScreeningPage() {
               <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="candidate-rows-per-page" className="text-sm font-medium">每页</Label>
-                  <select
+                  <NativeSelect
                     id="candidate-rows-per-page"
                     value={candidateRowsPerPage}
                     onChange={(event) => {
                       setCandidateRowsPerPage(Number(event.target.value));
                       setCandidatePage(0);
                     }}
-                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   >
                     {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <span className="tabular-nums">{candidatePageFrom}-{candidatePageTo} / 共 {candidatePagination.total} 人</span>
                 <div className="flex items-center gap-2">
@@ -3407,12 +3409,12 @@ export function ResumeScreeningPage() {
 
           <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             {loadingDetail ? (
-              <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-slate-400">
+              <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-muted-foreground">
                 <Loader2 className="mb-2 h-4 w-4 animate-spin" />
                 正在加载候选人详情...
               </div>
             ) : !selectedCandidate || !selectedCandidateProfile ? (
-              <div className="flex h-full min-h-[420px] items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-slate-400">
+              <div className="flex h-full min-h-[420px] items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-muted-foreground">
                 请从候选人列表点击“详情”查看画像报告
               </div>
             ) : (
@@ -3444,14 +3446,14 @@ export function ResumeScreeningPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-sm font-semibold text-blue-700">{reportRole}</p>
-                        <p className="mt-1 truncate text-xs text-slate-400">{reportCompany}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{reportCompany}</p>
                         <p className="mt-3 line-clamp-3 text-pretty text-sm leading-6 text-slate-600">{reportBrief}</p>
                       </div>
                     </div>
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                       {reportTopFacts.map((item) => (
                         <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className="text-[11px] text-muted-foreground">{item.label}</div>
                           <div className="mt-1 truncate text-sm font-semibold text-slate-800">{item.value}</div>
                         </div>
                       ))}
@@ -3482,8 +3484,8 @@ export function ResumeScreeningPage() {
                       {reportDecisionStats.map((item, index) => (
                         <div key={item.label} className={cn("px-3 py-3 text-center", index > 0 && "border-l border-slate-100")}>
                           <div className={cn("text-xl font-semibold tabular-nums", item.tone)}>{item.value}</div>
-                          <div className="mt-0.5 text-xs text-slate-400">{item.label}</div>
-                          <div className="mt-1 truncate text-[11px] text-slate-400">{item.helper}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">{item.label}</div>
+                          <div className="mt-1 truncate text-[11px] text-muted-foreground">{item.helper}</div>
                         </div>
                       ))}
                     </div>
@@ -3511,8 +3513,8 @@ export function ResumeScreeningPage() {
                     <div className="space-y-1.5">
                       {reportProfileRows.map((item) => (
                         <div key={item.label} className="grid grid-cols-[18px_72px_minmax(0,1fr)] items-start gap-2 rounded-[6px] px-2 py-1.5 hover:bg-slate-50">
-                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-slate-400" />
-                          <span className="text-xs text-slate-400">{item.label}</span>
+                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">{item.label}</span>
                           <span className="min-w-0 break-words text-xs font-medium leading-5 text-slate-700">{item.value}</span>
                         </div>
                       ))}
@@ -3527,7 +3529,7 @@ export function ResumeScreeningPage() {
                     <div className="grid grid-cols-2 gap-2">
                       {reportConstraintRows.map((item) => (
                         <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className="text-[11px] text-muted-foreground">{item.label}</div>
                           <div className="mt-1 truncate text-sm font-semibold text-slate-800">{item.value}</div>
                         </div>
                       ))}
@@ -3542,8 +3544,8 @@ export function ResumeScreeningPage() {
                     <div className="space-y-1.5">
                       {reportContactRows.map((item) => (
                         <div key={item.label} className="grid grid-cols-[18px_48px_minmax(0,1fr)] items-start gap-2 rounded-[6px] px-2 py-1.5 hover:bg-slate-50">
-                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-slate-400" />
-                          <span className="text-xs text-slate-400">{item.label}</span>
+                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">{item.label}</span>
                           <span className="min-w-0 break-words text-xs font-medium leading-5 text-slate-700">{item.value}</span>
                         </div>
                       ))}
@@ -3614,16 +3616,16 @@ export function ResumeScreeningPage() {
                         <Sparkles className="h-4 w-4 text-blue-700" />
                         判断依据
                       </div>
-                      <div className="text-xs text-slate-400">
+                      <div className="text-xs text-muted-foreground">
                         {activeScreening?.model_name || "当前筛选版本"}
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 md:grid-cols-3">
                       {reportJudgementCards.map((item) => (
                         <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2.5">
-                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className="text-[11px] text-muted-foreground">{item.label}</div>
                           <div className={cn("mt-1 truncate text-sm font-semibold", item.tone)}>{item.value}</div>
-                          <div className="mt-1 truncate text-xs text-slate-400">{item.helper}</div>
+                          <div className="mt-1 truncate text-xs text-muted-foreground">{item.helper}</div>
                         </div>
                       ))}
                     </div>
@@ -3645,7 +3647,7 @@ export function ResumeScreeningPage() {
                     </div>
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
                       <div>
-                        <div className="mb-2 text-xs font-semibold text-slate-400">电话/面试优先确认</div>
+                        <div className="mb-2 text-xs font-semibold text-muted-foreground">电话/面试优先确认</div>
                         <div className="space-y-2">
                           {reportReviewQuestions.map((item, index) => (
                             <div key={item} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2 text-sm leading-6 text-slate-700">
@@ -3658,7 +3660,7 @@ export function ResumeScreeningPage() {
                         </div>
                       </div>
                       <div className="rounded-[6px] bg-slate-50 px-3 py-3">
-                        <div className="text-xs font-semibold text-slate-400">推进条件</div>
+                        <div className="text-xs font-semibold text-muted-foreground">推进条件</div>
                         <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
                           <div className="flex gap-2">
                             <CheckCircle2 className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-600" />
@@ -3674,7 +3676,7 @@ export function ResumeScreeningPage() {
                   </section>
 
                   <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => setInterviewQaExpanded((current) => !current)}
                       className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 text-left"
@@ -3690,9 +3692,9 @@ export function ResumeScreeningPage() {
                         {interviewQaExpanded ? "收起问答" : "展开问答"}
                         {interviewQaExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </div>
-                    </button>
-                    <div className="mt-1 text-xs text-slate-400">结合当前 JD 和候选人简历生成的电话/面试参考问答。</div>
-                    <div className={cn("overflow-hidden transition-all duration-200", interviewQaExpanded ? "mt-4 max-h-[2400px] opacity-100" : "max-h-0 opacity-0")}>
+                    </Button>
+                    <div className="mt-1 text-xs text-muted-foreground">结合当前 JD 和候选人简历生成的电话/面试参考问答。</div>
+                    <div className={cn("overflow-hidden transition-colors motion-reduce:transition-none duration-200", interviewQaExpanded ? "mt-4 max-h-[2400px] opacity-100" : "max-h-0 opacity-0")}>
                       {selectedCandidate.interview_qa?.length ? (
                         <div className="space-y-3">
                           {selectedCandidate.interview_qa.map((item, index) => (
@@ -3711,7 +3713,7 @@ export function ResumeScreeningPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                        <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-muted-foreground">
                           暂无问答建议
                         </div>
                       )}
@@ -3763,7 +3765,7 @@ export function ResumeScreeningPage() {
                         <div key={`${group.title}-${index}`} className="grid gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0 md:grid-cols-[136px_minmax(0,1fr)]">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-slate-800">{group.title}</div>
-                            <div className="mt-1 truncate text-xs text-slate-400">{group.meta}</div>
+                            <div className="mt-1 truncate text-xs text-muted-foreground">{group.meta}</div>
                           </div>
                           <ul className="space-y-1.5 text-sm leading-6 text-slate-600">
                             {group.items.slice(0, 4).map((item) => (
@@ -3781,7 +3783,7 @@ export function ResumeScreeningPage() {
                 </div>
 
                 <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setScreeningHistoryExpanded((current) => !current)}
                     className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 text-left"
@@ -3797,9 +3799,9 @@ export function ResumeScreeningPage() {
                       {screeningHistoryExpanded ? "收起历史" : "展开历史"}
                       {screeningHistoryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </div>
-                  </button>
+                  </Button>
 
-                  <div className={cn("overflow-hidden transition-all duration-200", screeningHistoryExpanded ? "mt-4 max-h-[3200px] opacity-100" : "max-h-0 opacity-0")}>
+                  <div className={cn("overflow-hidden transition-colors motion-reduce:transition-none duration-200", screeningHistoryExpanded ? "mt-4 max-h-[3200px] opacity-100" : "max-h-0 opacity-0")}>
                     <div className="space-y-3">
                     {selectedCandidate.screenings.length ? (
                       selectedCandidate.screenings.map((item) => (
@@ -3812,7 +3814,7 @@ export function ResumeScreeningPage() {
                                 </span>
                               ) : null}
                               <span className="rounded-[4px] bg-white px-2.5 py-1 text-xs font-medium text-slate-500">{item.model_name || "-"}</span>
-                              <span className="text-xs text-slate-400">{formatDate(item.created_at)}</span>
+                              <span className="text-xs text-muted-foreground">{formatDate(item.created_at)}</span>
                             </div>
                             <div className="text-xs text-slate-500">
                               分数：{typeof item.score === "number" ? item.score : "-"} / 耗时：{item.duration_ms ?? "-"} ms
@@ -3827,7 +3829,7 @@ export function ResumeScreeningPage() {
                           <div className="mt-3 flex flex-wrap gap-3">
                             {item.request_payload ? (
                               <details className="min-w-[220px] flex-1">
-                                <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">查看 AI 请求</summary>
+                                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-slate-600">查看 AI 请求</summary>
                                 <pre className="material-scrollbar mt-2 max-h-60 overflow-auto rounded-[6px] border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap break-all text-slate-700">
                                   {JSON.stringify(item.request_payload, null, 2)}
                                 </pre>
@@ -3835,7 +3837,7 @@ export function ResumeScreeningPage() {
                             ) : null}
                             {item.response_payload ? (
                               <details className="min-w-[220px] flex-1">
-                                <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">查看 AI 原始响应</summary>
+                                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-slate-600">查看 AI 原始响应</summary>
                                 <pre className="material-scrollbar mt-2 max-h-60 overflow-auto rounded-[6px] border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap break-all text-slate-700">
                                   {JSON.stringify(item.response_payload, null, 2)}
                                 </pre>
@@ -3845,7 +3847,7 @@ export function ResumeScreeningPage() {
                         </div>
                       ))
                     ) : (
-                      <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                      <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-muted-foreground">
                         暂无筛选历史
                       </div>
                     )}
@@ -3859,17 +3861,17 @@ export function ResumeScreeningPage() {
                       <FileUp className="h-4 w-4 text-blue-700" />
                       原始材料
                     </div>
-                    <div className="text-xs text-slate-400">{selectedCandidate.source_subject || "来源邮件/简历"}</div>
+                    <div className="text-xs text-muted-foreground">{selectedCandidate.source_subject || "来源邮件/简历"}</div>
                   </div>
                   {selectedCandidate.raw_email_text?.trim() ? (
                     <details className="mt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">展开原始邮件/简历文本</summary>
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-slate-600">展开原始邮件/简历文本</summary>
                       <pre className="material-scrollbar mt-2 max-h-72 overflow-auto rounded-[6px] border border-slate-200 bg-slate-50 p-3 text-xs leading-6 whitespace-pre-wrap break-words text-slate-700">
                         {selectedCandidate.raw_email_text}
                       </pre>
                     </details>
                   ) : (
-                    <div className="mt-3 rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                    <div className="mt-3 rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-muted-foreground">
                       暂无原始邮件/简历文本
                     </div>
                   )}
@@ -3937,14 +3939,14 @@ export function ResumeScreeningPage() {
                 {filterRunning ? (
                   <div className="flex justify-start">
                     <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
-                      <Loader2 className="h-4 w-4 animate-spin text-[#002fa7]" />
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       {filterQueryError ? "后台任务仍保留，可继续查询进度" : "AI 正在处理候选人，可关闭页面稍后查看"}
                     </div>
                   </div>
                 ) : null}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-slate-400">
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-muted-foreground">
                 输入新的筛选偏好，AI 会先判断是否足够明确；不明确会继续追问，明确后才会生成新的候选人列表版本。
               </div>
             )}
@@ -3952,7 +3954,7 @@ export function ResumeScreeningPage() {
 
           <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
             <div className="material-neu-inset rounded-xl p-3">
-              <textarea
+              <Textarea
                 aria-label="输入 AI 迭代筛选偏好"
                 rows={3}
                 value={filterInstruction}
@@ -3964,12 +3966,12 @@ export function ResumeScreeningPage() {
                   }
                 }}
                 disabled={!canScreenCandidates || filterRunning || filterQuerying || filterResultPending}
-                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
               />
               <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-400">处理当前岗位范围的全部候选人；Ctrl/Command + Enter 发送。</div>
-                <button
+                <div className="text-xs text-muted-foreground">处理当前岗位范围的全部候选人；Ctrl/Command + Enter 发送。</div>
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => void handleIterateCandidateFilter()}
                   disabled={!canScreenCandidates || !filterInstruction.trim() || filterRunning || filterQuerying || filterResultPending || Boolean(filterQueryError)}
@@ -3977,7 +3979,7 @@ export function ResumeScreeningPage() {
                 >
                   {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {filterRunning ? "处理中" : "发送给 AI"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -4023,7 +4025,7 @@ export function ResumeScreeningPage() {
                         <div
                           className={cn(
                             "mt-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[4px] shadow-sm",
-                            isUser ? "bg-[#002fa7] text-sm font-semibold text-white" : "bg-white",
+                            isUser ? "bg-primary text-sm font-semibold text-white" : "bg-white",
                           )}
                         >
                           {isUser ? candidateAiProfile?.name?.slice(0, 1) || "U" : <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />}
@@ -4047,20 +4049,20 @@ export function ResumeScreeningPage() {
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                   <div className="text-xs font-semibold text-slate-700">可应用到详情的 AI 建议</div>
-                                  <div className="mt-1 text-xs text-slate-400">
+                                  <div className="mt-1 text-xs text-muted-foreground">
                                     {message.ai_update.update_reason || "AI 认为该回复包含可同步到候选人详情的结构化修正。"}
                                   </div>
                                 </div>
                                 {hasCandidateAiUpdateSuggestion(message.ai_update) && candidateAiTarget ? (
-                                  <button
+                                  <Button
                                     type="button"
                                     onClick={() => void handleApplyCandidateAiUpdate(candidateAiTarget.id, index, message.ai_update as CandidateAiUpdateSuggestion)}
                                     disabled={candidateAiApplyingKey === `${candidateAiTarget.id}:${index}`}
-                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-[#002fa7] px-3 text-xs font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
                                   >
                                     {candidateAiApplyingKey === `${candidateAiTarget.id}:${index}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                                     应用到详情
-                                  </button>
+                                  </Button>
                                 ) : (
                                   <span className="rounded-[4px] bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
                                     已应用
@@ -4125,7 +4127,7 @@ export function ResumeScreeningPage() {
                 ) : null}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-slate-400">
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-muted-foreground">
                 开启一段独立于 MateChat 的候选人对话。可以追问“为什么评分偏低？如果忽略地域限制，是否建议进入面试？请给出电话初筛重点”。
               </div>
             )}
@@ -4133,7 +4135,7 @@ export function ResumeScreeningPage() {
 
           <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
             <div className="material-neu-inset rounded-xl p-3">
-              <textarea
+              <Textarea
                 aria-label="向候选人 AI 提问"
                 rows={3}
                 value={candidateAiQuestion}
@@ -4145,12 +4147,12 @@ export function ResumeScreeningPage() {
                   }
                 }}
                 disabled={!candidateAiTarget || candidateAiLoading}
-                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 placeholder={candidateAiTarget ? "输入问题，Enter 发送，Shift+Enter 换行" : "请先选择候选人"}
               />
               <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-400">回复会基于当前候选人的简历、JD、标签和筛选记录。</div>
-                <button
+                <div className="text-xs text-muted-foreground">回复会基于当前候选人的简历、JD、标签和筛选记录。</div>
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => void handleAskCandidateAi()}
                   disabled={!candidateAiQuestion.trim() || candidateAiLoading || !candidateAiTarget}
@@ -4158,7 +4160,7 @@ export function ResumeScreeningPage() {
                 >
                   {candidateAiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {candidateAiLoading ? "分析中" : "发送"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

@@ -21,7 +21,7 @@
   --proc-line: var(--border-subtle);
   --proc-line-strong: var(--border);
   --proc-shadow-card: var(--shadow-card);
-  --proc-shadow-focal: var(--shadow-card);
+  --proc-shadow-focal: var(--shadow-focal);
   color: var(--proc-body);
   font-family: var(--font-sans);
 }
@@ -240,7 +240,6 @@
   color: var(--proc-ink);
   font-size: 1.2rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
   line-height: 1.25;
 }
 
@@ -264,7 +263,7 @@
 .proc-horizon .proc-horizon-actions [data-slot="button"] {
   min-height: 2.25rem;
   border: 1px solid var(--proc-line) !important;
-  border-radius: 8px !important;
+  border-radius: 999px !important;
   padding: 0.45rem 0.75rem !important;
   color: var(--proc-body) !important;
   background: var(--proc-surface) !important;
@@ -284,7 +283,12 @@
   border-color: var(--proc-primary) !important;
   color: var(--primary-foreground) !important;
   background: var(--proc-primary) !important;
-  box-shadow: var(--shadow-1) !important;
+  box-shadow: var(--shadow-primary) !important;
+}
+
+.proc-horizon .proc-horizon-actions .proc-horizon-primary-action:disabled,
+.proc-horizon .proc-horizon-actions .material-button-primary:disabled {
+  box-shadow: none !important;
 }
 
 .proc-horizon .proc-horizon-actions .proc-horizon-primary-action:hover,
@@ -924,7 +928,6 @@
   color: var(--proc-ink) !important;
   font-size: 0.9375rem !important;
   font-weight: 700 !important;
-  letter-spacing: -0.012em;
 }
 
 .proc-horizon .proc-horizon-task-card .proc-horizon-context-pill {

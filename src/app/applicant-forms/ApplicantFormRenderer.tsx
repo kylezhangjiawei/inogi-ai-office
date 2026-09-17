@@ -3,6 +3,11 @@ import { ArrowLeft, ArrowRight, Check, Loader2, Paperclip, Plus, Trash2, Upload 
 import type { AnswerValue, FormAnswers, FormField, FormSchema, StoredFile } from '../lib/applicantFormsApi';
 import { fieldIsVisible, formSections, pruneFormAnswers, validateFormAnswers } from './form-state';
 import './applicant-form-renderer.css';
+import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { NativeSelect } from "../components/ui/native-select";
+import { Textarea } from "../components/ui/textarea";
+import { Input } from "../components/ui/input";
 
 export interface ApplicantFormRendererProps {
   schema: FormSchema;
@@ -55,34 +60,34 @@ function FieldInput({ field, siblings, answers, path, errors, disabled, preview,
     control = <div className="af-repeat">
       {rows.map((row, index) => <fieldset key={index} className="af-repeat-row" disabled={disabled}>
         <legend>{field.label} {index + 1}</legend>
-        <button className="af-remove" type="button" aria-label={`删除${field.label}第 ${index + 1} 条`} disabled={disabled} onClick={() => onChange(rows.filter((_, at) => at !== index))}><Trash2 size={15} />删除</button>
+        <Button variant="unstyled" className="af-remove" type="button" aria-label={`删除${field.label}第 ${index + 1} 条`} disabled={disabled} onClick={() => onChange(rows.filter((_, at) => at !== index))}><Trash2 size={15} />删除</Button>
         {(field.children ?? []).map((child) => <FieldInput key={child.id} field={child} siblings={field.children ?? []} answers={row} path={`${path}.${index}.${child.id}`} errors={errors} disabled={disabled} preview={preview} onUpload={onUpload} onUploading={onUploading}
           onChange={(next) => onChange(rows.map((item, at) => at === index ? { ...item, [child.id]: next } : item))} />)}
       </fieldset>)}
-      <button type="button" className="af-add" disabled={disabled || rows.length >= (field.maxItems ?? 20)} onClick={() => onChange([...rows, {}])}><Plus size={16} />添加一条{field.label}</button>
+      <Button variant="unstyled" type="button" className="af-add" disabled={disabled || rows.length >= (field.maxItems ?? 20)} onClick={() => onChange([...rows, {}])}><Plus size={16} />添加一条{field.label}</Button>
     </div>;
   } else if (field.type === 'checkbox') {
-    control = <label className="af-check-label" htmlFor={inputId}><input {...common} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>;
+    control = <label className="af-check-label" htmlFor={inputId}><Checkbox {...common}  checked={value === true} onCheckedChange={(checkedValue) => onChange((checkedValue === true))} /><span>{label}</span></label>;
   } else if (field.type === 'multiselect') {
     const selected = Array.isArray(value) ? value as string[] : [];
-    control = <div className="af-options" role="group" aria-labelledby={`${inputId}-label`}>{(field.options ?? []).map((option) => <label key={option} className="af-check-label"><input disabled={disabled} type="checkbox" checked={selected.includes(option)} onChange={(event) => onChange(event.target.checked ? [...selected, option] : selected.filter((item) => item !== option))} />{option}</label>)}</div>;
+    control = <div className="af-options" role="group" aria-labelledby={`${inputId}-label`}>{(field.options ?? []).map((option) => <label key={option} className="af-check-label"><Checkbox disabled={disabled}  checked={selected.includes(option)} onCheckedChange={(checkedValue) => onChange((checkedValue === true) ? [...selected, option] : selected.filter((item) => item !== option))} />{option}</label>)}</div>;
   } else if (field.type === 'select') {
-    control = <select {...common} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)}><option value="">{field.placeholder || '请选择'}</option>{(field.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>;
+    control = <NativeSelect {...common} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)}><option value="">{field.placeholder || '请选择'}</option>{(field.options ?? []).map((option) => <option key={option}>{option}</option>)}</NativeSelect>;
   } else if (field.type === 'textarea') {
-    control = <textarea {...common} rows={3} maxLength={5000} placeholder={field.placeholder || `请填写${field.label}`} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)} />;
+    control = <Textarea {...common} rows={3} maxLength={5000} placeholder={field.placeholder || `请填写${field.label}`} value={typeof value === 'string' ? value : ''} onChange={(event) => onChange(event.target.value)} />;
   } else if (field.type === 'file') {
     control = <div>
       <label className={`af-upload ${uploading ? 'af-upload-busy' : ''}`} htmlFor={inputId}>
         {uploading ? <Loader2 className="af-spin" size={20} /> : uploaded ? <Paperclip size={20} /> : <Upload size={20} />}
         <span>{uploading ? '正在上传…' : value && typeof value === 'object' && 'fileId' in value ? uploaded?.id === value.fileId ? uploaded.fileName : '附件已上传，选择文件可替换' : `选择${field.fileKind === 'photo' ? '照片' : '附件'}`}</span>
-        <input {...common} className="af-file-input" type="file" accept={field.fileKind === 'photo' ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx'} onChange={(event) => { void setFile(event.target.files?.[0]); event.target.value = ''; }} />
+        <Input {...common} className="af-file-input" type="file" accept={field.fileKind === 'photo' ? 'image/jpeg,image/png,image/webp' : '.pdf,.doc,.docx'} onChange={(event) => { void setFile(event.target.files?.[0]); event.target.value = ''; }} />
       </label>
       <p className="af-field-help">{preview ? '预览时仅演示选取，不上传文件。' : ''}{field.fileKind === 'photo' ? '支持 JPG、PNG、WebP，每张不超过 5 MB。' : '支持 PDF、Word，每个文件不超过 10 MB。'}</p>
       {uploadError && <p className="af-field-error" role="alert">{uploadError}</p>}
     </div>;
   } else {
     const type = { phone: 'tel', email: 'email', number: 'number', date: 'date', text: 'text' }[field.type] || 'text';
-    control = <input {...common} type={type} maxLength={1000} inputMode={type === 'tel' ? 'tel' : type === 'number' ? 'decimal' : undefined} autoComplete={field.type === 'phone' ? 'tel' : field.type === 'email' ? 'email' : 'off'}
+    control = <Input {...common} type={type} maxLength={1000} inputMode={type === 'tel' ? 'tel' : type === 'number' ? 'decimal' : undefined} autoComplete={field.type === 'phone' ? 'tel' : field.type === 'email' ? 'email' : 'off'}
       placeholder={field.placeholder || `请输入${field.label}`} value={typeof value === 'number' || typeof value === 'string' ? value : ''} onChange={(event) => onChange(field.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} />;
   }
   return <div className="af-field" data-field-path={path}>
@@ -144,15 +149,15 @@ export function ApplicantFormRenderer({ schema, preview = false, onSubmit, onUpl
         <div className="af-progress-track">{sections.map((section, index) => <span key={section.name} title={section.name} className={index <= activeStep ? 'af-progress-active' : ''}>{index < activeStep ? <Check size={13} /> : index + 1}</span>)}</div>
         <div className="af-progress-caption"><span>{current.name}</span><span>{activeStep + 1} / {sections.length}</span></div>
       </div>
-      {previewComplete ? <div className="af-preview-success" role="status"><Check size={26} /><h2>填写预览已完成</h2><p>这次演示不会生成登记记录。</p><button className="af-secondary" onClick={() => { setStep(0); setPreviewComplete(false); }}>返回表单</button></div> :
+      {previewComplete ? <div className="af-preview-success" role="status"><Check size={26} /><h2>填写预览已完成</h2><p>这次演示不会生成登记记录。</p><Button variant="unstyled" className="af-secondary" onClick={() => { setStep(0); setPreviewComplete(false); }}>返回表单</Button></div> :
         <form ref={formRef} onSubmit={(event) => void submit(event)} noValidate>
           <h2 className="af-section-title" tabIndex={-1} ref={titleRef}>{current.name}</h2>
           <div className="af-fields">{current.fields.map((field) => <FieldInput key={`${activeStep}:${field.id}`} field={field} siblings={schema.fields} answers={answers} path={field.id} errors={errors} disabled={busy || uploadCount > 0} preview={preview} onUpload={onUpload} onUploading={(delta) => setUploadCount((count) => count + delta)}
             onChange={(value) => { setAnswers((previous) => ({ ...previous, [field.id]: value })); setRequestError(''); }} />)}</div>
           {requestError && <div className="af-submit-error" role="alert">{requestError}</div>}
           <footer className="af-form-footer">
-            {activeStep > 0 && <button type="button" className="af-secondary" disabled={busy || uploadCount > 0} onClick={() => { setStep(activeStep - 1); setErrors({}); }}><ArrowLeft size={16} />上一步</button>}
-            <button className="af-primary" type="submit" disabled={busy || uploadCount > 0}>{busy || uploadCount > 0 ? <Loader2 className="af-spin" size={16} /> : null}{busy ? '正在提交…' : uploadCount > 0 ? '附件上传中…' : last ? preview ? '完成预览' : '确认提交' : '下一步'}{!last && <ArrowRight size={16} />}</button>
+            {activeStep > 0 && <Button variant="unstyled" type="button" className="af-secondary" disabled={busy || uploadCount > 0} onClick={() => { setStep(activeStep - 1); setErrors({}); }}><ArrowLeft size={16} />上一步</Button>}
+            <Button variant="unstyled" className="af-primary" type="submit" disabled={busy || uploadCount > 0}>{busy || uploadCount > 0 ? <Loader2 className="af-spin" size={16} /> : null}{busy ? '正在提交…' : uploadCount > 0 ? '附件上传中…' : last ? preview ? '完成预览' : '确认提交' : '下一步'}{!last && <ArrowRight size={16} />}</Button>
           </footer>
         </form>}
     </> : <p className="af-empty">当前阶段没有对外显示的字段，请先配置“应聘填写”内容。</p>}

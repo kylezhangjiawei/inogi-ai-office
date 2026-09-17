@@ -46,7 +46,7 @@ const DIMENSION_META: Array<{ key: "timeliness" | "process" | "evidence" | "coll
 function GradeBar({ dist }: { dist: RdPerformanceGradeDist }) {
   const total = dist.A + dist.B + dist.C + dist.D;
   if (total === 0) {
-    return <span className="text-xs text-slate-400">{t("暂无评分")}</span>;
+    return <span className="text-xs text-muted-foreground">{t("暂无评分")}</span>;
   }
   return (
     <div className="flex flex-col gap-1">
@@ -80,7 +80,7 @@ function GradeBar({ dist }: { dist: RdPerformanceGradeDist }) {
 /** 趋势徽标：近 30 天均分 − 前 30 天均分。 */
 function TrendBadge({ delta }: { delta: number | null }) {
   if (delta === null) {
-    return <span className="text-xs text-slate-400">{t("数据不足")}</span>;
+    return <span className="text-xs text-muted-foreground">{t("数据不足")}</span>;
   }
   if (Math.abs(delta) < 0.05) {
     return (
@@ -109,12 +109,12 @@ function Sparkline({ points }: { points: number[] }) {
   const w = 64;
   const h = 20;
   if (points.length === 0) {
-    return <span className="text-[10px] text-slate-300">—</span>;
+    return <span className="text-[10px] text-muted-foreground">—</span>;
   }
   if (points.length === 1) {
     return (
       <svg width={w} height={h} className="overflow-visible" aria-hidden="true">
-        <circle cx={w / 2} cy={h / 2} r={2.5} className="fill-[#002fa7]" />
+        <circle cx={w / 2} cy={h / 2} r={2.5} className="fill-primary" />
       </svg>
     );
   }
@@ -132,7 +132,7 @@ function Sparkline({ points }: { points: number[] }) {
   return (
     <svg width={w} height={h} className="overflow-visible" aria-hidden="true">
       <path d={d} fill="none" className="stroke-[#466ac5]" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={last[0]} cy={last[1]} r={2} className="fill-[#002fa7]" />
+      <circle cx={last[0]} cy={last[1]} r={2} className="fill-primary" />
     </svg>
   );
 }
@@ -179,7 +179,7 @@ function CompositeBreakdown({
               </span>
             </span>
           </div>
-          <div className="mt-0.5 text-[10px] text-slate-400">{it.desc}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">{it.desc}</div>
         </div>
       ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 font-semibold text-slate-800">
@@ -217,21 +217,21 @@ function CompositeBreakdown({
 /** 团队月度均分迷你柱图。 */
 function MonthlyBars({ months }: { months: RdPerformanceAssessment["team"]["score_months"] }) {
   if (months.length === 0) {
-    return <span className="text-xs text-slate-400">{t("暂无月度数据")}</span>;
+    return <span className="text-xs text-muted-foreground">{t("暂无月度数据")}</span>;
   }
   const max = Math.max(...months.map((m) => m.avg), 1);
   return (
     <div className="flex items-end gap-1.5">
       {months.map((m) => (
         <div key={m.month} className="flex flex-col items-center gap-1" title={t("{month}：均分 {avg}（{count} 个）", { month: m.month, avg: fmt(m.avg), count: m.count })}>
-          <span className="text-[9px] tabular-nums text-slate-400">{fmt(m.avg)}</span>
+          <span className="text-[9px] tabular-nums text-muted-foreground">{fmt(m.avg)}</span>
           <div className="flex h-12 w-5 items-end rounded bg-slate-100">
             <div
               className="w-full rounded bg-[#466ac5]"
               style={{ height: `${Math.max(8, (m.avg / max) * 100)}%` }}
             />
           </div>
-          <span className="text-[9px] tabular-nums text-slate-400">{m.month.slice(5)}</span>
+          <span className="text-[9px] tabular-nums text-muted-foreground">{m.month.slice(5)}</span>
         </div>
       ))}
     </div>
@@ -253,7 +253,7 @@ function SummaryStat({
     <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5 shadow-sm">
       <div className={cn("text-xl font-bold tabular-nums", tone ?? "text-slate-800")}>{value}</div>
       <div className="mt-0.5 text-xs font-medium text-slate-600">{label}</div>
-      {sub ? <div className="text-[10px] text-slate-400">{sub}</div> : null}
+      {sub ? <div className="text-[10px] text-muted-foreground">{sub}</div> : null}
     </div>
   );
 }
@@ -319,13 +319,13 @@ export function RDPerformanceAssessmentPanel() {
               {row.rank}
             </span>
           ) : (
-            <span className="text-xs text-slate-300">—</span>
+            <span className="text-xs text-muted-foreground">—</span>
           )}
         </td>
         {/* 成员 */}
         <th scope="row" className="px-3 py-3 text-left">
           <div className="font-semibold text-slate-800">{row.name}</div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[11px] text-muted-foreground">
             {[row.position, row.department].filter(Boolean).join(" · ") || t("研发成员")}
           </div>
         </th>
@@ -334,7 +334,7 @@ export function RDPerformanceAssessmentPanel() {
           {ranked && compositeGrade ? (
             <Popover>
               <PopoverTrigger asChild>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   className={cn(
                     "inline-flex min-w-[3rem] items-center justify-center gap-1 rounded-lg border px-2.5 py-1 text-base font-bold tabular-nums transition-colors hover:opacity-80",
@@ -346,14 +346,14 @@ export function RDPerformanceAssessmentPanel() {
                 >
                   {row.composite}
                   <Info className="h-3 w-3 opacity-60" />
-                </button>
+                </Button>
               </PopoverTrigger>
               <PopoverContent align="center" className="w-[calc(100vw-2rem)] max-w-80 p-3">
                 {data ? <CompositeBreakdown row={row} weights={data.weights} /> : null}
               </PopoverContent>
             </Popover>
           ) : (
-            <span className="text-xs text-slate-400">{t("暂无评分")}</span>
+            <span className="text-xs text-muted-foreground">{t("暂无评分")}</span>
           )}
         </td>
         {/* 交付质量 + 等级分布 */}
@@ -362,7 +362,7 @@ export function RDPerformanceAssessmentPanel() {
             <span
               className={cn(
                 "text-sm font-semibold tabular-nums",
-                deliveryGrade ? getGradeTone(deliveryGrade).text : "text-slate-400",
+                deliveryGrade ? getGradeTone(deliveryGrade).text : "text-muted-foreground",
               )}
             >
               {fmt(row.avg_score)}
@@ -375,15 +375,15 @@ export function RDPerformanceAssessmentPanel() {
         {/* 完成 / 评分 */}
         <td className="px-3 py-3 text-center">
           <div className="text-sm font-semibold tabular-nums text-slate-700">{row.completed_count}</div>
-          <div className="text-[10px] text-slate-400">{t("已评分")} {row.scored_count}</div>
+          <div className="text-[10px] text-muted-foreground">{t("已评分")} {row.scored_count}</div>
         </td>
         {/* AI 活跃度 */}
         <td className="px-3 py-3 text-center">
-          <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums text-[#002fa7]">
+          <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums text-primary">
             <MessageSquare className="size-3.5 text-[#466ac5]" aria-hidden="true" />
             {row.chat_total}
           </span>
-          <div className="text-[10px] text-slate-400">{t("近 30 天")} {row.chat_recent}</div>
+          <div className="text-[10px] text-muted-foreground">{t("近 30 天")} {row.chat_recent}</div>
         </td>
         {/* 趋势 */}
         <td className="px-3 py-3">
@@ -401,7 +401,7 @@ export function RDPerformanceAssessmentPanel() {
       {/* 头部 */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden="true">
             <BarChart3 className="size-5" />
           </span>
           <div>
@@ -410,13 +410,13 @@ export function RDPerformanceAssessmentPanel() {
               {data ? (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-50"
                       title={t("查看考核口径")}
                     >
                       <Info className="h-3 w-3" /> {t("考核口径")}
-                    </button>
+                    </Button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-[calc(100vw-2rem)] max-w-96 p-3">
                     <div className="mb-1.5 text-sm font-semibold text-slate-800">{t("考核口径说明")}</div>
@@ -467,7 +467,7 @@ export function RDPerformanceAssessmentPanel() {
               label={t("参与排名")}
               value={t("{count} 人", { count: data.team.ranked_people })}
               sub={t("≥1 已评分完成任务")}
-              tone="text-[#002fa7]"
+              tone="text-primary"
             />
             <SummaryStat label={t("综合分均值")} value={fmt(data.team.avg_composite)} tone="text-slate-800" />
             <SummaryStat
@@ -485,7 +485,7 @@ export function RDPerformanceAssessmentPanel() {
               label={t("MateChat 发言")}
               value={String(data.team.chat_total)}
               sub={t("全员累计")}
-              tone="text-[#002fa7]"
+              tone="text-primary"
             />
             <div className="col-span-2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-sm sm:col-span-1 lg:col-span-1">
               <div className="mb-1 text-[10px] font-medium text-slate-500">{t("团队月度均分")}</div>
@@ -519,7 +519,7 @@ export function RDPerformanceAssessmentPanel() {
                   {unrankedRows.length > 0 ? (
                     <>
                       <tr className="border-t border-slate-100 bg-slate-50/60">
-                        <td colSpan={7} className="px-3 py-1.5 text-[11px] font-medium text-slate-400">
+                        <td colSpan={7} className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
                           {t("未参与排名（暂无已评分的完成任务，仅展示对话活跃度）")}
                         </td>
                       </tr>
@@ -531,7 +531,7 @@ export function RDPerformanceAssessmentPanel() {
             </div>
           )}
 
-          <p className="mt-3 text-[11px] text-slate-400">
+          <p className="mt-3 text-[11px] text-muted-foreground">
             {t("统计时间：{time} · 综合分仅作参考，最终绩效请结合任务难度与业务价值综合评估。", {
               time: new Date(data.generated_at).toLocaleString(i18nLocale()),
             })}

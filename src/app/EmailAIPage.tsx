@@ -213,7 +213,7 @@ export function EmailAIPage() {
               <legend className="text-sm font-medium text-slate-700">沟通语气</legend>
               <div className="flex flex-wrap gap-2">
                 {(["正式", "友好", "强硬", "委婉拒绝"] as const).map((item) => (
-                  <Button key={item} type="button" size="sm" variant={tone === item ? "secondary" : "outline"} aria-pressed={tone === item} onClick={() => setTone(item)} className={tone === item ? "border-blue-200 bg-blue-50 text-[#002fa7]" : ""}>{item}</Button>
+                  <Button key={item} type="button" size="sm" variant={tone === item ? "secondary" : "outline"} aria-pressed={tone === item} onClick={() => setTone(item)} className={tone === item ? "border-primary/25 bg-accent text-primary" : ""}>{item}</Button>
                 ))}
               </div>
             </fieldset>
@@ -228,16 +228,16 @@ export function EmailAIPage() {
             <HorizonSectionHeader Icon={Library} title="模板库" description="选择常见场景快速填入生成指令。" trailing={<span className="text-xs tabular-nums text-slate-500">{filteredTemplates.length} 条</span>} />
             <div className="hz-toolbar flex flex-wrap gap-2 border-b p-3" aria-label="模板分类">
               {(["全部", "销售", "售后", "合作"] as const).map((item) => (
-                <Button key={item} type="button" size="sm" variant={category === item ? "secondary" : "ghost"} aria-pressed={category === item} onClick={() => { setCategory(item); setTemplatePage(1); }} className={category === item ? "bg-blue-50 text-[#002fa7]" : ""}>{item}</Button>
+                <Button key={item} type="button" size="sm" variant={category === item ? "secondary" : "ghost"} aria-pressed={category === item} onClick={() => { setCategory(item); setTemplatePage(1); }} className={category === item ? "bg-accent text-primary" : ""}>{item}</Button>
               ))}
             </div>
             <ul className="divide-y divide-slate-100" aria-label="邮件模板列表">
               {pagedTemplates.map((template) => (
                 <li key={template.id}>
-                  <button type="button" onClick={() => loadTemplate(template)} className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50">
+                  <Button variant="unstyled" type="button" onClick={() => loadTemplate(template)} className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50">
                     <div className="flex items-center justify-between gap-3"><span className="font-semibold text-slate-800">{template.label}</span><span className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500">{template.category}</span></div>
                     <p className="mt-1 text-pretty text-xs leading-5 text-slate-600">{template.summary}</p>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -274,10 +274,10 @@ export function EmailAIPage() {
             <ul className="divide-y divide-slate-100">
               {historyItems.map((item) => (
                 <li key={item.id}>
-                  <button type="button" className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50" onClick={() => { setDraftText(`${item.scenario}，请输出一封${item.language}邮件。`); setTargetLang(item.language); setDraftError(""); toast.info(`已加载历史场景：${item.scenario}`); }}>
+                  <Button variant="unstyled" type="button" className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50" onClick={() => { setDraftText(`${item.scenario}，请输出一封${item.language}邮件。`); setTargetLang(item.language); setDraftError(""); toast.info(`已加载历史场景：${item.scenario}`); }}>
                     <div className="line-clamp-2 text-sm font-semibold text-slate-800">{item.scenario}</div>
                     <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500"><span>{item.language} · {item.owner}</span><time className="tabular-nums">{item.updatedAt}</time></div>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>

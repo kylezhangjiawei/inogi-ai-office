@@ -39,7 +39,7 @@ export function InspectionSections({ state, taskId, view, readOnly, actorId, onA
   const progress = getInspectionProgress(state, task.id);
   const can = (kind: InspectionActionContext['kind']) => !readOnly && canOperateInspection(state, actorId, task.id, kind) && (kind === 'accept' || Boolean(task.acceptedAt));
   const stage = task.stage === 'final' ? '终检' : '过程检';
-  const photos = (items: InspectionPhoto[]) => items.length ? <div className="ins-photos" aria-label={t('检验现场照片')}>{items.map((photo) => <button key={photo.id} type="button" className="ins-photo" aria-label={t('查看照片 {name}', { name: photo.name })} onClick={() => onPhoto(photo)}><img src={photo.dataUrl} alt={photo.name} loading="lazy" /><span><ImageIcon className="size-3" aria-hidden="true" />{photo.name}</span></button>)}</div> : <p className="ins-muted">{t('未附现场照片')}</p>;
+  const photos = (items: InspectionPhoto[]) => items.length ? <div className="ins-photos" aria-label={t('检验现场照片')}>{items.map((photo) => <Button variant="unstyled" key={photo.id} type="button" className="ins-photo" aria-label={t('查看照片 {name}', { name: photo.name })} onClick={() => onPhoto(photo)}><img src={photo.dataUrl} alt={photo.name} loading="lazy" /><span><ImageIcon className="size-3" aria-hidden="true" />{photo.name}</span></Button>)}</div> : <p className="ins-muted">{t('未附现场照片')}</p>;
 
   if (view === 'records') return <div className="ins-sections"><section>{heading('本任务检验记录', '初检与复验分别留存。复验通过不改写首次结果，也不自动放行。')}{records.length ? <ol className="ins-record-list">{[...records].reverse().map((record) => {
     const original = records.find((item) => item.id === record.originalId);

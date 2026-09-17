@@ -52,6 +52,7 @@ import {
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { todayLocalDateStr } from "./lib/taskDue";
 import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
+import { Button } from "./components/ui/button";
 
 type FilterValue<T extends string> = T | "all";
 type AuditSource = UnifiedAuditLog["source"];
@@ -104,9 +105,9 @@ const SOURCE_BADGE_CLASSES: Record<AuditSource, string> = {
 };
 
 const HORIZON_SECONDARY_ACTION =
-  "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-[#e0e5f2] bg-white px-3 text-xs font-semibold text-[#42526f] hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30";
+  "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-[#e0e5f2] bg-white px-3 text-xs font-semibold text-[#42526f] hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 const HORIZON_FIELD =
-  "w-full rounded-lg border border-[#e0e5f2] bg-white text-[#42526f] outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/15";
+  "w-full rounded-lg border border-[#e0e5f2] bg-white text-[#42526f] outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15";
 
 const SOURCE_LABELS: Record<FilterValue<AuditSource>, string> = {
   all: "全部来源",
@@ -446,11 +447,11 @@ export function AuditLogPage() {
             </>
           }
           actions={
-            <button type="button" disabled={loading} className={HORIZON_SECONDARY_ACTION}
+            <Button variant="unstyled" type="button" disabled={loading} className={HORIZON_SECONDARY_ACTION}
               onClick={() => { statsSignature.current = undefined; setReloadVersion((value) => value + 1); }}>
               <RotateCcw className="mr-1.5 size-3.5" aria-hidden="true" />
               {t("刷新留痕")}
-            </button>
+            </Button>
           }
         />
 
@@ -489,8 +490,8 @@ export function AuditLogPage() {
             <div className="rd-horizon-audit-primary-filters">
             <label className="rd-horizon-audit-filter-search block">
               <span className="mb-1 block text-xs font-medium text-slate-600">{t("关键字")}</span>
-              <div className="flex items-center gap-2 rounded-lg border border-[#e0e5f2] bg-white px-2.5 py-2 focus-within:border-[#002fa7] focus-within:ring-2 focus-within:ring-[#002fa7]/15">
-                <Search className={cn("size-3.5", keyword ? "text-[#002fa7]" : "text-slate-400")} aria-hidden="true" />
+              <div className="flex items-center gap-2 rounded-lg border border-[#e0e5f2] bg-white px-2.5 py-2 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15">
+                <Search className={cn("size-3.5", keyword ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
                 <Input
                   type="search"
                   name="audit-keyword"
@@ -503,7 +504,7 @@ export function AuditLogPage() {
                     setPage(1);
                   }}
                   placeholder={t("人 / 任务号 / 备注 / 字段")}
-                  className="min-w-0 flex-1 border-0 bg-transparent px-0 text-sm text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus-visible:border-transparent focus-visible:ring-0"
+                  className="min-w-0 flex-1 border-0 bg-transparent px-0 text-sm text-slate-900 shadow-none outline-none placeholder:text-muted-foreground focus-visible:border-transparent focus-visible:ring-0"
                 />
               </div>
             </label>
@@ -568,12 +569,12 @@ export function AuditLogPage() {
             </div>
 
               <CollapsibleTrigger asChild>
-                <button type="button" className={cn("rd-horizon-audit-filter-toggle gap-1.5", HORIZON_SECONDARY_ACTION)}>
+                <Button variant="unstyled" type="button" className={cn("rd-horizon-audit-filter-toggle gap-1.5", HORIZON_SECONDARY_ACTION)}>
                   <ListFilter className="size-4" aria-hidden="true" />
                   {t("更多筛选")}
                   {activeFilterCount > 0 && <span className="rounded bg-accent px-1.5 text-primary tabular-nums">{activeFilterCount}</span>}
                   <ChevronDown className={cn("size-3.5", advancedFiltersOpen && "rotate-180")} aria-hidden="true" />
-                </button>
+                </Button>
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent className="rd-horizon-audit-advanced-filters">
@@ -581,7 +582,7 @@ export function AuditLogPage() {
               <legend className="mb-1.5 text-xs font-medium text-slate-600">{t("类别")}</legend>
               <div className="grid grid-cols-2 gap-1">
                 {CATEGORY_FILTERS.map((item) => (
-                  <button
+                  <Button variant="unstyled"
                     key={item}
                     type="button"
                   onClick={() => {
@@ -591,14 +592,14 @@ export function AuditLogPage() {
                   }}
                   aria-pressed={category === item}
                   className={cn(
-                    "h-8 cursor-pointer rounded-md border px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                    "h-8 cursor-pointer rounded-md border px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                     category === item
-                        ? "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]"
+                        ? "border-primary bg-accent text-primary"
                         : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                   )}
                   >
                     {categoryLabel(item)}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </fieldset>
@@ -690,7 +691,7 @@ export function AuditLogPage() {
             <div className="rd-horizon-audit-list-header flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div>
                 <h2 id="audit-results-heading" className="flex items-center gap-2 text-balance text-sm font-semibold text-slate-900">
-                  <History className="size-4 text-[#002fa7]" aria-hidden="true" />
+                  <History className="size-4 text-primary" aria-hidden="true" />
                   {t("审计结果")}
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
@@ -707,35 +708,35 @@ export function AuditLogPage() {
                 { label: t("风险动作"), onClick: () => applyPreset("risk") },
                 { label: t("今天"), onClick: () => applyPreset("today") },
               ].map((item) => (
-                <button
+                <Button variant="unstyled"
                   key={item.label}
                   type="button"
                   onClick={item.onClick}
                   className={cn("rd-horizon-audit-preset", HORIZON_SECONDARY_ACTION)}
                 >
                   {item.label}
-                </button>
+                </Button>
               ))}
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={resetFilters}
                 className={cn("rd-horizon-audit-reset", HORIZON_SECONDARY_ACTION)}
               >
                 <RotateCcw className="size-3.5" aria-hidden="true" />
                 {t("重置")}
-              </button>
+              </Button>
             </div>
               <span role="status" className="text-xs text-muted-foreground">{t("{n} 项筛选已启用", { n: activeFilterCount })}</span>
             </div>
               <div className="rd-horizon-audit-list-controls flex flex-wrap items-center gap-2">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setSortOrder((current) => (current === "newest" ? "oldest" : "newest"))}
                   className={cn("h-8 gap-1.5 px-2.5", HORIZON_SECONDARY_ACTION)}
                 >
                   {sortOrder === "newest" ? <ArrowDown className="size-3.5" aria-hidden="true" /> : <ArrowUp className="size-3.5" aria-hidden="true" />}
                   {sortOrder === "newest" ? t("最新优先") : t("最早优先")}
-                </button>
+                </Button>
                 <NativeSelect
                   aria-label={t("每页显示数量")}
                   value={pageSize}
@@ -781,20 +782,20 @@ export function AuditLogPage() {
                   ) : loading && pagedLogs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-14 text-center">
-                        <Loader2 className="mx-auto mb-2 size-5 animate-spin text-[#002fa7]" aria-hidden="true" />
+                        <Loader2 className="mx-auto mb-2 size-5 animate-spin text-primary" aria-hidden="true" />
                         <div className="text-sm font-medium text-slate-500">{t("正在加载留痕…")}</div>
                       </td>
                     </tr>
                   ) : pagedLogs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-14 text-center">
-                        <Filter className="mx-auto mb-2 size-5 text-slate-300" aria-hidden="true" />
+                        <Filter className="mx-auto mb-2 size-5 text-muted-foreground" aria-hidden="true" />
                         <div className="text-sm font-medium text-slate-500">{t("没有匹配的留痕记录")}</div>
-                        <div className="mt-1 text-pretty text-xs text-slate-400">{t("当前筛选条件下没有可显示数据。")}</div>
+                        <div className="mt-1 text-pretty text-xs text-muted-foreground">{t("当前筛选条件下没有可显示数据。")}</div>
                         {activeFilterCount > 0 ? (
-                          <button type="button" onClick={resetFilters} className={cn("mt-3 h-9 px-3", HORIZON_SECONDARY_ACTION)}>
+                          <Button variant="unstyled" type="button" onClick={resetFilters} className={cn("mt-3 h-9 px-3", HORIZON_SECONDARY_ACTION)}>
                             {t("清空筛选")}
-                          </button>
+                          </Button>
                         ) : null}
                       </td>
                     </tr>
@@ -810,43 +811,43 @@ export function AuditLogPage() {
                           transition={{ ...AUDIT_FAST, delay: shouldReduceMotion ? 0 : Math.min(index, 8) * 0.018 }}
                           className={cn(
                             "rd-horizon-audit-row transition-colors",
-                            "hover:bg-[#eef3ff]/60 focus-visible:bg-[#eef3ff]",
-                            selected && "bg-[#eef3ff]",
+                            "hover:bg-accent/60 focus-visible:bg-accent",
+                            selected && "bg-accent",
                           )}
                           data-selected={selected || undefined}
                           data-tone={meta.tone}
                         >
                           <td data-cell="time" className="px-4 py-3 align-top">
                             <div className="font-mono text-xs tabular-nums text-slate-700">{formatAbsolute(log.timestamp)}</div>
-                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400">
+                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
                               <Clock3 className="h-3 w-3" />
                               {new Date(log.timestamp).toLocaleDateString(i18nLocale())}
                             </div>
                           </td>
                           <td data-cell="actor" data-label={t("操作人")} className="px-3 py-3 align-top">
                             <div title={log.actor.name} className="text-sm font-semibold text-slate-900">{log.actor.name}</div>
-                            <div className="mt-0.5 truncate text-[11px] text-slate-400">{log.actor.role ?? "—"}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{log.actor.role ?? "—"}</div>
                           </td>
                           <td data-cell="action" data-label={t("动作")} className="px-3 py-3 align-top">
                             <span className={cn("inline-flex rounded-md border px-2 py-1 text-xs font-semibold", toneBadgeClasses(meta.tone))}>
                               {t(meta.label)}
                             </span>
-                            <div className="mt-1 text-[10px] text-slate-400">{categoryLabel(meta.category)}</div>
+                            <div className="mt-1 text-[10px] text-muted-foreground">{categoryLabel(meta.category)}</div>
                           </td>
                           <td data-cell="summary" data-label={t("对象与摘要")} className="px-3 py-3 align-top">
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
                                 {resourceLabel(log.resource.type)}
                               </span>
-                              <span title={log.resource.id} className="font-mono text-[11px] text-slate-400">{log.resource.id}</span>
+                              <span title={log.resource.id} className="font-mono text-[11px] text-muted-foreground">{log.resource.id}</span>
                             </div>
-                            <button type="button" aria-haspopup="dialog" aria-controls="audit-log-detail" title={summarizeLog(log)}
+                            <Button variant="unstyled" type="button" aria-haspopup="dialog" aria-controls="audit-log-detail" title={summarizeLog(log)}
                               aria-label={t("查看留痕详情：{summary}", { summary: summarizeLog(log) })}
                               onClick={(event) => { selectedTriggerRef.current = event.currentTarget; setSelectedId(log.id); }}
                               className="rd-horizon-audit-open-detail mt-1 flex w-full min-w-0 items-start gap-2 text-left text-sm font-semibold text-foreground">
                               <span className="min-w-0 flex-1 line-clamp-2">{summarizeLog(log)}</span>
                               <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-                            </button>
+                            </Button>
                             {/* 备注是存库的动态内容，走按需自动翻译（与 RDAuditTimeline 同口径） */}
                             {log.comment && (
                               <div className="mt-0.5 line-clamp-1 text-xs text-slate-500">
@@ -856,14 +857,14 @@ export function AuditLogPage() {
                           </td>
                           <td data-cell="source" data-label={t("来源")} className="px-3 py-3 align-top">
                             <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold", sourceBadgeClasses(log.source))}>
-                              {log.source === "ai" && <Bot className="size-3 text-[#002fa7]" aria-hidden="true" />}
+                              {log.source === "ai" && <Bot className="size-3 text-primary" aria-hidden="true" />}
                               {sourceLabel(log.source)}
                             </span>
                           </td>
                           <td data-cell="changes" data-label={t("变更")} className="px-3 py-3 align-top">
                             <div className="text-xs font-semibold tabular-nums text-slate-700">{t("{n} 项", { n: log.changes?.length ?? 0 })}</div>
                             {log.metadata && Object.keys(log.metadata).length > 0 && (
-                              <div className="mt-0.5 text-[10px] text-slate-400">
+                              <div className="mt-0.5 text-[10px] text-muted-foreground">
                                 metadata {Object.keys(log.metadata).length}
                               </div>
                             )}
@@ -879,31 +880,31 @@ export function AuditLogPage() {
             <nav aria-label={t("审计结果分页")} className="rd-horizon-audit-list-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
               <div className="text-xs tabular-nums text-slate-500">
                 {t("显示")} {visibleStart}-{visibleEnd}
-                <span className="mx-1 text-slate-300">/</span>
+                <span className="mx-1 text-muted-foreground">/</span>
                 {data.total}
               </div>
               <div className="flex items-center gap-1">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={safePage === 1}
-                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-[#e0e5f2] bg-white text-slate-500 hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-35"
+                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-[#e0e5f2] bg-white text-slate-500 hover:border-primary/25 hover:bg-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-35"
                   aria-label={t("上一页")}
                 >
                   <ChevronLeft className="size-4" aria-hidden="true" />
-                </button>
+                </Button>
                 <span className="min-w-20 px-2 text-center text-xs font-semibold tabular-nums text-slate-600">
                   {safePage} / {totalPages}
                 </span>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={safePage === totalPages}
-                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-[#e0e5f2] bg-white text-slate-500 hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-35"
+                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md border border-[#e0e5f2] bg-white text-slate-500 hover:border-primary/25 hover:bg-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-35"
                   aria-label={t("下一页")}
                 >
                   <ChevronRight className="size-4" aria-hidden="true" />
-                </button>
+                </Button>
               </div>
             </nav>
         </section>
@@ -932,7 +933,7 @@ export function AuditLogPage() {
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {t(selectedMeta.label)}
                     </span>
-                    <span className="font-mono text-[10px] text-slate-400">{selectedLog.id}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{selectedLog.id}</span>
                   </div>
                   <h3 className="text-balance text-sm font-semibold leading-5 text-slate-950">{summarizeLog(selectedLog)}</h3>
                   <div className="mt-1 text-xs text-slate-500">{formatDateTimeFull(selectedLog.timestamp)}</div>
@@ -950,7 +951,7 @@ export function AuditLogPage() {
                         [t("来源"), sourceLabel(selectedLog.source)],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-start justify-between gap-3">
-                          <span className="shrink-0 text-slate-400">{label}</span>
+                          <span className="shrink-0 text-muted-foreground">{label}</span>
                           <span className="text-right font-medium text-slate-700">{value}</span>
                         </div>
                       ))}
@@ -975,14 +976,14 @@ export function AuditLogPage() {
                             <div className="font-mono text-xs font-semibold text-slate-600">{change.field}</div>
                             <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs">
                               <span className="rounded bg-rose-50 px-2 py-1 text-rose-700 line-through decoration-rose-300">{formatValue(change.before)}</span>
-                              <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
+                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                               <span className="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">{formatValue(change.after)}</span>
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-5 text-center text-xs text-slate-400">{t("本记录没有字段变更")}</div>
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-5 text-center text-xs text-muted-foreground">{t("本记录没有字段变更")}</div>
                     )}
                   </section>
 
@@ -992,7 +993,7 @@ export function AuditLogPage() {
                       <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                         {Object.entries(selectedLog.metadata).map(([key, value]) => (
                           <div key={key} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 text-xs">
-                            <span className="font-mono text-slate-400">{key}</span>
+                            <span className="font-mono text-muted-foreground">{key}</span>
                             <span className="break-words text-slate-700">{formatValue(value)}</span>
                           </div>
                         ))}

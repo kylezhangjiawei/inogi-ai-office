@@ -1,6 +1,12 @@
 import { ArrowLeft, Upload, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { motion } from 'motion/react';
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { NativeSelect } from "./ui/native-select";
+import { Textarea } from "./ui/textarea";
+import { RadioGroupItem } from "./ui/radio-group";
+import { RadioGroup } from "./ui/radio-group";
 
 interface NewTicketFormProps {
   onBack: () => void;
@@ -50,13 +56,13 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
     <div className="h-full overflow-auto bg-background">
       <div className="max-w-[800px] mx-auto py-8 px-6">
         <div className="mb-8">
-          <button
+          <Button variant="unstyled"
             onClick={onBack}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             返回首页
-          </button>
+          </Button>
           <h1 className="text-3xl font-bold mb-3">新建售后工单</h1>
           <p className="text-sm text-muted-foreground flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
@@ -94,7 +100,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 <label className="block text-sm font-medium mb-2">
                   客户名称 <span className="text-[#FF5252]">*</span>
                 </label>
-                <input
+                <Input
                   type="text"
                   value={formData.customerName}
                   onChange={(e) => setFormData(prev => ({ ...prev, customerName: e.target.value }))}
@@ -106,7 +112,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 <label className="block text-sm font-medium mb-2">
                   产品型号 <span className="text-[#FF5252]">*</span>
                 </label>
-                <select
+                <NativeSelect
                   value={formData.productModel}
                   onChange={(e) => setFormData(prev => ({ ...prev, productModel: e.target.value }))}
                   className="w-full h-11 px-4 rounded text-sm focus:outline-none border-b-2 border-gray-300 focus:border-[#2196F3] transition-colors bg-transparent hover:bg-gray-50"
@@ -115,14 +121,14 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                   <option value="OC-3">OC-3</option>
                   <option value="OC-5">OC-5</option>
                   <option value="OC-10">OC-10</option>
-                </select>
+                </NativeSelect>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
                   序列号(S/N) <span className="text-[#FF5252]">*</span>
                 </label>
-                <input
+                <Input
                   type="text"
                   value={formData.serialNumber}
                   onChange={(e) => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
@@ -135,7 +141,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 <label className="block text-sm font-medium mb-2">
                   报障日期 <span className="text-[#FF5252]">*</span>
                 </label>
-                <input
+                <Input
                   type="date"
                   value={formData.reportDate}
                   onChange={(e) => setFormData(prev => ({ ...prev, reportDate: e.target.value }))}
@@ -157,7 +163,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {problemTypes.map((type) => (
-                    <button
+                    <Button variant="unstyled"
                       key={type}
                       type="button"
                       onClick={() => toggleProblemType(type)}
@@ -169,7 +175,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                       style={formData.problemTypes.includes(type) ? { background: 'linear-gradient(135deg, #64B5F6 0%, #2196F3 100%)', boxShadow: '0 2px 4px rgba(33, 150, 243, 0.3)' } : {}}
                     >
                       {type}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -178,33 +184,29 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 <label className="block text-sm font-medium mb-2">
                   档位/工作模式 <span className="text-[#FF5252]">*</span>
                 </label>
-                <div className="flex gap-4">
+                <RadioGroup name="workMode" value={formData.workMode} onValueChange={(workMode) => setFormData(prev => ({ ...prev, workMode }))} aria-label="工作模式" className="flex gap-4">
                   {['1档', '2档', '3档', '持续流'].map((mode) => (
                     <label key={mode} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="workMode"
+                      <RadioGroupItem
                         value={mode}
-                        checked={formData.workMode === mode}
-                        onChange={(e) => setFormData(prev => ({ ...prev, workMode: e.target.value }))}
                         className="w-5 h-5 text-[#1976D2] accent-[#2196F3]"
                       />
                       <span className="text-sm font-medium">{mode}</span>
                     </label>
                   ))}
-                </div>
+                </RadioGroup>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
                   问题现象描述 <span className="text-[#FF5252]">*</span>
                 </label>
-                <textarea
+                <Textarea
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                   placeholder="请详细描述问题现象"
                   rows={4}
-                  className="w-full px-4 py-3 rounded border border-gray-300 text-sm resize-none focus:outline-none focus:border-[#2196F3] focus:ring-2 focus:ring-blue-200 transition-all bg-transparent hover:bg-gray-50"
+                  className="w-full px-4 py-3 rounded border border-gray-300 text-sm resize-none focus:outline-none focus:border-[#2196F3] focus:ring-2 focus:ring-primary/25 transition-all bg-transparent hover:bg-gray-50"
                 />
               </div>
 
@@ -212,26 +214,22 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                 <label className="block text-sm font-medium mb-2">
                   是否已自查 <span className="text-[#FF5252]">*</span>
                 </label>
-                <div className="flex gap-4">
+                <RadioGroup name="selfChecked" value={formData.selfChecked} onValueChange={(selfChecked) => setFormData(prev => ({ ...prev, selfChecked }))} aria-label="是否已自查" className="flex gap-4">
                   {['是', '否'].map((option) => (
                     <label key={option} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="selfChecked"
+                      <RadioGroupItem
                         value={option}
-                        checked={formData.selfChecked === option}
-                        onChange={(e) => setFormData(prev => ({ ...prev, selfChecked: e.target.value }))}
                         className="w-5 h-5 text-[#1976D2] accent-[#2196F3]"
                       />
                       <span className="text-sm font-medium">{option}</span>
                     </label>
                   ))}
-                </div>
+                </RadioGroup>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">使用环境</label>
-                <input
+                <Input
                   type="text"
                   value={formData.environment}
                   onChange={(e) => setFormData(prev => ({ ...prev, environment: e.target.value }))}
@@ -258,7 +256,7 @@ export function NewTicketForm({ onBack }: NewTicketFormProps) {
                     {upload.label} {upload.required && <span className="text-[#FF5252]">*</span>}
                   </label>
                   <div
-                    className="border-2 border-dashed rounded p-8 text-center hover:border-[#64B5F6] hover:bg-blue-50 transition-all cursor-pointer bg-gray-50"
+                    className="border-2 border-dashed rounded p-8 text-center hover:border-[#64B5F6] hover:bg-accent transition-all cursor-pointer bg-gray-50"
                     style={{ borderColor: '#BDBDBD' }}
                   >
                     <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />

@@ -14,6 +14,8 @@ const noStorage = new Proxy({}, { get: noExternal, set: noExternal });
 function evaluate(code, dependencies = {}, env = {}) {
   const exports = {};
   new Function('exports', 'require', 'window', 'URL', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     assert.ok(Object.hasOwn(dependencies, name), `未审查的依赖 ${name}`); return dependencies[name];
   }, env.window ?? {}, env.URL ?? URL, noExternal, noStorage, noStorage, noStorage);
   return exports;
@@ -57,7 +59,7 @@ function fixture(initialSearch = '') {
     './EcnSections': { EcnSections: 'EcnSections' }, './EcnActionForm': { EcnActionForm: 'EcnActionForm' },
     '../../order-processing/horizon.css': {}, './ecn-preview.css': {},
   };
-  for (const name of ['alert-dialog', 'button', 'input', 'label', 'select', 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
+  for (const name of ['alert-dialog', "button", "input", 'label', "select", 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
   const exports = evaluate(pageCode, dependencies, { window: {
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: (name, handler) => { if (listeners.get(name) === handler) listeners.delete(name); },
     document: { createElement(name) { assert.equal(name, 'a'); const link = { click() { downloads.push({ href: link.href, download: link.download }); }, remove() {} }; return link; }, body: { appendChild() {} }, getElementById(id) { assert.ok(nodes(tree).some((node) => node.props.id === id), `滚动目标 ${id} 存在`); return { scrollIntoView(options) { scrolls.push({ id, options }); } }; } },
@@ -70,7 +72,7 @@ function fixture(initialSearch = '') {
     section: () => view.byType('EcnSections'), form: () => view.byType('EcnActionForm'), state: () => slots.find((value) => value?.records && value?.actors),
     content() { return view.section() ? section.EcnSections(view.section().props) : null; }, contentText() { return normalized(view.content()); },
     sheet: () => view.byType('Sheet'), params: () => new URLSearchParams(location.search), location: () => ({ ...location }), downloads, blobs, revoked, navigations, scrolls,
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
     click(label) { const node = view.button(label); assert.ok(node, `${label} exists`); assert.equal(Boolean(node.props.disabled), false, `${label} enabled`); node.props.onClick(); return view.render(); },
     input(value) { view.byId('ecn-query').props.onChange({ target: { value } }); return view.render(); },
     select(controlId, value) { const control = view.nodes().find((node) => node.type === 'Select' && nodes(node).some((child) => child.props.id === controlId)); assert.ok(control, controlId); control.props.onValueChange(value); return view.render(); },
@@ -80,7 +82,7 @@ function fixture(initialSearch = '') {
     discardDialog: () => view.nodes().find((node) => node.type === 'AlertDialog' && /放弃尚未保存/.test(normalized(node))),
     cancelDiscard() { view.discardDialog().props.onOpenChange(false); return view.render(); },
     discard() { view.click('放弃并继续'); return view.render(); },
-    failNext() { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); return view.render(); },
+    failNext() { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(true); return view.render(); },
     failExport(value = true) { exportFails = value; },
     inputAction(patch = {}) { const props = view.form().props, kind = props.context.kind; return { kind, actorId: props.actorId, ...({ acknowledge: { reviewed: true, impactIds: ['impact-new', 'impact-old'], note: '已核对指定新版与保留旧版范围' }, disposition: { targetId: props.context.targetId ?? 'legacy-stock', choice: 'retain', reason: '原版本保留使用，已有批次不改版' }, feedback: { impactId: props.context.impactId ?? 'impact-new', ownerId: 'process-a', dueDate: '2999-09-12', description: '定位工装尚未覆盖新版尺寸，需要核实' }, 'resolve-task': { taskId: props.context.taskId ?? 'task-seed', resolution: '已补齐工装和作业说明，交质量重新验证' }, verify: { impactId: props.context.impactId ?? 'impact-new', result: 'passed', evidenceId: 'verification-new', note: '按已发布且覆盖本批的验证记录核对' }, archive: { reason: '确认所有范围、处置、协同与验证依据已归集' } }[kind]), ...patch }; },
     async save(patch = {}) { try { await view.form().props.onSubmit(view.inputAction(patch)); } finally { view.render(); } },

@@ -6,6 +6,10 @@ import { defectToday } from '../defects/defectModel';
 import type { DefectState } from '../defects/defectTypes';
 import { getRdVerifiers, validateRdAction } from './rdModel';
 import { rdActionLabels, type RdAction, type RdActionKind, type RdState } from './rdTypes';
+import { Textarea } from "../../components/ui/textarea";
+import { Input } from "../../components/ui/input";
+import { NativeSelect } from "../../components/ui/native-select";
+import { Checkbox } from "../../components/ui/checkbox";
 
 interface Props { state: RdState; defects: DefectState; issueId: string; actorId: string; kind: RdActionKind; onDirtyChange: (value: boolean) => void; onSubmit: (action: RdAction) => Promise<void>; onCancel: () => void }
 type Fields = Record<string, string>;
@@ -17,9 +21,9 @@ export function RdActionForm({ state, defects, issueId, actorId, kind, onDirtyCh
   const update = (name: string, value: string) => { setValues((old) => ({ ...old, [name]: value })); onDirtyChange(true); setErrors({}); };
   const field = (name: string, label: string, input: ReactNode, optional = false) => <div className="prd-field" key={name}><label htmlFor={`prd-${name}`}>{t(label)}{optional ? <small>{t('选填')}</small> : <span aria-hidden="true"> *</span>}</label>{input}{errors[name] ? <p id={`prd-${name}-error`} className="prd-field-error">{t(errors[name])}</p> : null}</div>;
   const attrs = (name: string) => ({ id: `prd-${name}`, 'aria-invalid': !!errors[name], 'aria-describedby': errors[name] ? `prd-${name}-error` : undefined, disabled: busy, value: values[name] ?? '', onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => update(name, event.target.value) });
-  const text = (name: string, label: string, placeholder: string, optional = false) => field(name, label, <textarea {...attrs(name)} rows={name === 'text' ? 4 : 3} maxLength={2000} placeholder={t(placeholder)}/>, optional);
-  const date = (name: string, label: string, actual = false) => field(name, label, <input type="date" {...attrs(name)} min={actual ? issue.date : defectToday()} max={actual ? defectToday() : undefined}/>);
-  const select = (name: string, label: string, options: Array<[string, string]>) => field(name, label, <select {...attrs(name)}><option value="">{t('请选择')}</option>{options.map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}</select>);
+  const text = (name: string, label: string, placeholder: string, optional = false) => field(name, label, <Textarea {...attrs(name)} rows={name === 'text' ? 4 : 3} maxLength={2000} placeholder={t(placeholder)}/>, optional);
+  const date = (name: string, label: string, actual = false) => field(name, label, <Input type="date" {...attrs(name)} min={actual ? issue.date : defectToday()} max={actual ? defectToday() : undefined}/>);
+  const select = (name: string, label: string, options: Array<[string, string]>) => field(name, label, <NativeSelect {...attrs(name)}><option value="">{t('请选择')}</option>{options.map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}</NativeSelect>);
   function action(): RdAction {
     const base = { issueId, actorId, reviewed }; const value = (key: string) => values[key] ?? '';
     if (kind === 'assign') return { ...base, kind, ownerId: value('ownerId'), dueDate: value('dueDate'), description: value('description') };
@@ -49,7 +53,7 @@ export function RdActionForm({ state, defects, issueId, actorId, kind, onDirtyCh
       {kind === 'send-verification' ? <>{select('verifierId', '现场验证人', getRdVerifiers(defects, issueId).map((actor) => [actor.id, actor.name]))}{date('plannedDate', '计划验证日期')}<p className="prd-note">{t('本次安排绑定最新技术意见；未通过时返回研发重新分析。')}</p></> : null}
       {kind === 'verify' ? <>{date('date', '实际验证日期', true)}{select('result', '现场验证结果', [['passed', '技术方案验证通过'], ['failed', '未通过，退回研发']])}{text('note', '现场验证结论', '记录复现条件、执行措施与实际结果')}{text('evidence', '验证证据编号或摘要', '写明现场记录编号与核对依据')}<p className="prd-note">{t('现场技术验证不登记 QC 合格数量，不替代 QA 放行。')}</p></> : null}
       {kind === 'close' ? <>{text('summary', '技术协同关闭说明', '说明最新技术意见与验证结果已完成核对')}<p className="prd-note">{t('仅关闭本次技术协同。原不良仍按 P08 的整改与 QC 回执处理。')}</p></> : null}
-      <label className="prd-review"><input type="checkbox" checked={reviewed} onChange={(event) => { setReviewed(event.target.checked); onDirtyChange(true); setErrors({}); }} aria-invalid={!!errors.reviewed} aria-describedby={errors.reviewed ? 'prd-reviewed-error' : undefined}/><span>{t('已核对原异常及本次操作依据')}</span></label>
+      <label className="prd-review"><Checkbox checked={reviewed} onCheckedChange={(checkedValue) => { setReviewed((checkedValue === true)); onDirtyChange(true); setErrors({}); }} aria-invalid={!!errors.reviewed} aria-describedby={errors.reviewed ? 'prd-reviewed-error' : undefined}/><span>{t('已核对原异常及本次操作依据')}</span></label>
       {errors.reviewed ? <p id="prd-reviewed-error" className="prd-field-error">{t(errors.reviewed)}</p> : null}
     </fieldset>
     <div className="prd-form-buttons"><Button type="button" variant="outline" disabled={busy} onClick={onCancel}>{t('取消填写')}</Button><Button type="submit" disabled={busy}>{t(busy ? '正在保存…' : rdActionLabels[kind])}</Button></div>

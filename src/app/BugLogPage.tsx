@@ -270,20 +270,20 @@ export function BugLogPage() {
             {logFiles.map((log) => {
               const isSelected = selectedLogId === log.id;
               return (
-                <button
+                <Button variant="unstyled"
                   key={log.id}
                   type="button"
                   onClick={() => setSelectedLogId(log.id)}
                   aria-pressed={isSelected}
                   className={cn(
-                    "w-full rounded-xl border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2",
+                    "w-full rounded-xl border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2",
                     isSelected
-                      ? "border-[#002fa7]/25 bg-[#eef3ff]"
-                      : "border-slate-200 bg-white hover:border-[#002fa7]/20 hover:bg-slate-50",
+                      ? "border-primary/25 bg-accent"
+                      : "border-slate-200 bg-white hover:border-primary/20 hover:bg-slate-50",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className={cn("text-sm font-semibold", isSelected ? "text-[#002fa7]" : "text-slate-800")}>
+                    <span className={cn("text-sm font-semibold", isSelected ? "text-primary" : "text-slate-800")}>
                       {log.deviceId}
                     </span>
                     <span
@@ -302,7 +302,7 @@ export function BugLogPage() {
                       {log.fileSize}
                     </span>
                   </div>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -349,9 +349,9 @@ export function BugLogPage() {
                 </table>
               </div>
 
-              <div className="mt-4 rounded-xl border border-[#002fa7]/10 bg-[#f7f9ff] p-4 sm:p-5">
+              <div className="mt-4 rounded-xl border border-primary/10 bg-[#f7f9ff] p-4 sm:p-5">
                 <div className="mb-2.5 flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#002fa7] text-white" aria-hidden="true">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-white" aria-hidden="true">
                     <Bug className="h-3.5 w-3.5" />
                   </span>
                   <h3 className="text-sm font-semibold text-[#1b2559]">AI 根因判断</h3>
@@ -376,7 +376,7 @@ export function BugLogPage() {
                 type="button"
                 variant="outline"
                 onClick={handleLinkVersion}
-                className="mt-4 w-full rounded-xl border-[#002fa7]/20 text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002fa7]"
+                className="mt-4 w-full rounded-xl border-primary/20 text-primary hover:bg-accent hover:text-primary"
               >
                 <Link2 aria-hidden="true" />
                 关联最近版本变更
@@ -418,7 +418,7 @@ export function BugLogPage() {
           {showAddVersion && (
             <form
               id="add-version-form"
-              className="m-3 rounded-xl border border-[#002fa7]/15 bg-[#f7f9ff] p-4"
+              className="m-3 rounded-xl border border-primary/15 bg-[#f7f9ff] p-4"
               onSubmit={handleAddVersion}
               noValidate
             >

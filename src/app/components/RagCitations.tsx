@@ -4,6 +4,7 @@ import { cn } from "./ui/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { MobileZoomableImage } from "./MobileZoomableImage";
 import { RagCitation, RagChunk, SOURCE_TYPE_LABELS, type RagSourceType } from "../lib/ragApi";
+import { Button } from "./ui/button";
 
 // ─── 来源类型 → 图标颜色 ───────────────────────────────────────────────────────
 
@@ -11,12 +12,12 @@ const SOURCE_TINT: Record<string, { bg: string; text: string; border: string }> 
   kb: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },
   rd_task: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
   rd_progress_note: { bg: "bg-cyan-50", text: "text-cyan-700", border: "border-cyan-200" },
-  rd_proposal: { bg: "bg-[#eef3ff]", text: "text-[#002fa7]", border: "border-[#dbe5ff]" },
+  rd_proposal: { bg: "bg-accent", text: "text-primary", border: "border-[#dbe5ff]" },
   rd_daily_report: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
   chat_group: { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
   chat_private: { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
   audit_log: { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-200" },
-  candidate: { bg: "bg-[#eef3ff]", text: "text-[#002fa7]", border: "border-[#dbe5ff]" },
+  candidate: { bg: "bg-accent", text: "text-primary", border: "border-[#dbe5ff]" },
   image: { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-200" },
   file_asset: { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-200" },
   web: { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
@@ -93,45 +94,45 @@ export function RagCitations({
                   [{idx + 1}] {SOURCE_TYPE_LABELS[c.sourceType] ?? c.sourceType}
                 </span>
                 {c.title && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => clickable && handleClick(c)}
                     disabled={!clickable}
                     title={clickable ? "点击查看原文" : undefined}
                     className={cn(
                       "min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-slate-800",
-                      clickable && "cursor-pointer hover:text-[#002fa7]",
+                      clickable && "cursor-pointer hover:text-primary",
                     )}
                   >
                     {c.title}
-                  </button>
+                  </Button>
                 )}
                 {c.sourceType !== "web" && (
-                  <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-400">
+                  <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
                     {(c.similarity * 100).toFixed(0)}%
                   </span>
                 )}
                 {imgUrl && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setLightbox({ url: imgUrl, alt: c.title ?? "预览图" })}
                     title="预览图片"
                     aria-label={`预览图片：${c.title ?? "引用图片"}`}
-                    className="shrink-0 rounded p-0.5 text-[#002fa7] hover:bg-[#eef3ff]"
+                    className="shrink-0 rounded p-0.5 text-primary hover:bg-accent"
                   >
                     <Eye className="h-3 w-3" />
-                  </button>
+                  </Button>
                 )}
                 {c.url && (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => handleClick(c)}
                     title="查看原文"
                     aria-label={`查看原文：${c.title ?? "引用来源"}`}
-                    className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-slate-100 hover:text-slate-600"
                   >
                     <ExternalLink className="h-3 w-3" />
-                  </button>
+                  </Button>
                 )}
                 {c.downloadUrl && (
                   <a
@@ -141,7 +142,7 @@ export function RagCitations({
                     rel="noopener noreferrer"
                     title="下载原文件"
                     aria-label={`下载原文件：${c.title ?? "引用文件"}`}
-                    className="shrink-0 rounded p-0.5 text-[#002fa7] hover:bg-[#eef3ff]"
+                    className="shrink-0 rounded p-0.5 text-primary hover:bg-accent"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Download className="h-3 w-3" />
@@ -149,7 +150,7 @@ export function RagCitations({
                 )}
               </div>
               {imgUrl && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setLightbox({ url: imgUrl, alt: c.title ?? "预览图" })}
                   title="点击预览大图"
@@ -163,7 +164,7 @@ export function RagCitations({
                     draggable={false}
                     className="h-28 w-full object-cover"
                   />
-                </button>
+                </Button>
               )}
               <p
                 className={cn(
@@ -208,7 +209,7 @@ export function RagRawChunks({ chunks }: { chunks: RagChunk[] }) {
   if (chunks.length === 0) return null;
   return (
     <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/40">
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] font-semibold tabular-nums text-amber-700 transition-colors hover:bg-amber-50"
@@ -216,7 +217,7 @@ export function RagRawChunks({ chunks }: { chunks: RagChunk[] }) {
         <Sparkles className="h-3 w-3" />
         对回答不满意？展开 {chunks.length} 条原始检索片段
         {expanded ? <ChevronUp className="ml-auto h-3 w-3" /> : <ChevronDown className="ml-auto h-3 w-3" />}
-      </button>
+      </Button>
       {expanded && (
         <div className="space-y-1.5 border-t border-amber-200 p-2">
           {chunks.map((chunk, idx) => {
@@ -237,7 +238,7 @@ export function RagRawChunks({ chunks }: { chunks: RagChunk[] }) {
                     [{idx + 1}] {SOURCE_TYPE_LABELS[chunk.sourceType] ?? chunk.sourceType}
                   </span>
                   {title && <span className="truncate font-semibold text-slate-700">{title}</span>}
-                  <span className="ml-auto tabular-nums text-slate-400">{(chunk.similarity * 100).toFixed(0)}%</span>
+                  <span className="ml-auto tabular-nums text-muted-foreground">{(chunk.similarity * 100).toFixed(0)}%</span>
                 </div>
                 <p className="whitespace-pre-wrap text-pretty text-[11px] leading-snug text-slate-700">{chunk.content}</p>
               </div>
@@ -256,7 +257,7 @@ export function RagPermissionNotice({ filtered }: { filtered: number }) {
   return (
     <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-pretty text-[10px] tabular-nums text-slate-600">
       <span className="font-semibold">另有 {filtered} 条相关资料</span>，但你的角色暂无访问权限。
-      <span className="text-slate-400">如需查阅，请联系拥有相应权限的同事。</span>
+      <span className="text-muted-foreground">如需查阅，请联系拥有相应权限的同事。</span>
     </div>
   );
 }

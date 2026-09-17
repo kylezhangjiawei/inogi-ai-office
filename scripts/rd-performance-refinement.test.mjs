@@ -36,7 +36,7 @@ test("研发绩效与立项附属面清除紫靛和装饰性字距", () => {
   const forbidden = /\b(?:indigo|purple|violet|fuchsia|pink)-|\btracking-|\buppercase\b|shadow-\[/i;
   assert.doesNotMatch(panel, forbidden);
   assert.doesNotMatch(proposal, /\btracking-|\buppercase\b/);
-  assert.match(panel, /#002fa7/);
+  assert.match(panel, /primary/);
   assert.match(panel, /text-balance/);
   assert.match(panel, /text-pretty/);
 });

@@ -158,7 +158,7 @@ function InventoryFilterBar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-2">
       <div className="relative min-w-52 flex-1 sm:max-w-sm">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
@@ -472,10 +472,10 @@ export function CoreMaterialsPanorama({
         </div>
         {canManage && configured.length > 0 && !configLoading && !configError ? (
           <DialogTrigger asChild>
-            <button type="button" onClick={() => openEditor()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
+            <Button variant="unstyled" type="button" onClick={() => openEditor()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
               <Settings2 className="size-3.5" />
               {t("配置核心配件")}
-            </button>
+            </Button>
           </DialogTrigger>
         ) : null}
       </div>
@@ -495,11 +495,11 @@ export function CoreMaterialsPanorama({
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-rose-200 bg-rose-50 px-4 text-center">
             <AlertTriangle className="mb-3 size-8 text-rose-400" />
             <p className="text-pretty text-sm font-semibold text-rose-700">{configError}</p>
-            <button type="button" onClick={onRetryConfig} className="material-button-secondary mt-4 px-4 py-2 text-sm">{t("重新加载")}</button>
+            <Button variant="unstyled" type="button" onClick={onRetryConfig} className="material-button-secondary mt-4 px-4 py-2 text-sm">{t("重新加载")}</Button>
           </div>
         ) : inventorySource.length === 0 ? (
           <div className="proc-horizon-core-empty flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
-            <PackageSearch className="size-8 shrink-0 text-slate-400" aria-hidden="true" />
+            <PackageSearch className="size-8 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0 flex-1 basis-64">
               <h3 className="text-balance text-sm font-semibold text-slate-800">{t("暂无可展示的核心配件")}</h3>
               <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("当前产品还没有已关联并同步 T+ 库存的分类物料，可先查看物料分类。")}</p>
@@ -521,10 +521,10 @@ export function CoreMaterialsPanorama({
                 </div>
                 {canManage && previewItems.length > 0 ? (
                   <DialogTrigger asChild>
-                    <button type="button" onClick={() => openEditor(suggestions.length > 0)} className="material-button-primary inline-flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm">
+                    <Button variant="unstyled" type="button" onClick={() => openEditor(suggestions.length > 0)} className="material-button-primary inline-flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm">
                       <Settings2 className="size-4" />
                       {t(suggestions.length > 0 ? "确认建议项" : "选择核心配件")}
-                    </button>
+                    </Button>
                   </DialogTrigger>
                 ) : null}
               </section>
@@ -546,7 +546,7 @@ export function CoreMaterialsPanorama({
             ) : (
               <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
                 <p className="text-pretty">{t("没有符合当前筛选条件的核心配件")}</p>
-                {hasInventoryFilters ? <button type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button> : null}
+                {hasInventoryFilters ? <Button variant="unstyled" type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</Button> : null}
               </div>
             )}
             <InventoryPagination
@@ -572,7 +572,7 @@ export function CoreMaterialsPanorama({
             <label className="min-w-0 flex-1 basis-64 space-y-1 text-xs text-slate-500">
               <span>{t("搜索")}</span>
               <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => { setSearch(event.target.value); setConfigPage(1); }}
@@ -607,7 +607,7 @@ export function CoreMaterialsPanorama({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            <label className={cn("flex items-center gap-2 text-xs font-semibold", currentPageIds.length > 0 ? "cursor-pointer text-slate-700" : "cursor-not-allowed text-slate-400")}>
+            <label className={cn("flex items-center gap-2 text-xs font-semibold", currentPageIds.length > 0 ? "cursor-pointer text-slate-700" : "cursor-not-allowed text-muted-foreground")}>
               <Checkbox
                 checked={allCurrentPageSelected ? true : someCurrentPageSelected ? "indeterminate" : false}
                 disabled={currentPageIds.length === 0}
@@ -617,14 +617,14 @@ export function CoreMaterialsPanorama({
               <span className="font-normal tabular-nums text-slate-500">({currentPageIds.length})</span>
             </label>
             <div className="flex items-center gap-3">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 disabled={selectedIds.length === 0}
                 onClick={() => { setSelectedIds([]); setSaveError(null); }}
                 className="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {t("清空已选")}
-              </button>
+              </Button>
               <span className="text-xs font-semibold tabular-nums text-slate-600">{t("已选")} {selectedIds.length}/{maxItems}</span>
             </div>
           </div>
@@ -655,14 +655,14 @@ export function CoreMaterialsPanorama({
             })}
             {filteredConfigRows.length === 0 ? (
               <div className="flex flex-col items-center px-4 py-10 text-center">
-                {candidates.length === 0 ? <AlertTriangle className="mb-2 size-6 text-amber-400" /> : <ShieldCheck className="mb-2 size-6 text-slate-300" />}
+                {candidates.length === 0 ? <AlertTriangle className="mb-2 size-6 text-amber-400" /> : <ShieldCheck className="mb-2 size-6 text-muted-foreground" />}
                 <p className="text-sm font-medium text-slate-500">
                   {t(candidates.length === 0 ? "没有符合条件的子系统叶子物料" : "没有匹配的核心配件候选")}
                 </p>
                 {candidates.length === 0 ? (
-                  <p className="mt-1 text-pretty text-xs text-slate-400">{t("请先完成叶子节点物料关联及 T+ 库存同步。")}</p>
+                  <p className="mt-1 text-pretty text-xs text-muted-foreground">{t("请先完成叶子节点物料关联及 T+ 库存同步。")}</p>
                 ) : hasConfigFilters ? (
-                  <button type="button" onClick={clearConfigFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button>
+                  <Button variant="unstyled" type="button" onClick={clearConfigFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</Button>
                 ) : null}
               </div>
             ) : null}
@@ -680,10 +680,10 @@ export function CoreMaterialsPanorama({
           {saveError ? <p role="alert" className="shrink-0 text-pretty text-xs text-rose-600">{saveError}</p> : null}
 
           <DialogFooter className="border-t border-slate-100 pt-3">
-            <button type="button" onClick={() => setEditorOpen(false)} disabled={saving} className="material-button-secondary px-4 py-2 text-sm">{t("取消")}</button>
-            <button type="button" onClick={() => void saveConfig()} disabled={saving} className="material-button-primary px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60">
+            <Button variant="unstyled" type="button" onClick={() => setEditorOpen(false)} disabled={saving} className="material-button-secondary px-4 py-2 text-sm">{t("取消")}</Button>
+            <Button variant="unstyled" type="button" onClick={() => void saveConfig()} disabled={saving} className="material-button-primary px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60">
               {saving ? t("保存中…") : t("保存配置")}
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
     </div>

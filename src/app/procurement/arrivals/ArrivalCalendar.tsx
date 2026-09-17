@@ -5,6 +5,8 @@ import { useI18n } from "../../lib/i18n";
 import type { WorkspaceArrival } from "../procurementWorkspaceModel";
 import { buildArrivalCalendar, isArrivalDay, isArrivalMonth, type ArrivalCalendarSelection } from "./arrivalCalendarModel";
 import "./arrivalCalendar.css";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 
 export interface ArrivalCalendarProps {
   rows: WorkspaceArrival[];
@@ -42,29 +44,29 @@ export function ArrivalCalendar({ rows, month, selection, disabled = false, onMo
         <p>{t("本月 {count} 行 · 点击日期筛选下方列表", { count: calendar.inMonthCount })}</p>
       </div>
       <div className="arrival-calendar-month">
-        <button type="button" disabled={disabled || !calendar.previousMonth} aria-label={t("上一个到货月份")}
-          onClick={() => { if (!disabled && calendar.previousMonth) onMonthChange(calendar.previousMonth); }}><ChevronLeft aria-hidden="true" size={16} /></button>
+        <Button variant="unstyled" type="button" disabled={disabled || !calendar.previousMonth} aria-label={t("上一个到货月份")}
+          onClick={() => { if (!disabled && calendar.previousMonth) onMonthChange(calendar.previousMonth); }}><ChevronLeft aria-hidden="true" size={16} /></Button>
         <label className="sr-only" htmlFor={inputId}>{t("到货日历月份")}</label>
-        <input id={inputId} type="month" value={month} min="0001-01" max="9999-12" disabled={disabled}
+        <Input id={inputId} type="month" value={month} min="0001-01" max="9999-12" disabled={disabled}
           onChange={(event) => { if (!disabled && isArrivalMonth(event.target.value)) onMonthChange(event.target.value); }} />
-        <button type="button" disabled={disabled || !calendar.nextMonth} aria-label={t("下一个到货月份")}
-          onClick={() => { if (!disabled && calendar.nextMonth) onMonthChange(calendar.nextMonth); }}><ChevronRight aria-hidden="true" size={16} /></button>
+        <Button variant="unstyled" type="button" disabled={disabled || !calendar.nextMonth} aria-label={t("下一个到货月份")}
+          onClick={() => { if (!disabled && calendar.nextMonth) onMonthChange(calendar.nextMonth); }}><ChevronRight aria-hidden="true" size={16} /></Button>
       </div>
     </div>
     <div className="arrival-calendar-selections" aria-label={t("到货日期范围")}>
-      {selections.map((item) => <button key={item.value} type="button" aria-pressed={selection === item.value} disabled={disabled}
-        onClick={() => selectDay(item.value)}><span>{item.label}</span><strong>{item.count}</strong><span>{t("行")}</span></button>)}
+      {selections.map((item) => <Button variant="unstyled" key={item.value} type="button" aria-pressed={selection === item.value} disabled={disabled}
+        onClick={() => selectDay(item.value)}><span>{item.label}</span><strong>{item.count}</strong><span>{t("行")}</span></Button>)}
     </div>
     <div className="arrival-calendar-grid" role="group" aria-label={t("{month} 任务关联到货日期", { month })}>
       {WEEKDAYS.map((day, index) => <div key={day} className={`arrival-calendar-weekday${index >= 5 ? " is-weekend" : ""}`}>{t(day)}</div>)}
-      {calendar.days.map((day, index) => day.date && day.inMonth ? <button
+      {calendar.days.map((day, index) => day.date && day.inMonth ? <Button variant="unstyled"
         key={day.date} type="button" className={`arrival-calendar-day${day.isWeekend ? " is-weekend" : ""}${day.date === todayKey ? " is-today" : ""}`}
         aria-label={t("{date}，{weekday}，{count} 行{today}", { date: day.date, weekday: t(WEEKDAYS[index % 7]), count: day.rowCount, today: day.date === todayKey ? t("，今天") : "" })}
         aria-pressed={selection === day.date} aria-current={day.date === todayKey ? "date" : undefined} disabled={disabled}
         onClick={() => selectDay(day.date!)}>
         <span className="arrival-calendar-date">{day.day}{day.date === todayKey ? <span className="arrival-calendar-today">{t("今")}</span> : null}</span>
         <span className={day.rowCount ? "arrival-calendar-count" : "arrival-calendar-empty-count"}>{t("{count} 行", { count: day.rowCount })}</span>
-      </button> : <div key={day.date ?? `padding-${index}`} className="arrival-calendar-padding" aria-hidden="true">{day.day ?? ""}</div>)}
+      </Button> : <div key={day.date ?? `padding-${index}`} className="arrival-calendar-padding" aria-hidden="true">{day.day ?? ""}</div>)}
     </div>
     <p className="arrival-calendar-selection-status" role="status" aria-live="polite">
       {isArrivalDay(selection) ? t("已选 {date}：{count} 行", { date: selection, count: selectedCount ?? rows.filter((row) => row.etaDate === selection).length })

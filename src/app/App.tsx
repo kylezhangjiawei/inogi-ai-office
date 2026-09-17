@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { Suspense, useEffect, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createBrowserRouter, matchPath, Navigate, RouterProvider, useLocation, useParams } from "react-router";
@@ -367,7 +368,7 @@ function ProtectedLayout() {
 
   if (!hydrated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500">
+      <div className="flex min-h-dvh items-center justify-center bg-background text-muted-foreground">
         正在恢复登录状态...
       </div>
     );
@@ -451,7 +452,7 @@ function PermissionRoute({
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
         <div className="text-4xl">🔒</div>
         <p className="text-base font-medium">您没有访问此页面的权限</p>
-        <p className="text-sm text-slate-400">如需开通，请联系系统管理员</p>
+        <p className="text-sm text-muted-foreground">如需开通，请联系系统管理员</p>
       </div>
     );
   }
@@ -465,7 +466,7 @@ function makeProtected(component: React.ReactNode, permission: string | string[]
 /** Lightweight fallback while a lazy route chunk loads. */
 function PageLoadingFallback() {
   return (
-    <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-400">
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
       正在加载页面…
     </div>
   );
@@ -695,19 +696,19 @@ class AppErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center text-slate-600">
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background px-6 text-center text-muted-foreground">
           <div className="text-5xl">😵</div>
           <p className="text-lg font-medium text-slate-800">页面出错了</p>
           <p className="max-w-md text-sm text-slate-500">
             遇到了一个未预期的错误，刷新通常即可恢复。如反复出现请联系系统管理员。
           </p>
-          <button
+          <Button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-2 rounded-lg bg-[#002fa7] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#00298f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2"
+            className="mt-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
           >
             刷新页面
-          </button>
+          </Button>
         </div>
       );
     }

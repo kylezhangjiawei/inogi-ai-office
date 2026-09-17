@@ -15,7 +15,7 @@ export const materialTheme = createTheme({
       main: "#546e7a",
     },
     background: {
-      default: "#f4f7fe",
+      default: "#f8faff",
       paper: "#ffffff",
     },
     success: {
@@ -34,9 +34,9 @@ export const materialTheme = createTheme({
     divider: "#e0e5f2",
   },
   components: {
-    MuiButton: { defaultProps: { disableElevation: true }, styleOverrides: { root: { borderRadius: 12, transition: "none" } } },
+    MuiButton: { defaultProps: { disableElevation: true }, styleOverrides: { root: { borderRadius: 999, transition: "none" }, containedPrimary: { boxShadow: "var(--shadow-primary)", "&:hover": { boxShadow: "var(--shadow-primary)" }, "&.Mui-disabled": { boxShadow: "none" } } } },
     MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 12 } } },
-    MuiCard: { styleOverrides: { root: { borderRadius: 24 } } },
+    MuiCard: { styleOverrides: { root: { borderRadius: 24, boxShadow: "var(--shadow-card)" } } },
   },
   shape: {
     borderRadius: 16,

@@ -59,6 +59,8 @@ import type {
   Solution,
 } from "../lib/issue/types";
 import { t, useI18n } from "../lib/i18n";
+import { NativeSelect } from "../components/ui/native-select";
+import { Input } from "../components/ui/input";
 
 // ── 工具 ───────────────────────────────────────────────────────────────────────
 
@@ -136,30 +138,30 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
   return (
     <li className="rd-horizon-issue-attachment rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2">
       <div className="flex items-center gap-2">
-        <Paperclip className="size-4 shrink-0 text-slate-400" />
+        <Paperclip className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm text-slate-800" title={att.fileName}>
           {att.fileName}
         </span>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={copyLink}
           title={t("复制 OSS 文件链接")}
           aria-label={t("复制文件链接")}
-          className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <Copy className="size-3.5" />
           {t("复制链接")}
-        </button>
+        </Button>
         {hasText && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-[#002fa7] outline-none hover:bg-[#eef3ff] focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/30"
             aria-expanded={open}
           >
             {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
             {t("已提取文本")}
-          </button>
+          </Button>
         )}
       </div>
       {hasText && open && (
@@ -205,30 +207,30 @@ function ChatAttachment({
       )}
     >
       {isImage && (
-        <button type="button" onClick={() => setPreviewOpen(true)} title={att.fileName} aria-label={t("预览 {file}", { file: att.fileName })} className="mb-2 block w-full cursor-pointer overflow-hidden rounded-md">
+        <Button variant="unstyled" type="button" onClick={() => setPreviewOpen(true)} title={att.fileName} aria-label={t("预览 {file}", { file: att.fileName })} className="mb-2 block w-full cursor-pointer overflow-hidden rounded-md">
           <img src={image.src || undefined} alt={att.fileName} onLoad={image.onLoad} onError={image.onError} className="max-h-40 w-full object-cover" />
           {image.refreshing && <span className="block px-2 py-1" role="status">{t("正在刷新图片…")}</span>}
           {image.failed && <span className="block px-2 py-1" role="status">{t("图片加载失败，点击重试")}</span>}
-        </button>
+        </Button>
       )}
       <div className="flex min-w-0 items-center gap-2">
         {isImage ? <ImageIcon className="size-3.5 shrink-0" /> : <Paperclip className="size-3.5 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">{att.fileName}</span>
         <span className={cn("shrink-0", tone === "user" ? "text-white/70" : muted)}>{att.fileType || "file"}</span>
         {onRemove && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onRemove}
             className={cn(
               "cursor-pointer rounded-full p-0.5 opacity-80 outline-none transition hover:opacity-100 focus-visible:ring-2",
               tone === "user"
                 ? "hover:bg-white/15 focus-visible:ring-white/50"
-                : "hover:bg-slate-200 focus-visible:ring-[#002fa7]/30",
+                : "hover:bg-slate-200 focus-visible:ring-primary/30",
             )}
             aria-label={t("移除 {file}", { file: att.fileName })}
           >
             <X className="size-3" />
-          </button>
+          </Button>
         )}
       </div>
       {att.extractedText && (
@@ -320,7 +322,7 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
       <span
         className={cn(
           "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
-          isUser ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-600",
+          isUser ? "bg-accent text-primary" : "bg-slate-100 text-slate-600",
         )}
       >
         {isUser ? <UserIcon className="size-4" /> : <Bot className="size-4" />}
@@ -339,7 +341,7 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
         <div
           className={cn(
             "mt-1 inline-block whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-pretty text-sm leading-relaxed",
-            isUser ? "bg-[#002fa7] text-white" : "bg-slate-100 text-slate-800",
+            isUser ? "bg-primary text-white" : "bg-slate-100 text-slate-800",
           )}
         >
           {attachments.length > 0 && (
@@ -433,21 +435,21 @@ function ChatPanel({
       }}
     >
       {dragActive && (
-        <div className="rd-horizon-issue-chat-dropzone pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#002fa7]/30 bg-[#eef3ff]/95">
-          <Paperclip className="size-7 text-[#002fa7]" />
-          <div className="text-sm font-medium text-[#002fa7]">{t("松开鼠标上传文件")}</div>
-          <div className="text-xs text-[#002fa7]/70">{t("支持任意图片与文档附件")}</div>
+        <div className="rd-horizon-issue-chat-dropzone pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/30 bg-accent/95">
+          <Paperclip className="size-7 text-primary" />
+          <div className="text-sm font-medium text-primary">{t("松开鼠标上传文件")}</div>
+          <div className="text-xs text-primary/70">{t("支持任意图片与文档附件")}</div>
         </div>
       )}
       <div ref={scrollRef} onScroll={onScroll} className="rd-horizon-issue-chat-stream material-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
         {hasMore && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={onLoadMore}
-            className="mx-auto flex cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm transition-colors hover:border-[#002fa7]/25 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+            className="mx-auto flex cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm transition-colors hover:border-primary/25 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
             {t("加载更早对话")}
-          </button>
+          </Button>
         )}
         {messages.length === 0 ? (
           <p className={cn("rounded-lg bg-slate-50 px-3 py-6 text-center text-pretty text-sm", muted)}>
@@ -474,21 +476,21 @@ function ChatPanel({
           return (
             <div className="mb-2">
               <div className="flex items-center gap-1.5">
-                <Cpu className="size-3.5 shrink-0 text-slate-400" />
+                <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className={cn("shrink-0 text-xs", muted)}>{t("AI 模型")}</span>
-                <select
+                <NativeSelect
                   value={selectedModel}
                   onChange={(e) => onSelectModel(e.target.value)}
                   disabled={sending}
                   aria-label={t("选择 AI 模型")}
-                  className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 disabled:cursor-not-allowed"
+                  className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed"
                 >
                   {models.map((m) => (
                     <option key={m.value} value={m.value}>
                       {m.label} · {t(m.usageLabel)}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
                 <span className={cn("ml-auto shrink-0 text-[11px]", muted)}>
                   {current?.usageKind === "multimodal" ? t("图片可直传") : t("图片转文字")}
                 </span>
@@ -513,7 +515,7 @@ function ChatPanel({
             ))}
           </div>
         )}
-        <input
+        <Input
           ref={fileInputRef}
           type="file"
           multiple
@@ -552,7 +554,7 @@ function ChatPanel({
             placeholder={t("补充线索 / 提出调整方向…")}
             disabled={sending}
             aria-label={t("对话输入")}
-            className="max-h-24 min-h-10 resize-none rounded-lg border-slate-200 bg-slate-50 text-sm shadow-inner focus-visible:border-[#002fa7]/40 focus-visible:ring-[#002fa7]/20"
+            className="max-h-24 min-h-10 resize-none rounded-lg border-slate-200 bg-slate-50 text-sm shadow-inner focus-visible:border-primary/40 focus-visible:ring-primary/20"
           />
           <Button onClick={onSend} disabled={!canSend} className="h-11 cursor-pointer px-3 disabled:cursor-not-allowed">
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
@@ -852,7 +854,7 @@ export function DetailView({
 
   if (!issue) {
     return (
-      <div className="rd-horizon-issue-state rd-horizon-issue-state--loading flex items-center justify-center px-4 py-24 text-slate-400" role="status">
+      <div className="rd-horizon-issue-state rd-horizon-issue-state--loading flex items-center justify-center px-4 py-24 text-muted-foreground" role="status">
         <Loader2 className="size-5 animate-spin" />
         <span className="ml-2 text-sm">{t("加载中…")}</span>
       </div>
@@ -938,14 +940,14 @@ export function DetailView({
       data-issue-status={issue.status}
     >
       {/* 顶部返回（shell 也提供面包屑，这里再给一个干净入口）。 */}
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onBack}
-        className="rd-horizon-issue-back mb-3 inline-flex w-fit cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-slate-500 outline-none transition-colors hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+        className="rd-horizon-issue-back mb-3 inline-flex w-fit cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-slate-500 outline-none transition-colors hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-primary/30"
       >
         <ArrowLeft className="size-4" />
         {t("返回列表")}
-      </button>
+      </Button>
 
       <div className="rd-horizon-issue-grid grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(22rem,390px)_minmax(0,1fr)] 2xl:grid-cols-[400px_minmax(0,1fr)]">
         {/* ══════════ 主列（xl+ 定高内部滚动，隐藏滚动条不占位） ══════════ */}
@@ -1021,7 +1023,7 @@ export function DetailView({
           {/* 当前采纳方案 */}
           <section className={cn(card, "rd-horizon-issue-adopted p-4")}>
             <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-              <Pin className="size-4 text-[#002fa7]" />
+              <Pin className="size-4 text-primary" />
               {t("当前采纳方案")}
             </h2>
             {!adopted ? (
@@ -1073,7 +1075,7 @@ export function DetailView({
           <section className={cn(card, "rd-horizon-issue-timeline p-4")}>
             <div className="rd-horizon-issue-section-heading flex items-center justify-between gap-2">
               <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-                <History className="size-4 text-slate-400" />
+                <History className="size-4 text-muted-foreground" />
                 {t("版本与留痕")}
               </h2>
               <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
@@ -1097,7 +1099,7 @@ export function DetailView({
                                 "size-2.5 shrink-0 rounded-full ring-2",
                                 v.isAdopted
                                     ? "bg-emerald-500 ring-emerald-200"
-                                    : "bg-[#002fa7] ring-[#eef3ff]",
+                                    : "bg-primary ring-primary/15",
                             )}
                         />
                       </span>
@@ -1159,7 +1161,7 @@ export function DetailView({
           <motion.section {...fade} className={cn(card, "rd-horizon-issue-analysis p-4 sm:p-5 xl:max-h-[48%] xl:shrink-0 xl:overflow-y-auto")}>
             <div className="rd-horizon-issue-analysis-header flex flex-wrap items-center justify-between gap-2">
               <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-                <Sparkles className="size-4 text-[#002fa7]" />
+                <Sparkles className="size-4 text-primary" />
                 {t("AI 根因分析")}
               </h2>
               {totalVersions > 0 && shownVersion && (
@@ -1168,11 +1170,11 @@ export function DetailView({
                     {t("版本")} <Mono>v{shownVersion.version}</Mono>{t("（共 {count} 版）", { count: totalVersions })}
                   </span>
                   {totalVersions > 1 && (
-                    <select
+                    <NativeSelect
                       value={shownVersion.version}
                       onChange={(e) => setViewVersion(Number(e.target.value))}
                       aria-label={t("查看历史版本")}
-                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                     >
                       {analyses
                         .slice()
@@ -1182,7 +1184,7 @@ export function DetailView({
                             v{v.version} ({t(triggerLabel(v.triggerType))})
                           </option>
                         ))}
-                    </select>
+                    </NativeSelect>
                   )}
                 </div>
               )}
@@ -1190,13 +1192,13 @@ export function DetailView({
 
             {/* a. 复用历史方案块（无分析版本时） */}
             {isReuse && analyses.length === 0 && (
-              <div className="rd-horizon-issue-reuse mt-3 rounded-lg border border-[#002fa7]/20 bg-[#eef3ff] p-3">
-                <p className="flex items-center gap-1.5 text-balance text-sm font-medium text-[#002fa7]">
+              <div className="rd-horizon-issue-reuse mt-3 rounded-lg border border-primary/20 bg-accent p-3">
+                <p className="flex items-center gap-1.5 text-balance text-sm font-medium text-primary">
                   <CheckCircle2 className="size-4" />
                   {t("已复用历史方案")}
                 </p>
                 <p className={cn("mt-1 text-xs", muted)}>
-                  {t("复用自")} <Mono className="text-[#002fa7]">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                  {t("复用自")} <Mono className="text-primary">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
                 </p>
                 {reusedAdopted ? (
                   <div className="rd-horizon-issue-reuse-content mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2">
@@ -1221,7 +1223,7 @@ export function DetailView({
                 analyses.length === 0 &&
                 !isReuse)) && (
               <div className="rd-horizon-issue-analysis-loading mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-pretty text-sm text-slate-600">
-                <Loader2 className="size-4 animate-spin text-[#002fa7]" />
+                <Loader2 className="size-4 animate-spin text-primary" />
                 {t("AI 正在分析根因，请稍候…")}
               </div>
             )}
@@ -1235,7 +1237,7 @@ export function DetailView({
                     {t("历史版本 · 只读")}
                   </p>
                 )}
-                <p className="rd-horizon-issue-analysis-summary rounded-lg border border-[#002fa7]/15 bg-[#eef3ff] px-3 py-2.5 text-pretty text-sm leading-relaxed text-slate-700">
+                <p className="rd-horizon-issue-analysis-summary rounded-lg border border-primary/15 bg-accent px-3 py-2.5 text-pretty text-sm leading-relaxed text-slate-700">
                   {shownVersion.summary}
                 </p>
                 {shownVersion.content.referencedCases.length > 0 && (
@@ -1270,7 +1272,7 @@ export function DetailView({
             <div className="rd-horizon-issue-conversation-header shrink-0 border-b border-slate-200 px-4 py-3 sm:px-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-                  <History className="size-4 text-slate-400" />
+                  <History className="size-4 text-muted-foreground" />
                   {t("对话调整（留痕）")}
                 </h2>
                 <span className={cn("shrink-0 text-xs tabular-nums", muted)}>{t("{count} 条", { count: issue.messages.length })}</span>

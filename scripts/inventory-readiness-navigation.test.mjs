@@ -115,7 +115,7 @@ function allElements(root) {
   if (Array.isArray(root)) return root.flatMap(allElements);
   return [root, ...allElements(root.props?.children)];
 }
-const returnButton = (tree) => allElements(tree).find((node) => node.type === "button" && node.props.children.includes?.("返回齐套中心"));
+const returnButton = (tree) => allElements(tree).find((node) => node.type === "Button" && node.props.children.includes?.("返回齐套中心"));
 
 test("物料库返回按钮遵守页面权限，实际点击采用已校验上下文且替换当前历史项", () => {
   const path = build(parse("productLine=Q7&targetSets=300&q=A08&page=2&itemId=row-8"));

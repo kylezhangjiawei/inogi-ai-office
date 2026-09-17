@@ -310,7 +310,7 @@ export function RDIssues() {
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary" aria-hidden="true">
                     <Paperclip className="size-4" />
                   </span>
                   <div className="min-w-0">
@@ -367,7 +367,7 @@ export function RDIssues() {
                 </span>
               </div>
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-blue-100" role="progressbar" aria-label="AI 分类置信度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number.parseInt(confidence, 10)}>
-                <div className="h-full rounded-full bg-[#002fa7]" style={{ width: confidence }} />
+                <div className="h-full rounded-full bg-primary" style={{ width: confidence }} />
               </div>
             </div>
 
@@ -384,7 +384,7 @@ export function RDIssues() {
 
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <History className="size-4 text-[#002fa7]" aria-hidden="true" />
+                <History className="size-4 text-primary" aria-hidden="true" />
                 历史方案匹配
               </div>
               <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
@@ -393,7 +393,7 @@ export function RDIssues() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-800">{item.title}</div>
-                        <div className="mt-1 text-xs tabular-nums text-slate-400">{item.id}</div>
+                        <div className="mt-1 text-xs tabular-nums text-muted-foreground">{item.id}</div>
                       </div>
                       <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-blue-700">
                         {item.confidence}
@@ -435,7 +435,7 @@ export function RDIssues() {
                     type="button"
                     size="sm"
                     variant={queueFilter === filter ? "default" : "outline"}
-                    className={cn("h-8", queueFilter === filter && "bg-[#002fa7] hover:bg-[#002581]")}
+                    className={cn("h-8", queueFilter === filter && "bg-primary hover:bg-primary-hover")}
                     onClick={() => selectFilter(filter)}
                     aria-pressed={queueFilter === filter}
                   >
@@ -456,8 +456,8 @@ export function RDIssues() {
                     className={cn(
                       "h-auto w-full items-start justify-start whitespace-normal rounded-xl border p-3 text-left",
                       selectedQueueItem?.id === item.id
-                        ? "border-blue-200 bg-[#eef3ff] hover:bg-[#eef3ff]"
-                        : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50",
+                        ? "border-primary/25 bg-accent hover:bg-accent"
+                        : "border-slate-200 bg-white hover:border-primary/25 hover:bg-slate-50",
                     )}
                     onClick={() => setSelectedQueueItem(item)}
                     aria-pressed={selectedQueueItem?.id === item.id}

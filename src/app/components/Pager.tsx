@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "./ui/utils";
+import { Button } from "./ui/button";
 
 function buildPageList(page: number, totalPages: number): Array<number | "ellipsis"> {
   if (totalPages <= 7) {
@@ -34,7 +35,7 @@ export function Pager({
   const inactive = "border-border bg-surface-container-lowest text-slate-600 hover:border-primary/30 hover:text-primary";
   return (
     <nav className="flex flex-wrap items-center justify-center gap-1.5" aria-label="分页">
-      <button
+      <Button variant="unstyled"
         type="button"
         className={cn(base, inactive)}
         disabled={disabled || page <= 1}
@@ -42,14 +43,14 @@ export function Pager({
         aria-label="上一页"
       >
         <ChevronLeft className="h-4 w-4" />
-      </button>
+      </Button>
       {buildPageList(page, totalPages).map((entry, index) =>
         entry === "ellipsis" ? (
-          <span key={`ellipsis-${index}`} className="flex h-9 min-w-9 items-center justify-center text-xs text-slate-400">
+          <span key={`ellipsis-${index}`} className="flex h-9 min-w-9 items-center justify-center text-xs text-muted-foreground">
             …
           </span>
         ) : (
-          <button
+          <Button variant="unstyled"
             key={entry}
             type="button"
             aria-current={entry === page ? "page" : undefined}
@@ -58,10 +59,10 @@ export function Pager({
             onClick={() => onChange(entry)}
           >
             {entry}
-          </button>
+          </Button>
         ),
       )}
-      <button
+      <Button variant="unstyled"
         type="button"
         className={cn(base, inactive)}
         disabled={disabled || page >= totalPages}
@@ -69,7 +70,7 @@ export function Pager({
         aria-label="下一页"
       >
         <ChevronRight className="h-4 w-4" />
-      </button>
+      </Button>
     </nav>
   );
 }

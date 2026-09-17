@@ -67,6 +67,7 @@ import {
   type ImageCategory,
   type ImageUsageResponse,
 } from "./imageStudioShared";
+import { Input } from "./components/ui/input";
 
 type LibraryTab = "作品库" | "用量监控";
 type ViewMode = "grid" | "list";
@@ -80,7 +81,7 @@ const DATE_RANGES: Array<{ key: DateRangeKey; label: string }> = [
 ];
 const PAGE_SIZE = 18;
 const USAGE_LOG_PAGE_SIZE = 12;
-const ICON_BTN = "flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7]";
+const ICON_BTN = "flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-accent hover:text-primary";
 /**
  * 悬停浮出层。基线保持可见，只有在真正支持 hover 的设备上才隐藏并靠 hover/focus 唤出。
  * 不能直接写 opacity-0 + group-hover：触控设备没有 hover，那层会永远透明却仍在最上层
@@ -394,7 +395,7 @@ export function ImageLibraryPage() {
                 <TabsTrigger
                   key={tab}
                   value={tab}
-                  className="h-8 min-w-20 rounded-lg px-3 text-xs font-semibold text-slate-600 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white"
+                  className="h-8 min-w-20 rounded-lg px-3 text-xs font-semibold text-slate-600 data-[state=active]:bg-primary data-[state=active]:text-white"
                 >
                   {tab}
                 </TabsTrigger>
@@ -461,30 +462,30 @@ export function ImageLibraryPage() {
                     {total.toLocaleString("zh-CN")} 件
                   </span>
                   <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="作品展示方式">
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => setViewMode("grid")}
                       aria-pressed={viewMode === "grid"}
                       aria-label="切换为网格视图"
                       className={cn(
                         "flex size-8 items-center justify-center rounded-md transition-colors",
-                        viewMode === "grid" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        viewMode === "grid" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
                     >
                       <LayoutGrid className="size-4" />
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="unstyled"
                       type="button"
                       onClick={() => setViewMode("list")}
                       aria-pressed={viewMode === "list"}
                       aria-label="切换为列表视图"
                       className={cn(
                         "flex size-8 items-center justify-center rounded-md transition-colors",
-                        viewMode === "list" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        viewMode === "list" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
                     >
                       <List className="size-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               }
@@ -495,7 +496,7 @@ export function ImageLibraryPage() {
                 <div className="relative w-full xl:max-w-sm">
                   <label htmlFor="image-library-search" className="sr-only">搜索作品提示词</label>
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
-                  <input
+                  <Input
                     id="image-library-search"
                     type="search"
                     value={searchInput}
@@ -511,36 +512,36 @@ export function ImageLibraryPage() {
                     {DATE_RANGES.map((range) => {
                       const active = range.key === dateRange;
                       return (
-                        <button
+                        <Button variant="unstyled"
                           key={range.key}
                           type="button"
                           onClick={() => setDateRange(range.key)}
                           aria-pressed={active}
                           className={cn(
                             "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                            active ? "bg-[#002fa7] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100",
+                            active ? "bg-primary text-white shadow-sm" : "text-slate-600 hover:bg-slate-100",
                           )}
                         >
                           {range.label}
-                        </button>
+                        </Button>
                       );
                     })}
                   </fieldset>
 
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setFavoriteOnly((value) => !value)}
                     aria-pressed={favoriteOnly}
                     className={cn(
                       "inline-flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-semibold transition-colors",
                       favoriteOnly
-                        ? "border-[#002fa7] bg-[#002fa7] text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-[#002fa7]",
+                        ? "border-primary bg-primary text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:text-primary",
                     )}
                   >
                     <Heart className={cn("size-4", favoriteOnly ? "fill-current" : "")} />
                     仅收藏
-                  </button>
+                  </Button>
 
                   {hasActiveFilters ? (
                     <Button type="button" size="sm" variant="ghost" onClick={clearGalleryFilters}>清除筛选</Button>
@@ -569,18 +570,18 @@ export function ImageLibraryPage() {
                     </span>
                   ) : null}
                   {activeCategory || categoryFilter === UNCATEGORIZED_FILTER ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-[#eef3ff] px-2 py-1 text-[11px] font-semibold text-[#002fa7]">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-primary">
                       {activeCategory
                         ? `${activeCategory.path}${(activeCategory.children ?? []).length > 0 ? "（含子分类）" : ""}`
                         : "未分类"}
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => setCategoryFilter("")}
                         aria-label="清除分类筛选"
-                        className="text-blue-600 transition-colors hover:text-[#002581]"
+                        className="text-primary transition-colors hover:text-primary-hover"
                       >
                         <X className="size-3" />
-                      </button>
+                      </Button>
                     </span>
                   ) : null}
                 </span>
@@ -733,7 +734,7 @@ function LibraryUsagePanel({
   const operationData = useMemo(() => {
     if (!summary) return [] as Array<{ label: string; value: number; color: string }>;
     return [
-      { label: "文生图", value: summary.generateCalls, color: "#002fa7" },
+      { label: "文生图", value: summary.generateCalls, color: "var(--primary)" },
       { label: "图生图", value: summary.editCalls, color: "#0891b2" },
     ];
   }, [summary]);
@@ -844,7 +845,7 @@ function LibraryUsagePanel({
                           <span className="shrink-0 text-slate-600 tabular-nums">{item.calls} 次 · {formatUsd(item.cost)}</span>
                         </div>
                         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-                          <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${ratio}%` }} />
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${ratio}%` }} />
                         </div>
                       </li>
                     );
@@ -944,7 +945,7 @@ type ArtworkItemProps = {
 function CategoryTag({ category, className }: { category?: ImageCategory | null; className?: string }) {
   if (!category) {
     return (
-      <span className={cn("shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400", className)}>
+      <span className={cn("shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground", className)}>
         未分类
       </span>
     );
@@ -965,7 +966,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
   const title = item.revisedPrompt || item.prompt;
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/25 hover:shadow-md">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
         <RenewableGeneratedImage item={item} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
@@ -987,7 +988,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
             HOVER_REVEAL,
           )}
         >
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={(event) => {
               event.stopPropagation();
@@ -995,11 +996,11 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
             }}
             title="预览"
             aria-label={`预览作品：${title}`}
-            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-[#002fa7] shadow transition-colors hover:bg-white"
+            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-primary shadow transition-colors hover:bg-white"
           >
             <Eye className="h-4 w-4" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             onClick={(event) => {
               // 不 stopPropagation 的话会冒泡到整层的"点击预览"，下载完还顺手弹个大图
@@ -1008,22 +1009,22 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
             }}
             title="下载"
             aria-label={`下载作品：${title}`}
-            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition-colors hover:bg-white hover:text-[#002fa7]"
+            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition-colors hover:bg-white hover:text-primary"
           >
             <ArrowDownToLine className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-1 p-3">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => onPreview(item)}
           title={title}
-          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors group-hover:text-[#002fa7]"
+          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors group-hover:text-primary"
         >
           {title}
-        </button>
+        </Button>
         <p className="truncate text-xs leading-relaxed text-slate-500">
           {item.model} · {formatTime(item.createdAt)}
         </p>
@@ -1038,13 +1039,13 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
           </span>
 
           <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            <button type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
+            <Button variant="unstyled" type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
               <PencilLine className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
+            </Button>
+            <Button variant="unstyled" type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
               <FolderTree className="h-3.5 w-3.5" />
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => onFavorite(item)}
               disabled={busy}
@@ -1060,7 +1061,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
               ) : (
                 <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-current" : "")} />
               )}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -1072,8 +1073,8 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
   const title = item.revisedPrompt || item.prompt;
 
   return (
-    <article className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
-      <button
+    <article className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/25 hover:shadow-md">
+      <Button variant="unstyled"
         type="button"
         onClick={() => onPreview(item)}
         title="预览"
@@ -1081,21 +1082,21 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
         className="h-11 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200/80 bg-slate-50"
       >
         <RenewableGeneratedImage item={item} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
-      </button>
+      </Button>
 
       <span className="hidden shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200/70 sm:inline-flex">
         {item.size}
       </span>
 
       <div className="min-w-0 flex-1">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => onPreview(item)}
           title={title}
-          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-[#002fa7]"
+          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-primary"
         >
           {title}
-        </button>
+        </Button>
         <p className="truncate text-xs text-slate-500">
           {item.model} · {formatTime(item.createdAt)}
         </p>
@@ -1108,20 +1109,20 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
       </span>
 
       <div className="flex shrink-0 items-center gap-0.5">
-        <button type="button" onClick={() => onPreview(item)} title="预览" aria-label={`预览作品：${title}`} className={ICON_BTN}>
+        <Button variant="unstyled" type="button" onClick={() => onPreview(item)} title="预览" aria-label={`预览作品：${title}`} className={ICON_BTN}>
           <Eye className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={() => onDownload(item)} title="下载" aria-label={`下载作品：${title}`} className={ICON_BTN}>
+        </Button>
+        <Button variant="unstyled" type="button" onClick={() => onDownload(item)} title="下载" aria-label={`下载作品：${title}`} className={ICON_BTN}>
           <ArrowDownToLine className="h-3.5 w-3.5" />
-        </button>
+        </Button>
         <span className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <button type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
+          <Button variant="unstyled" type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
             <PencilLine className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
+          </Button>
+          <Button variant="unstyled" type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
             <FolderTree className="h-3.5 w-3.5" />
-          </button>
-          <button
+          </Button>
+          <Button variant="unstyled"
             type="button"
             onClick={() => onFavorite(item)}
             disabled={busy}
@@ -1137,7 +1138,7 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
             ) : (
               <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-current" : "")} />
             )}
-          </button>
+          </Button>
         </span>
       </div>
     </article>

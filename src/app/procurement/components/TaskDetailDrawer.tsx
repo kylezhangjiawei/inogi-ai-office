@@ -43,7 +43,7 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
   const { t } = useI18n();
   return (
     <div className="flex gap-2 py-0.5 text-sm">
-      <span className="w-24 shrink-0 text-slate-400">{t(label)}</span>
+      <span className="w-24 shrink-0 text-muted-foreground">{t(label)}</span>
       <span className="min-w-0 break-words text-pretty text-slate-700">{value}</span>
     </div>
   );
@@ -373,8 +373,8 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             {flow.map((s, i) => (
               <div key={s} className="flex items-center">
                 <div className="flex flex-col items-center gap-1">
-                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-primary text-white" : "bg-slate-100 text-slate-400")}>{i + 1}</span>
-                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-primary" : "text-slate-400")}>{t(PROC_STATUS_META[s].label)}</span>
+                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-primary text-white" : "bg-slate-100 text-muted-foreground")}>{i + 1}</span>
+                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-primary" : "text-muted-foreground")}>{t(PROC_STATUS_META[s].label)}</span>
                 </div>
                 {i < flow.length - 1 && <div className={cn("mx-1 h-0.5 w-5", i < curIdx ? "bg-emerald-400" : "bg-slate-200")} />}
               </div>
@@ -474,7 +474,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                   <span className="inline-flex items-center gap-1.5">
                     <PersonAvatar name={requester.name} size="xs" />
                     <span className="font-medium">{requester.name}</span>
-                    <span className="text-xs text-slate-400">{t(requester.dept)}</span>
+                    <span className="text-xs text-muted-foreground">{t(requester.dept)}</span>
                   </span>
                 } />
                 <Info label="采购负责人" value={
@@ -482,12 +482,12 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     <PersonAvatar name={buyerLabel} size="xs" />
                     <span className="font-medium">{buyerLabel}</span>
                     {task.buyer && deptOf(task.buyer) ? (
-                      <span className="text-xs text-slate-400">{t(deptOf(task.buyer) ?? '')}</span>
+                      <span className="text-xs text-muted-foreground">{t(deptOf(task.buyer) ?? '')}</span>
                     ) : null}
                   </span>
                 } />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}
-                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-primary" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-slate-400">{task.rdTaskId}</span>}</span>} />}
+                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-primary" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-muted-foreground">{task.rdTaskId}</span>}</span>} />}
                 {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
               </div>
             </div>
@@ -542,7 +542,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                   const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-[var(--primary-soft-border)] hover:bg-accent hover:text-primary";
                   return (
                     <li key={attachment.id}>
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40")}
                         aria-label={t("预览附件：{name}", { name: attachment.fileName })}
@@ -550,9 +550,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                       >
                         <Paperclip className="h-3.5 w-3.5 shrink-0" />
                         <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
-                        {attachment.fileSize > 0 && <span className="shrink-0 text-[10px] tabular-nums text-slate-400">{attachment.fileSize >= 1024 * 1024 ? `${(attachment.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(attachment.fileSize / 1024)} KB`}</span>}
+                        {attachment.fileSize > 0 && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{attachment.fileSize >= 1024 * 1024 ? `${(attachment.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(attachment.fileSize / 1024)} KB`}</span>}
                         <Eye className="h-3.5 w-3.5 shrink-0" />
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}
@@ -571,7 +571,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             <div role="alert" className="proc-horizon-drawer-section flex flex-col items-start rounded-xl border border-rose-200 bg-rose-50 p-4">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-rose-700"><AlertTriangle className="size-4" />{t("供应商报价加载失败")}</span>
               <p className="mt-1 text-pretty text-xs text-rose-600">{quotesError}</p>
-              <button type="button" onClick={() => setQuoteLoadVersion((version) => version + 1)} className="material-button-secondary mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs"><RefreshCw className="size-3.5" />{t("重新加载报价")}</button>
+              <Button variant="unstyled" type="button" onClick={() => setQuoteLoadVersion((version) => version + 1)} className="material-button-secondary mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs"><RefreshCw className="size-3.5" />{t("重新加载报价")}</Button>
             </div>
           ) : task.method === "inquiry" && quotes.length === 0 ? (
             <div className="proc-horizon-drawer-section rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
@@ -591,7 +591,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     </div>
                     <p className="mt-1 break-words text-pretty tabular-nums" title={`${histLow.supplierName} · ${histLow.quoteDate}`}>{histLow.supplierName} · {histLow.quoteDate}</p>
                   </div>
-                  <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</button>
+                  <Button variant="unstyled" type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</Button>
                 </div>
               )}
               <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
@@ -599,14 +599,14 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                   <span className="text-sm font-semibold tabular-nums text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</span>
                   {/* 维护错价格此前只能作废整条任务重建，这里提供重做入口；已下单之后不再允许改 */}
                   {canResetQuotes && (
-                    <button
+                    <Button variant="unstyled"
                       ref={resetQuoteTriggerRef}
                       type="button"
                       onClick={() => setResetting(true)}
                       className="shrink-0 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
                       {t('重新维护')}
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <ul className="divide-y divide-slate-100">
@@ -619,9 +619,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                           {q.channel === "quote-book" && <span className="shrink-0 whitespace-nowrap rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] text-primary">{t('报价库')}</span>}
                           {q.isSelected && <span className="shrink-0 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
                         </div>
-                        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
+                        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-400">
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted-foreground">
                         {q.quantity != null && <span>{t('采购数量')} {q.quantity.toLocaleString()} {t(task.unit)}</span>}
                         {q.lineTotal != null && <span className="font-medium text-slate-600">{t('行金额')} {q.currency === "CNY" ? fmtMoney(q.lineTotal) : `${q.currency} ${q.lineTotal}`}</span>}
                         {q.minOrderQty != null && <span>{t('起订量')} {q.minOrderQty.toLocaleString()}</span>}
@@ -688,7 +688,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                         )}
                         <AutoTranslatedText className="truncate text-sm text-slate-600" text={po.supplierName || t('未指定供应商')} />
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-400">
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted-foreground">
                         <span>{t('采购数量')} {po.orderedQty.toLocaleString()} {t(task.unit)}</span>
                         <span>{t('已到')} {po.receivedQty.toLocaleString()}</span>
                         {po.etaDate && <span>{t(po.freeSample ? '预计到样' : '预计到货')} {po.etaDate}</span>}
@@ -696,15 +696,15 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                       </div>
                     </div>
                     {can("proc-task:order") && (
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={(event) => { unlinkOrderTriggerRef.current = event.currentTarget; setUnlinking(po); }}
                         title={t('撤销该关联')}
                         aria-label={t('撤销采购单关联')}
-                        className="flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
+                        className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
                       >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </Button>
                     )}
                   </li>
                 ))}
@@ -722,7 +722,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
 
           {/* 操作日志 */}
           <Collapsible ref={logsSectionRef} open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section scroll-mt-4 rounded-xl border border-slate-100">
-            <CollapsibleTrigger ref={logsTriggerRef} className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
+            <CollapsibleTrigger ref={logsTriggerRef} className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-muted-foreground", logsOpen && "rotate-180")} /></CollapsibleTrigger>
             <CollapsibleContent>
               {task.logs.length > 0 ? (
                 <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
@@ -730,7 +730,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     <li key={log.id ?? `${log.at}-${index}`} className="min-w-0 space-y-1.5 rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
                       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
                         <span className="break-words text-xs font-semibold text-slate-700">{log.actor?.trim() || t("操作人未记录")}</span>
-                        <time dateTime={log.createdAt || undefined} className="text-xs tabular-nums text-slate-400">{formatProcLogTime(log) || t("时间未记录")}</time>
+                        <time dateTime={log.createdAt || undefined} className="text-xs tabular-nums text-muted-foreground">{formatProcLogTime(log) || t("时间未记录")}</time>
                       </div>
                       {(log.fromStatus || log.toStatus) ? <div className="text-xs text-slate-500">
                         {log.fromStatus ? t(PROC_STATUS_META[log.fromStatus]?.label ?? log.fromStatus) : t("未记录")}
@@ -830,9 +830,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             <legend className="mb-2 text-sm font-medium text-slate-700">{t('回退到')}</legend>
             <div className="flex flex-wrap gap-1.5">
               {rollbackTargets.map((target, index) => (
-                <button ref={index === 0 ? rollbackFirstTargetRef : undefined} key={target} type="button" aria-pressed={rollbackTarget === target} onClick={() => setRollbackTarget(target)} className={cn("rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50", rollbackTarget === target ? "border-amber-400 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50")}>
+                <Button variant="unstyled" ref={index === 0 ? rollbackFirstTargetRef : undefined} key={target} type="button" aria-pressed={rollbackTarget === target} onClick={() => setRollbackTarget(target)} className={cn("rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50", rollbackTarget === target ? "border-amber-400 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50")}>
                   {t(PROC_STATUS_META[target].label)}
-                </button>
+                </Button>
               ))}
             </div>
             {rollbackTargets.length === 0 && <p className="text-sm text-slate-500">{t('当前状态没有可回退的节点')}</p>}
@@ -849,7 +849,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             <div>
               <label htmlFor="proc-task-rollback-reason" className="mb-1.5 block text-sm font-medium text-slate-700">{t('回退原因（必填，2–200 字）')}</label>
               <Textarea id="proc-task-rollback-reason" value={rollbackReason} onChange={(event) => setRollbackReason(event.target.value)} placeholder={t('请说明回退原因，会记入操作留痕')} aria-describedby="proc-task-rollback-reason-count" className="min-h-[72px] rounded-lg text-sm" />
-              <p id="proc-task-rollback-reason-count" className={cn("mt-1 text-right text-xs tabular-nums", rollbackReason.trim().length > 200 ? "text-rose-600" : "text-slate-400")}>{rollbackReason.trim().length}/200</p>
+              <p id="proc-task-rollback-reason-count" className={cn("mt-1 text-right text-xs tabular-nums", rollbackReason.trim().length > 200 ? "text-rose-600" : "text-muted-foreground")}>{rollbackReason.trim().length}/200</p>
             </div>
           </fieldset>
           <AlertDialogFooter>

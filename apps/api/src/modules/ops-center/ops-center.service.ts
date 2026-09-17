@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpsAiService, type OpsErrorAnalysis } from './ops-ai.service';
 import { resolveAuditRetentionDays } from '../audit/audit-retention.cron';
+import { apiLogPath, redactApiLogCredentials } from './api-request-log.interceptor';
 
 type Tone = 'healthy' | 'info' | 'warning' | 'danger' | 'neutral';
 
@@ -152,7 +153,7 @@ export class OpsCenterService {
       const errors = err?._count._all ?? 0;
       return {
         method: t.method,
-        path: t.path,
+        path: apiLogPath(t.path),
         service: this.resolveServiceName(t.path),
         calls,
         errors,
@@ -202,7 +203,7 @@ export class OpsCenterService {
       const value = this.asRecord(cached?.value as Prisma.JsonValue);
       if (value.analysis) {
         return {
-          ...(value.analysis as OpsErrorAnalysis),
+          ...redactApiLogCredentials(value.analysis as OpsErrorAnalysis),
           signature,
           occurrences,
           cached: true,
@@ -211,9 +212,9 @@ export class OpsCenterService {
       }
     }
 
-    const analysis = await this.opsAi.analyze({
+    const context = redactApiLogCredentials({
       method: row.method,
-      path: row.path,
+      path: apiLogPath(row.path),
       statusCode: row.statusCode,
       errorName: row.errorName,
       errorMessage: row.errorMessage,
@@ -225,6 +226,7 @@ export class OpsCenterService {
       lastSeen,
       affectedUsers,
     });
+    const analysis = redactApiLogCredentials(await this.opsAi.analyze(context));
 
     const analyzedAt = this.formatDateTime(new Date());
     // 仅缓存真正由 AI 生成的结果，避免把「未配置/失败」兜底缓存住。
@@ -241,15 +243,15 @@ export class OpsCenterService {
   }
 
   private errorSignature(statusCode: number, method: string, path: string, errorName?: string | null, errorMessage?: string | null) {
-    return `${statusCode}:${method}:${path}:${errorName ?? ''}:${(errorMessage ?? '').slice(0, 120)}`;
+    return `${statusCode}:${method}:${apiLogPath(path)}:${redactApiLogCredentials(errorName ?? '')}:${redactApiLogCredentials(errorMessage ?? '').slice(0, 120)}`;
   }
 
   private serializeApiLog(row: ApiRequestLog, userMap: Map<string, string>) {
-    return {
+    return redactApiLogCredentials({
       id: row.requestId,
       time: this.formatDateTime(row.createdAt),
       method: row.method,
-      path: row.path,
+      path: apiLogPath(row.path),
       status: row.statusCode,
       duration: row.durationMs,
       user: row.userId ? userMap.get(row.userId) ?? '未知用户' : '系统/未登录',
@@ -260,7 +262,7 @@ export class OpsCenterService {
       requestMeta: row.requestMeta,
       responseMeta: row.responseMeta,
       userAgent: row.userAgent,
-    };
+    });
   }
 
   async getDatabaseMonitoring() {
@@ -383,8 +385,9 @@ export class OpsCenterService {
     return [...groups.values()]
       .sort((a, b) => b.count - a.count || b.lastSeen.getTime() - a.lastSeen.getTime())
       .slice(0, take)
-      .map((item) => ({
+      .map((item) => redactApiLogCredentials({
         ...item,
+        path: apiLogPath(item.path),
         users: item.users.size,
         firstSeen: this.formatDateTime(item.firstSeen),
         lastSeen: this.formatDateTime(item.lastSeen),
@@ -455,10 +458,11 @@ export class OpsCenterService {
 
     const groups = new Map<string, { path: string; duration: number; count: number }>();
     for (const row of rows) {
-      const current = groups.get(row.path) ?? { path: row.path, duration: 0, count: 0 };
+      const path = apiLogPath(row.path);
+      const current = groups.get(path) ?? { path, duration: 0, count: 0 };
       current.duration = Math.max(current.duration, row.durationMs);
       current.count += 1;
-      groups.set(row.path, current);
+      groups.set(path, current);
     }
 
     return [...groups.values()].sort((a, b) => b.duration - a.duration).slice(0, 5);

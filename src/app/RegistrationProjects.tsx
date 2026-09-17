@@ -236,7 +236,7 @@ export function RegistrationProjects() {
 
           <div className="space-y-2 p-3">
             {pagedProjects.length ? pagedProjects.map((project) => (
-              <button
+              <Button variant="unstyled"
                 key={project.id}
                 type="button"
                 aria-pressed={selected.id === project.id}
@@ -244,8 +244,8 @@ export function RegistrationProjects() {
                 className={cn(
                   "w-full rounded-xl border p-3 text-left transition-colors duration-150",
                   selected.id === project.id
-                    ? "border-[#002fa7] bg-[#eef3ff]"
-                    : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50",
+                    ? "border-primary bg-accent"
+                    : "border-slate-200 bg-white hover:border-primary/25 hover:bg-slate-50",
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -265,10 +265,10 @@ export function RegistrationProjects() {
                 </div>
                 <div className="mt-2 grid grid-cols-5 gap-1" aria-label={`已完成 ${project.stageIndex + 1} 个阶段，共 ${stages.length} 个阶段`}>
                   {stages.map((stage, index) => (
-                    <span key={stage} className={cn("h-1.5 rounded-full", index <= project.stageIndex ? "bg-[#002fa7]" : "bg-slate-200")} />
+                    <span key={stage} className={cn("h-1.5 rounded-full", index <= project.stageIndex ? "bg-primary" : "bg-slate-200")} />
                   ))}
                 </div>
-              </button>
+              </Button>
             )) : (
               <HorizonEmptyState
                 Icon={FolderOpen}
@@ -326,8 +326,8 @@ export function RegistrationProjects() {
               <div className="grid grid-cols-5 gap-1.5">
                 {stages.map((stage, index) => (
                   <div key={stage} className="min-w-0">
-                    <div className={cn("h-2 rounded-full", index <= selected.stageIndex ? "bg-[#002fa7]" : "bg-slate-200")} />
-                    <div className={cn("mt-2 truncate text-center text-[11px]", index === selected.stageIndex ? "font-semibold text-[#002fa7]" : "text-slate-500")}>{stage}</div>
+                    <div className={cn("h-2 rounded-full", index <= selected.stageIndex ? "bg-primary" : "bg-slate-200")} />
+                    <div className={cn("mt-2 truncate text-center text-[11px]", index === selected.stageIndex ? "font-semibold text-primary" : "text-slate-500")}>{stage}</div>
                   </div>
                 ))}
               </div>
@@ -341,7 +341,7 @@ export function RegistrationProjects() {
                 {selected.milestones.map((item, index) => (
                   <div key={item.title} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-3 py-3">
                     <div className="pt-0.5">
-                      {item.status === "done" ? <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" /> : item.status === "current" ? <Clock3 className="size-4 text-[#002fa7]" aria-hidden="true" /> : <span className="block size-4 rounded-full border-2 border-slate-300" aria-hidden="true" />}
+                      {item.status === "done" ? <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" /> : item.status === "current" ? <Clock3 className="size-4 text-primary" aria-hidden="true" /> : <span className="block size-4 rounded-full border-2 border-slate-300" aria-hidden="true" />}
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{index + 1}. {item.title}</div>
@@ -376,18 +376,18 @@ export function RegistrationProjects() {
             {selected.reminders.length ? (
               <div className="grid gap-2 p-3 md:grid-cols-2">
                 {selected.reminders.map((item) => (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     key={`${item.time}-${item.recipient}`}
                     onClick={() => setActiveReminder(item)}
-                    className="rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors duration-150 hover:border-blue-200 hover:bg-slate-50"
+                    className="rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors duration-150 hover:border-primary/25 hover:bg-slate-50"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate text-sm font-semibold text-slate-800">{item.recipient}</span>
-                      <span className="shrink-0 text-xs text-slate-400 tabular-nums">{item.time}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.time}</span>
                     </div>
                     <p className="mt-2 line-clamp-2 text-pretty text-xs leading-5 text-slate-500">{item.message}</p>
-                  </button>
+                  </Button>
                 ))}
               </div>
             ) : (

@@ -29,6 +29,7 @@ import {
 import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
+import { Button } from "./components/ui/button";
 
 type ModelRef = NonNullable<NonNullable<RdAiSettingsPayload["runtime"]>["models"]>[number];
 
@@ -153,7 +154,7 @@ function ModelSelect({
   );
   return (
     <NativeSelect
-      className={cn("h-9 w-full rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50", className)}
+      className={cn("h-9 w-full rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25", className)}
       aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -193,7 +194,7 @@ function SceneRow({
       <ModelSelect className="rd-ai-scene-fallback-model" label={t("{name}兜底模型", { name: t(scene.name) })} value={scene.fallback_model_id} models={models} onChange={(fallback_model_id) => onChange({ fallback_model_id })} />
       <Input
         aria-label={t("{name} Prompt 版本", { name: t(scene.name) })}
-        className="rd-ai-scene-prompt h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+        className="rd-ai-scene-prompt h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
         value={scene.prompt_version}
         onChange={(event) => onChange({ prompt_version: event.target.value })}
       />
@@ -203,7 +204,7 @@ function SceneRow({
         min={0}
         max={1}
         step={0.01}
-        className="rd-ai-scene-threshold h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+        className="rd-ai-scene-threshold h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
         value={scene.confidence_threshold}
         onChange={(event) => onChange({ confidence_threshold: clampThreshold(Number(event.target.value)) })}
       />
@@ -243,13 +244,13 @@ function FileCapabilityToggle({
       className={cn(
         "flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-[8px] border px-3 py-2 text-xs font-semibold transition-colors",
         checked
-          ? "border-[#002fa7]/25 bg-[#eef3ff] text-[#002fa7]"
+          ? "border-primary/25 bg-accent text-primary"
           : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
       )}
     >
       <span className="min-w-0">{label}</span>
       <Checkbox
-        className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-[#002fa7]"
+        className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-primary"
         checked={checked}
         onCheckedChange={(nextChecked) => onChange(Boolean(nextChecked))}
       />
@@ -304,17 +305,17 @@ function FileRuleRow({
             <span className="text-xs font-semibold text-slate-500">{t("处理策略")}</span>
             <Input
               id={strategyInputId}
-              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               value={rule.strategy}
               onChange={(event) => onChange({ strategy: event.target.value })}
             />
-            <span className="mt-1 block text-xs text-slate-400">{t(STRATEGY_LABELS[rule.strategy] ?? "自定义策略")}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{t(STRATEGY_LABELS[rule.strategy] ?? "自定义策略")}</span>
           </label>
           <label htmlFor={extensionsInputId} className="block min-w-0">
             <span className="text-xs font-semibold text-slate-500">{t("扩展名")}</span>
             <Input
               id={extensionsInputId}
-              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
               value={rule.extensions.join(", ")}
               onChange={(event) =>
                 onChange({
@@ -325,7 +326,7 @@ function FileRuleRow({
                 })
               }
             />
-            <span className="mt-1 block text-xs text-slate-400">{t("用逗号分隔，不需要写点号。")}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{t("用逗号分隔，不需要写点号。")}</span>
           </label>
         </div>
 
@@ -515,7 +516,7 @@ export function RDAiSettingsPage() {
       <div className={cn("rounded-[8px] border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500", isHorizon && "rd-horizon-module rd-horizon-ai-settings rd-horizon-ai-state")} role={loadError ? "alert" : "status"}>
         <p className="font-semibold">{loadError ? t("研发 AI 策略读取失败") : t("暂无研发 AI 策略配置")}</p>
         {loadError && <p className="mt-2 break-words text-pretty">{loadError}</p>}
-        <button type="button" className="material-button-secondary mt-4" onClick={() => void loadSettings()}>{t("重新读取")}</button>
+        <Button variant="unstyled" type="button" className="material-button-secondary mt-4" onClick={() => void loadSettings()}>{t("重新读取")}</Button>
       </div>
     );
   }
@@ -535,7 +536,7 @@ export function RDAiSettingsPage() {
               </div>
             </div>
             <div className="rd-ai-command-actions flex flex-wrap gap-2">
-              <button
+              <Button variant="unstyled"
                 type="button"
                 className="rd-ai-restore material-button-secondary"
                 onClick={restoreSavedSettings}
@@ -543,25 +544,25 @@ export function RDAiSettingsPage() {
               >
                 <RefreshCw className="h-4 w-4" />
                 {t("恢复")}
-              </button>
-              <button type="button" className="rd-ai-save material-button-primary" onClick={() => void handleSave()} disabled={saving || loading || saveConflict || !dirty} aria-describedby={saveError ? "rd-ai-save-error" : undefined}>
+              </Button>
+              <Button variant="unstyled" type="button" className="rd-ai-save material-button-primary" onClick={() => void handleSave()} disabled={saving || loading || saveConflict || !dirty} aria-describedby={saveError ? "rd-ai-save-error" : undefined}>
                 <Save className="h-4 w-4" />
                 {saving ? t("保存中...") : t("保存策略")}
-              </button>
+              </Button>
             </div>
           </div>
           {saveError && (
             <div id="rd-ai-save-error" role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
               <p className="break-words text-pretty">{saveError}</p>
               {saveConflict && <p className="mt-1">{t("服务器配置已更新。重新读取会保留当前草稿，请确认后再保存。")}</p>}
-              {saveConflict && <button type="button" className="mt-2 font-semibold underline" disabled={loading || saving} onClick={() => void reloadSettingsKeepingDraft()}>{t("重新读取并保留草稿")}</button>}
+              {saveConflict && <Button variant="unstyled" type="button" className="mt-2 font-semibold underline" disabled={loading || saving} onClick={() => void reloadSettingsKeepingDraft()}>{t("重新读取并保留草稿")}</Button>}
             </div>
           )}
           {loadError && (
             <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               <p className="font-semibold">{t("研发 AI 策略读取失败")}</p>
               <p className="mt-1 break-words text-pretty">{loadError}</p>
-              <button type="button" className="mt-2 font-semibold underline" disabled={loading || saving} onClick={() => void reloadSettingsKeepingDraft()}>{t("重新读取并保留草稿")}</button>
+              <Button variant="unstyled" type="button" className="mt-2 font-semibold underline" disabled={loading || saving} onClick={() => void reloadSettingsKeepingDraft()}>{t("重新读取并保留草稿")}</Button>
             </div>
           )}
         </div>
@@ -578,7 +579,7 @@ export function RDAiSettingsPage() {
             },
           ].map((item) => (
             <div key={item.label} className="rd-ai-kpi px-6 py-4">
-              <div className="text-xs font-semibold text-slate-400">{item.label}</div>
+              <div className="text-xs font-semibold text-muted-foreground">{item.label}</div>
               <div className={cn("mt-2 text-2xl font-semibold tabular-nums", item.tone)}>{item.value}</div>
             </div>
           ))}
@@ -593,7 +594,7 @@ export function RDAiSettingsPage() {
             <h3 className="text-base font-semibold text-slate-900">{t("文件处理链路")}</h3>
             <p className="mt-1 text-sm text-slate-500">{t("文件先解析或 OCR，再进入 AI 结构化与人工确认。")}</p>
           </div>
-          <SlidersHorizontal className="h-5 w-5 text-slate-400" />
+          <SlidersHorizontal className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="rd-ai-pipeline-steps grid gap-3 md:grid-cols-5">
           {PIPELINE_STEPS.map((step, index) => {
@@ -605,7 +606,7 @@ export function RDAiSettingsPage() {
                     <Icon className="h-4 w-4" />
                   </span>
                   <div>
-                    <div className="text-xs font-semibold text-slate-400">0{index + 1}</div>
+                    <div className="text-xs font-semibold text-muted-foreground">0{index + 1}</div>
                     <div className="text-sm font-semibold text-slate-900">{t(step.label)}</div>
                   </div>
                 </div>
@@ -622,7 +623,7 @@ export function RDAiSettingsPage() {
             <p className="mt-1 text-sm text-slate-500">{t("主模型、兜底模型、提示词版本、置信度阈值和复核策略集中维护。")}</p>
             <p className="mt-1 text-xs text-amber-600">{t("注意：若管理员在「AI 模型管理 → 路由策略」为对应研发场景配置并启用了网关路由，运行时会优先按网关路由选模，此处的主/兜底模型仅作为回退。")}</p>
           </div>
-          <div className="rd-ai-scenes-columns hidden grid-cols-[1fr_1fr_140px_120px_120px] gap-3 pr-4 text-xs font-semibold text-slate-400 xl:grid">
+          <div className="rd-ai-scenes-columns hidden grid-cols-[1fr_1fr_140px_120px_120px] gap-3 pr-4 text-xs font-semibold text-muted-foreground xl:grid">
             <span>{t("主模型")}</span>
             <span>{t("兜底模型")}</span>
             <span>Prompt</span>
@@ -729,7 +730,7 @@ export function RDAiSettingsPage() {
                   [t("直传"), fileRuleStats.directAi],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-[8px] border border-slate-200 bg-slate-50 px-3 py-2 text-center">
-                    <div className="text-[10px] font-semibold text-slate-400">{label}</div>
+                    <div className="text-[10px] font-semibold text-muted-foreground">{label}</div>
                     <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{value}</div>
                   </div>
                 ))}

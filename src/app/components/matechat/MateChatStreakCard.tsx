@@ -13,9 +13,10 @@ import { cn } from '../ui/utils';
 import type { MateChatStreak } from '../../lib/chatStreakApi';
 import { useI18n } from '../../lib/i18n';
 import { openMateChat } from './openMateChat';
+import { Button } from "../ui/button";
 
 const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const CONFETTI_COLORS = ['#002fa7', '#9db6f5', '#ffffff', '#fbbf24'];
+const CONFETTI_COLORS = ['var(--primary)', '#9db6f5', '#ffffff', '#fbbf24'];
 
 function todayWeekIndex(): number {
   // 周一=0 ... 周日=6
@@ -171,25 +172,25 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
 
   if (variant === 'compact') {
     return (
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={goChat}
         aria-label={t('MateChat 连续使用 {n} 天，点击去使用', { n: streak })}
         className={cn(
-          'matechat-streak-horizon inline-flex items-center gap-1.5 rounded-full border border-[#bfd0fa] bg-[#eef3ff] px-3 py-1 text-sm font-semibold tabular-nums text-[#002fa7]',
+          'matechat-streak-horizon inline-flex items-center gap-1.5 rounded-full border border-[#bfd0fa] bg-accent px-3 py-1 text-sm font-semibold tabular-nums text-primary',
           className,
         )}
       >
-        <Flame className={cn('size-4', active ? 'fill-amber-500 text-amber-500' : 'text-slate-400')} />
+        <Flame className={cn('size-4', active ? 'fill-amber-500 text-amber-500' : 'text-muted-foreground')} />
         {loading ? <span className="text-[#9db6f5]">…</span> : <span>{streak} {t('天')}</span>}
-      </button>
+      </Button>
     );
   }
 
   return (
     <section
       className={cn(
-        'matechat-streak-horizon relative overflow-hidden rounded-2xl border border-[#00267f] bg-[#002fa7] p-5 text-white shadow-md',
+        'matechat-streak-horizon relative overflow-hidden rounded-2xl border border-primary-hover bg-primary p-5 text-white shadow-md',
         className,
       )}
       aria-label={t('MateChat 连续使用 {n} 天，点击去使用', { n: streak })}
@@ -255,7 +256,7 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
       <motion.button
         type="button"
         onClick={goChat}
-        className="relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#002fa7] shadow-sm"
+        className="relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-primary shadow-sm"
       >
         <span className="relative">{data?.todayDone ? t('再问 MateChat 一个问题') : t('立即去用 MateChat')}</span>
         <ArrowRight className="relative size-4" />

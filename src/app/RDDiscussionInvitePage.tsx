@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, MessageCircleMore, RefreshCw, ShieldCheck } from "lucide-react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
@@ -131,27 +132,27 @@ export function RDDiscussionInvitePage() {
     )}>
       {mobile ? (
         <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5 py-2 sm:px-3.5">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={close}
-            className="flex size-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
             aria-label={t("返回")}
           >
             <ArrowLeft className="size-4" />
-          </button>
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white" aria-hidden="true">
+          </Button>
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white" aria-hidden="true">
             <MessageCircleMore className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <h1 className="truncate text-sm font-bold text-slate-900">{title}</h1>
-              <span className="shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">
+              <span className="shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-primary">
                 {t("受邀参与")}
               </span>
             </div>
             <p className="truncate text-xs text-slate-500">{taskTitle}</p>
           </div>
-          <span className="hidden items-center gap-1 text-xs font-semibold text-[#002fa7] sm:inline-flex">
+          <span className="hidden items-center gap-1 text-xs font-semibold text-primary sm:inline-flex">
             <ShieldCheck className="size-3.5" aria-hidden="true" />
             {t("仅限本线程")}
           </span>
@@ -162,16 +163,16 @@ export function RDDiscussionInvitePage() {
           eyebrow={usCollab ? t("中美协同 · 任务线程") : t("研发协作 · 任务线程")}
           title={title}
           description={taskTitle}
-          meta={<span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-[#002fa7]" aria-hidden="true" />{t("受邀参与 · 仅限本线程")}</span>}
+          meta={<span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />{t("受邀参与 · 仅限本线程")}</span>}
           actions={(
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={close}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
             >
               <ArrowLeft className="size-4" aria-hidden="true" />
               {t("返回")}
-            </button>
+            </Button>
           )}
         />
       )}
@@ -186,7 +187,7 @@ export function RDDiscussionInvitePage() {
               Icon={AlertTriangle}
               title={t("无法打开任务讨论")}
               description={t("当前链接缺少任务编号，请返回任务或消息中心后重新进入。")}
-              action={<button type="button" onClick={close} className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#002fa7] px-3 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回上一页")}</button>}
+              action={<Button type="button" onClick={close} className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回上一页")}</Button>}
             />
           </div>
         ) : (
@@ -195,7 +196,7 @@ export function RDDiscussionInvitePage() {
               <div className="mx-3 mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="alert">
                 <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
                 <span className="min-w-0 flex-1 text-pretty">{notificationError.message}</span>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => void retryNotificationSync()}
                   disabled={notificationRetrying}
@@ -203,7 +204,7 @@ export function RDDiscussionInvitePage() {
                 >
                   <RefreshCw className={cn("size-3.5", notificationRetrying && "animate-spin")} aria-hidden="true" />
                   {notificationRetrying ? t("同步中") : t("重试")}
-                </button>
+                </Button>
               </div>
             ) : null}
 

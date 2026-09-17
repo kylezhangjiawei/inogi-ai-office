@@ -49,7 +49,7 @@ function fixture(name, external = {}, componentAst = ast) {
     downloadImportTemplate() {},
     ...external,
   };
-  for (const name of ["Shell", "Input", "Upload", "Loader2", "CheckCircle2", "AlertTriangle", "FileDown", "Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogDescription", "DialogFooter"]) scope[name] = name;
+  for (const name of ["Shell", "Button", "Input", "Upload", "Loader2", "CheckCircle2", "AlertTriangle", "FileDown", "Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogDescription", "DialogFooter"]) scope[name] = name;
   const code = ts.transpileModule(`${component.getText(componentAst).replace(/^export\s+/, "")}\nreturn ${name};`,
     { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
   const Component = new Function(...Object.keys(scope), code)(...Object.values(scope));
@@ -76,7 +76,7 @@ function deferred() {
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const fileInput = (tree) => find(tree, (node) => node.type === "Input" && node.props.type === "file");
-const submit = (tree) => find(tree.props.footer, (node) => node.type === "button" && node.props.className.includes("material-button-primary"));
+const submit = (tree) => find(tree.props.footer, (node) => node.type === "Button" && node.props.className.includes("material-button-primary"));
 const pick = (tree, name) => fileInput(tree).props.onChange({ target: { files: [{ name }] } });
 
 const supplierSource = readFileSync(new URL("../src/app/procurement/components/TplusSupplierSelect.tsx", import.meta.url), "utf8");
@@ -131,7 +131,7 @@ test("供应商加载失败给中文重试提示且旧值无效，重试成功�
   assert.match(text(tree), /供应商目录加载失败，请检查网络后重试/);
   assert.doesNotMatch(text(tree), /Failed to fetch/);
   assert.deepEqual(validity, [false]);
-  find(tree, (node) => node.type === "button" && text(node) === "重新加载供应商").props.onClick();
+  find(tree, (node) => node.type === "Button" && text(node) === "重新加载供应商").props.onClick();
   state.render(props); tree = state.render(props);
   assert.equal(calls, 2); assert.match(text(tree), /正在读取畅捷通供应商目录/);
   retry.resolve(supplierRows); await settle(); tree = state.render(props);

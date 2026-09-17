@@ -9,7 +9,7 @@ const hook = ast.statements.find((node) => ts.isFunctionDeclaration(node) && nod
 assert.ok(hook);
 let input;
 function visit(node) {
-  if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "input"
+  if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === "Input"
     && node.attributes.properties.some((prop) => ts.isJsxAttribute(prop) && prop.name.getText(ast) === "aria-label" && prop.initializer?.getText(ast).includes("搜索任务、编号、负责人、路径"))) input = node;
   ts.forEachChild(node, visit);
 }

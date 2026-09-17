@@ -11,6 +11,7 @@ import { i18nLocale, useI18n } from '../../lib/i18n';
 import { canPlan, validatePlanningAction } from './planningModel';
 import { planningActionLabels, type PlanningAction, type PlanningActionContext, type PlanningState } from './planningTypes';
 import './planning-action-form.css';
+import { Checkbox } from "../../components/ui/checkbox";
 
 export interface PlanningActionFormProps {
   state: PlanningState; actorId: string; context: PlanningActionContext; readOnly?: boolean;
@@ -169,7 +170,7 @@ export function PlanningActionForm(props: PlanningActionFormProps) {
         </>}
         {kind === 'dispatch' && <>
           <section className="min-w-0 rounded-lg border border-border px-3 py-3"><h4 className="text-balance text-xs font-semibold">{t('本次用料需求')}</h4>{operation?.materials.length ? <ul className="mt-2 space-y-2 text-xs leading-5">{operation.materials.map((material) => <li key={material.id} className="flex min-w-0 justify-between gap-3"><span className="min-w-0 break-words">{material.code} · {material.name}</span><strong className="shrink-0 tabular-nums font-medium">{numberLabel(material.perUnit * count)} {material.unit}</strong></li>)}</ul> : <p className="mt-2 text-pretty text-xs leading-5 text-muted-foreground">{t('当前工序未配置用料明细，请核对工序与 BOM 依据。')}</p>}</section>
-          <div className="space-y-1.5"><label className="flex cursor-pointer items-start gap-2 text-pretty text-sm leading-6"><input {...propsFor('reviewed')} required type="checkbox" checked={draft.reviewed} onChange={(event) => change('reviewed', event.target.checked)} className="mt-1 size-4 shrink-0 accent-primary" /><span>{t('已核对批次、工序、计划数量、责任线长及用料需求')}</span></label>{fieldError('reviewed')}</div>{paragraphField('note', '派工备注（选填）', false)}
+          <div className="space-y-1.5"><label className="flex cursor-pointer items-start gap-2 text-pretty text-sm leading-6"><Checkbox {...propsFor('reviewed')} required  checked={draft.reviewed} onCheckedChange={(checkedValue) => change('reviewed', (checkedValue === true))} className="mt-1 size-4 shrink-0 accent-primary" /><span>{t('已核对批次、工序、计划数量、责任线长及用料需求')}</span></label>{fieldError('reviewed')}</div>{paragraphField('note', '派工备注（选填）', false)}
         </>}
         {(kind === 'adjust' || kind === 'cancel') && paragraphField('reason', kind === 'cancel' ? '取消原因' : '调整原因')}
         {errors.submit && <p role="alert" className="text-pretty text-sm leading-6 text-destructive">{errors.submit}</p>}

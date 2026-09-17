@@ -3,6 +3,7 @@ import { UploadCloud } from "lucide-react";
 import { Progress } from "../../../app/components/ui/progress";
 import { cn } from "../../../app/components/ui/utils";
 import { useI18n } from "../../../app/lib/i18n";
+import { Input } from "../../../app/components/ui/input";
 
 export function UploadDropzone({
   processing = false,
@@ -29,11 +30,11 @@ export function UploadDropzone({
   return (
     <label
       className={cn(
-        "flex min-h-[176px] cursor-pointer flex-col items-center justify-center rounded-[var(--m3-shape-large)] border border-dashed border-blue-200 bg-blue-50/60 p-6 text-center transition-colors hover:bg-blue-50",
+        "flex min-h-[176px] cursor-pointer flex-col items-center justify-center rounded-[var(--m3-shape-large)] border border-dashed border-blue-200 bg-blue-50/60 p-6 text-center transition-colors hover:bg-accent",
         className,
       )}
     >
-      <input
+      <Input
         type="file"
         multiple
         accept={accept}

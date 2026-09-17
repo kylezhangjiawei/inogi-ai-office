@@ -58,7 +58,7 @@ function PdfPreview({ source, name }: { source: string; name: string }) {
 function PreviewFallback({ title, description, failed = false }: { title: string; description: string; failed?: boolean }) {
   const Icon = failed ? ImageOff : FileText;
   return <div role="status" className="flex min-w-0 flex-col items-center justify-center gap-2 bg-slate-50 px-5 py-10 text-center">
-    <Icon aria-hidden="true" className="size-7 text-slate-400" />
+    <Icon aria-hidden="true" className="size-7 text-muted-foreground" />
     <p className="text-balance text-sm font-medium text-slate-700">{title}</p>
     <p className="max-w-xs text-pretty text-xs leading-5 text-slate-500">{description}</p>
   </div>;

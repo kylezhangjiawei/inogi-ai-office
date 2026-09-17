@@ -25,7 +25,7 @@ export function EmptyState({
         compact ? "min-h-[148px] py-5" : "min-h-[220px] py-8",
       ].join(" ")}
     >
-      <Icon className={compact ? "mb-2 h-6 w-6 text-slate-400" : "mb-3 h-8 w-8 text-slate-400"} />
+      <Icon className={compact ? "mb-2 h-6 w-6 text-muted-foreground" : "mb-3 h-8 w-8 text-muted-foreground"} />
       <div className="text-sm font-bold text-slate-800">{title ?? t("暂无数据")}</div>
       {detail ? <div className="mt-1 max-w-[420px] text-xs leading-5 text-slate-500">{detail}</div> : null}
       {action ? <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{action}</div> : null}

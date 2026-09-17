@@ -123,6 +123,7 @@ export function ProcurementCockpitPage() {
   const canCreate = usePermission("proc-task:create");
   const canReassign = usePermission("proc-task:reassign");
   const canOrder = usePermission("proc-task:order");
+  const canViewKeyMaterials = usePermission("page:proc-key-materials");
   const { users: procurementDepartmentUsers } = useBuyerDirectory({ departmentOnly: true });
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
@@ -499,10 +500,10 @@ export function ProcurementCockpitPage() {
             </div>
 
             <div className="proc-horizon-actions">
-              <button type="button" aria-label={t("子系统全景")} title={t("子系统全景")} onClick={() => setView("systems")} className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
+              <Button variant="unstyled" type="button" aria-label={t("子系统全景")} title={t("子系统全景")} onClick={() => setView("systems")} className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
                 <Layers3 className="size-4" /><span className="proc-horizon-action-label">{t("子系统全景")}</span>
-              </button>
-              <button
+              </Button>
+              <Button variant="unstyled"
                 type="button"
                 aria-label={coreConfigError ? t("核心配件配置加载失败，打开查看详情") : t("核心配件")}
                 title={coreConfigError ? t("核心配件配置加载失败，打开后可重试") : t("核心配件")}
@@ -516,12 +517,12 @@ export function ProcurementCockpitPage() {
                 ) : coreInventorySummary.abnormal > 0 ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 text-[10px] tabular-nums text-rose-700"><AlertTriangle className="size-3" />{t("异常")} {coreInventorySummary.abnormal}</span>
                 ) : null}
-              </button>
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
+                  <Button variant="unstyled" type="button" className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
                     <MoreHorizontal className="size-4" />{t("更多")}
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="proc-horizon-menu min-w-48 rounded-xl border-slate-200 p-1.5 shadow-lg data-[state=open]:animate-none data-[state=closed]:animate-none">
                   <DropdownMenuItem
@@ -532,13 +533,14 @@ export function ProcurementCockpitPage() {
                     }}
                   ><Download className="size-4" />{t('导出当前列表')}</DropdownMenuItem>
                   {canOrder && <DropdownMenuItem onSelect={() => setPoMatchOpen(true)}><Truck className="size-4" />{t('单据匹配')}</DropdownMenuItem>}
+                  {canViewKeyMaterials && <DropdownMenuItem onSelect={() => navigate(routePath('page:proc-key-materials', '/proc-key-materials'))}><PackageSearch className="size-4" />{t('全部关键物料')}</DropdownMenuItem>}
                   {(canOrder || canReassign || canCreate) && <DropdownMenuSeparator />}
                   {canReassign && <DropdownMenuItem onSelect={() => setBatchOpen(true)}><Users className="size-4" />{t('批量转派')}</DropdownMenuItem>}
                   {(canCreate || canReassign) && <DropdownMenuItem onSelect={() => setBatchMoveOpen(true)}><FolderTree className="size-4" />{t('批量归类')}</DropdownMenuItem>}
                   <DropdownMenuItem onSelect={() => navigate('/proc-people-management')}><UserCog className="size-4" />{t('人员管理')}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</button>}
+              {canCreate && <Button variant="unstyled" type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</Button>}
             </div>
 
             <div className="proc-horizon-cockpit-kpis" data-production={line === "production"} aria-label={t("供应链任务统计")}>
@@ -608,12 +610,12 @@ export function ProcurementCockpitPage() {
           ))}
         </ToggleGroup>
         <div className="proc-horizon-search">
-          <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-3.5 -translate-y-1/2 text-slate-400" />
-          <Input aria-label={t('搜索采购任务')} value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="pl-8 pr-8 text-xs placeholder:text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input aria-label={t('搜索采购任务')} value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="pl-8 pr-8 text-xs placeholder:text-muted-foreground" />
           {kw && (
-            <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+            <Button variant="unstyled" type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               <X className="size-3.5" />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -623,9 +625,9 @@ export function ProcurementCockpitPage() {
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-slate-500">{t("当前任务流")}</span>
           {stat && (
-            <button type="button" onClick={() => setStat(null)} aria-label={t("移除状态筛选：{status}", { status: t(STAT_LABELS[stat]) })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+            <Button variant="unstyled" type="button" onClick={() => setStat(null)} aria-label={t("移除状态筛选：{status}", { status: t(STAT_LABELS[stat]) })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               {t(STAT_LABELS[stat])} ×
-            </button>
+            </Button>
           )}
           {treeNode && (
             <Button type="button" variant="outline" size="sm" onClick={() => setTreeNode(null)} className="proc-horizon-filter-chip h-auto">
@@ -633,9 +635,9 @@ export function ProcurementCockpitPage() {
             </Button>
           )}
           {materialParam && (
-            <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} aria-label={t("移除物料筛选：{material}", { material: materialParam })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+            <Button variant="unstyled" type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} aria-label={t("移除物料筛选：{material}", { material: materialParam })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               {t('物料')}：<AutoTranslatedText text={materialParam} /> ×
-            </button>
+            </Button>
           )}
         </div>
         <span className="shrink-0 font-semibold tabular-nums text-slate-500">{t("显示 {count} 个任务", { count: filtered.length })}</span>
@@ -650,7 +652,7 @@ export function ProcurementCockpitPage() {
                 <p className="font-semibold">{t("采购任务加载失败")}</p>
                 <p className="mt-1 max-w-xl text-pretty text-xs text-rose-600">{error}</p>
               </div>
-              <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
+              <Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</Button>
             </div>
           ) : loading && tasks.length === 0 ? (
             <div aria-label={t("正在加载采购任务")} className="proc-horizon-task-masonry">
@@ -666,12 +668,12 @@ export function ProcurementCockpitPage() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 py-12 text-center">
-              <ClipboardList className="size-7 text-slate-300" />
+              <ClipboardList className="size-7 text-muted-foreground" />
               <p className="text-pretty text-sm font-medium text-slate-600">{t(hasActiveFilters ? '没有符合条件的任务' : '当前还没有采购任务')}</p>
               {hasActiveFilters ? (
-                <button type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</button>
+                <Button variant="unstyled" type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</Button>
               ) : canCreate ? (
-                <button type="button" onClick={() => setNewOpen(true)} className="material-button-primary px-3 py-2 text-xs">{t("新建需求")}</button>
+                <Button variant="unstyled" type="button" onClick={() => setNewOpen(true)} className="material-button-primary px-3 py-2 text-xs">{t("新建需求")}</Button>
               ) : null}
             </div>
           ) : (
@@ -695,12 +697,12 @@ export function ProcurementCockpitPage() {
                   ))}
                 </div>
                 {visibleCount < filtered.length ? (
-                  <div ref={setSentinelElement} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
+                  <div ref={setSentinelElement} className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                     <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-primary motion-reduce:animate-none" />
                     {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (
-                  <div className="py-4 text-center text-xs text-slate-400">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
+                  <div className="py-4 text-center text-xs text-muted-foreground">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
                 ) : null}
               </>
             )}

@@ -55,7 +55,7 @@ test("订单模块入口集中加载共享 Horizon 样式并导出四个页面",
   assert.match(entry, /export \{ Inventory as InventoryManagementPage \}/);
   assert.match(entry, /export \{ PurchaseOrderDetail as PurchaseOrderDetailPage \}/);
   assert.match(horizon, /\.order-horizon,\s*\n\.order-horizon-overlay\s*\{/);
-  assert.match(horizon, /--order-primary:\s*#002fa7;/i);
+  assert.match(horizon, /--order-primary:\s*var\(--primary\);/i);
 });
 
 test("订货处理工作台移除超宽、渐变和全属性过渡遗留", () => {
@@ -81,8 +81,8 @@ test("订单模块活跃页面与发票弹层清除旧品牌样式残留", () =>
     );
   }
 
-  assert.match(workbench, /bg-\[#eef3ff\]/i);
-  assert.match(workbench, /text-\[#002fa7\]/i);
+  assert.match(workbench, /bg-accent/i);
+  assert.match(workbench, /text-primary/i);
   assert.match(workbench, /border-\[#c8d6ff\]/i);
   assert.match(workbench, /text-pretty/);
   assert.match(workbench, /tabular-nums/);

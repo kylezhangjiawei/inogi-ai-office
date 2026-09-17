@@ -73,6 +73,8 @@ function fixture(component = "AttachmentPreviewDialog", initialProps = {}) {
   dependencies["../lib/useRenewableResource"] = hookExports;
   const exports = {};
   new Function("exports", "require", "document", "HTMLElement", "Element", code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name];
     assert.ok(["lucide-react", "./ui/dialog", "./MobileZoomableImage"].includes(name), `Unexpected dependency: ${name}`);
     return new Proxy({}, { get: (_target, name) => name });
@@ -87,7 +89,7 @@ function fixture(component = "AttachmentPreviewDialog", initialProps = {}) {
     },
     node(type) { return nodes(tree).find((node) => node.type === type || node.type?.name === type); },
     title() { return content(view.node("DialogTitle")); },
-    button(label) { return nodes(tree).find((node) => node.type === "button" && node.props["aria-label"] === label); },
+    button(label) { return nodes(tree).find((node) => node.type === "Button" && node.props["aria-label"] === label); },
     click(label) {
       const button = view.button(label);
       assert.ok(button, `Missing button: ${label}`);

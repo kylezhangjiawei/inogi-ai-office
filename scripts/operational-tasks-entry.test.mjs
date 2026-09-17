@@ -8,7 +8,7 @@ import ts from 'typescript';
 const path = '/proc-operational-tasks';
 const read = (file) => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const compile = (source) => ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-function load(file, deps = {}) { const out = {}; new Function('exports', 'require', compile(read(file)))(out, (id) => { assert.ok(id in deps, id); return deps[id]; }); return out; }
+function load(file, deps = {}) { const out = {}; new Function('exports', 'require', compile(read(file)))(out, (id) => { if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(id)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };  assert.ok(id in deps, id); return deps[id]; }); return out; }
 const permissions = load('src/app/lib/permissions.ts');
 const role = (...codes) => ({ id: 'worker-a', permissions: codes });
 const warehouse = role('page:purchase-order-detail', 'proc-purchase-order:receive');
@@ -73,6 +73,6 @@ test('真实面板个人模式按本人查询，经理也不显示团队分派�
     const owner = find(tree, node => node.props?.['aria-label'] === '任务负责人');
     assert.equal(Boolean(find(owner, node => node.type === 'option' && node.props.value === 'all')), !personal && canViewAll);
     assert.equal(Boolean(find(owner, node => node.type === 'option' && node.props.value === 'someone-else')), !personal && canViewAll);
-    assert.equal(Boolean(find(tree, node => node.type === 'button' && node.props.children === '保存分派')), management);
+    assert.equal(Boolean(find(tree, node => node.type === "Button" && node.props.children === '保存分派')), management);
   }
 });

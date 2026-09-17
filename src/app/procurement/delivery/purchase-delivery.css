@@ -1,10 +1,10 @@
-.purchase-delivery-panel { display:flex; flex-direction:column; gap:16px; min-width:0; color:#1b2559; font-size:14px; }
+.purchase-delivery-panel { display:flex; flex-direction:column; gap:16px; min-width:0; color:var(--foreground); font-size:14px; }
 .purchase-delivery-panel h3 { margin:0 0 8px; font-size:14px; font-weight:650; }
 .delivery-toolbar { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px; }
 .delivery-toolbar>p { flex:1 1 220px; }
-.delivery-explanation { margin:0; color:#64748b; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
-.delivery-date-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:14px; border:1px solid #dbe4f0; border-radius:12px; background:#f5f8ff; }
-.delivery-date-summary dt { color:#64748b; font-size:12px; line-height:1.6; }
+.delivery-explanation { margin:0; color:var(--muted-foreground); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.delivery-date-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:14px; border:1px solid var(--border); border-radius:12px; background:#f5f8ff; }
+.delivery-date-summary dt { color:var(--muted-foreground); font-size:12px; line-height:1.6; }
 .delivery-date-summary dd { margin:5px 0 0; font-weight:650; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .delivery-error,.delivery-warning,.delivery-notice { padding:12px; border-radius:10px; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
 .delivery-error { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; }
@@ -13,20 +13,20 @@
 .delivery-form { padding:16px; border:1px solid #b8cbf2; border-radius:12px; }
 .delivery-form fieldset { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 12px; padding:0; border:0; min-width:0; }
 .delivery-form legend { margin-bottom:12px; font-weight:650; }
-.delivery-form label { display:flex; min-width:0; flex-direction:column; gap:6px; font-size:12px; color:#475569; }
-.delivery-form input:not([type=checkbox]),.delivery-form textarea { width:100%; min-width:0; border:1px solid #cbd5e1; border-radius:8px; background:#fff; padding:9px 10px; color:#1b2559; font-size:14px; }
+.delivery-form label { display:flex; min-width:0; flex-direction:column; gap:6px; font-size:12px; color:var(--muted-foreground); }
+.delivery-form input:not([type=checkbox]),.delivery-form textarea { width:100%; min-width:0; border:1px solid var(--border); border-radius:8px; background:var(--card); padding:9px 10px; color:var(--foreground); font-size:14px; }
 .delivery-form textarea { min-height:70px; resize:vertical; }
-.delivery-form input:focus-visible,.delivery-form textarea:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.delivery-form input:focus-visible,.delivery-form textarea:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 .delivery-wide { grid-column:1/-1; }
 .delivery-form .delivery-check { flex-direction:row; align-items:flex-start; line-height:1.6; }
 .delivery-check input { flex-shrink:0; margin-top:3px; width:16px; height:16px; }
 .delivery-form>button { margin-top:12px; }
 .delivery-history { list-style:none; padding:0; margin:12px 0 0; display:grid; gap:10px; }
-.delivery-history li { padding:12px; border:1px solid #e2e8f0; border-radius:10px; overflow-wrap:anywhere; }
+.delivery-history li { padding:12px; border:1px solid var(--border); border-radius:10px; overflow-wrap:anywhere; }
 .delivery-history p { margin:5px 0 0; white-space:pre-wrap; font-size:12px; line-height:1.7; }
 .delivery-history .delivery-history-dates { color:#1d4ed8; font-size:14px; font-variant-numeric:tabular-nums; }
-.delivery-history-pager { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:8px; color:#64748b; font-size:12px; }
+.delivery-history-pager { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:8px; color:var(--muted-foreground); font-size:12px; }
 [data-slot=sheet-content].purchase-delivery-drawer { display:flex; width:min(800px,100vw); max-width:100vw; min-width:0; gap:0; overflow:hidden; padding:0; }
 .delivery-drawer-scroll { flex:1; min-height:0; overflow-y:auto; padding:20px; }
-.delivery-drawer-footer { display:flex; justify-content:flex-end; padding:12px 20px; border-top:1px solid #e2e8f0; }
+.delivery-drawer-footer { display:flex; justify-content:flex-end; padding:12px 20px; border-top:1px solid var(--border); }
 @media(max-width:600px) { .delivery-date-summary { grid-template-columns:1fr; gap:10px; } .delivery-date-summary>div { display:flex; justify-content:space-between; gap:12px; } .delivery-date-summary dd { margin:0; text-align:right; } .delivery-form fieldset { grid-template-columns:1fr; } .delivery-drawer-scroll { padding:14px; } }

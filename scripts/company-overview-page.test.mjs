@@ -17,7 +17,7 @@ function fixture(search = '') {
   const cache = new Map(), slots = []; let cursor = 0, tree, location = search;
   const dependencies = { react: { useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], (value) => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; } }, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': primitives,
     'react-router': { Link: 'Link', useSearchParams: () => [new URLSearchParams(location), (value) => { location = value.toString(); }] },
-    '../components/ui/dialog': primitives, '../order-processing/components/HorizonPage': primitives,
+    '../components/ui/textarea': primitives, '../components/ui/dialog': primitives, '../components/ui/button': primitives, '../components/ui/input': primitives, '../components/ui/native-select': primitives, '../order-processing/components/HorizonPage': primitives,
     '../lib/routePaths': { routePath: (code, fallback) => ({ 'page:rd-task-management': '/custom-rd-home', 'page:proc-cockpit': '/custom-supply-home' })[code] ?? fallback } };
   function load(name) {
     if (name in dependencies) return dependencies[name];
@@ -33,11 +33,11 @@ function fixture(search = '') {
     render() { cursor = 0; tree = Page(); return tree; },
     nodes() { return flatten(tree); }, text() { return normalized(tree); },
     byLabel(label) { return view.nodes().find((node) => node.props['aria-label'] === label); },
-    button(label) { return view.nodes().find((node) => node.type === 'button' && (normalized(node) === label || node.props['aria-label'] === label)); },
+    button(label) { return view.nodes().find((node) => node.type === "Button" && (normalized(node) === label || node.props['aria-label'] === label)); },
     click(label) { const node = view.button(label); assert.ok(node, `按钮 ${label} 存在`); assert.equal(Boolean(node.props.disabled), false); node.props.onClick(); view.render(); },
     input(label, value) { const node = view.byLabel(label); assert.ok(node, `字段 ${label} 存在`); node.props.onChange({ target: { value } }); view.render(); },
     dialog() { return view.nodes().find((node) => node.type === 'Dialog'); },
-    firstIssue() { const node = view.nodes().find((node) => node.type === 'button' && node.props.className === 'co-record'); assert.ok(node); node.props.onClick(); view.render(); },
+    firstIssue() { const node = view.nodes().find((node) => node.type === "Button" && node.props.className === 'co-record'); assert.ok(node); node.props.onClick(); view.render(); },
     params() { return new URLSearchParams(location); },
   };
   view.render(); return view;

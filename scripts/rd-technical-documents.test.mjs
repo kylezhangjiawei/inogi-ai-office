@@ -91,7 +91,7 @@ function panelFixture(overrides = {}, initialProps = {}) {
   const field = (label, value) => {
     const wrapper = find((node) => node.type === 'label' && text(node.props.children[0]) === label);
     assert.ok(wrapper, `field ${label}`);
-    const target = nodes(wrapper).find((node) => ['Input', 'Textarea', 'select'].includes(node.type));
+    const target = nodes(wrapper).find((node) => ['Input', 'Textarea', "NativeSelect"].includes(node.type));
     target.props.onChange({ target: { value } });
   };
   return { render, find, button, click, field, changes, previews, requests, unmount, all: () => nodes(render()),
@@ -216,7 +216,7 @@ test('single-file upload creates only a note without progress, preselects its fi
     createRdTechnicalDocument: async (_, input) => { versions.push(input); throw new Error('暂时无法确认'); },
   }, { notes: [], onNotesChanged: (created) => noteChanges.push(created) });
   ui.render(); await tick(); ui.click('上传新文件');
-  const picker = ui.find((node) => node.type === 'input' && node.props.type === 'file');
+  const picker = ui.find((node) => node.type === "Input" && node.props.type === 'file');
   assert.equal(picker.props.multiple, undefined);
   picker.props.onChange({ target: { files: [{ name: 'drawing.png' }], value: 'selected' } }); await tick();
   assert.equal(uploads.length, 1);
@@ -224,7 +224,7 @@ test('single-file upload creates only a note without progress, preselects its fi
   assert.equal(uploads[0].text, '上传技术资料：drawing.png');
   assert.equal(Object.hasOwn(uploads[0], 'progress'), false);
   assert.equal(noteChanges[0].id, 'uploaded-note');
-  assert.equal(ui.find((node) => node.type === 'select' && node.props.value === choiceKey('uploaded-note', 'uploaded-image'))?.props.value, choiceKey('uploaded-note', 'uploaded-image'));
+  assert.equal(ui.find((node) => node.type === "NativeSelect" && node.props.value === choiceKey('uploaded-note', 'uploaded-image'))?.props.value, choiceKey('uploaded-note', 'uploaded-image'));
   ui.field('资料类别', 'drawing'); ui.field('版本标识', 'A'); ui.field('登记说明（必填）', '核对原件'); ui.submit();
   await ui.click('确认登记为当前版本'); await ui.click('重试确认登记');
   assert.equal(uploads.length, 1);
@@ -238,7 +238,7 @@ test('failed upload preserves an existing draft; a late upload after navigation 
   const ui = panelFixture({ createRdTaskProgressNote: async () => { throw new Error('已完成任务不能追加留痕'); } });
   ui.render(); await tick(); ui.click('登记资料'); ui.field('资料名称', '保留标题'); ui.field('版本标识', 'B');
   ui.click('上传新文件');
-  ui.find((node) => node.type === 'input' && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'draft.png' }], value: 'selected' } }); await tick();
+  ui.find((node) => node.type === "Input" && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'draft.png' }], value: 'selected' } }); await tick();
   assert.match(ui.text(), /已完成任务不能追加留痕/);
   assert.ok(ui.find((node) => node.type === 'Input' && node.props.value === '保留标题'));
   assert.ok(ui.find((node) => node.type === 'Input' && node.props.value === 'B'));
@@ -247,7 +247,7 @@ test('failed upload preserves an existing draft; a late upload after navigation 
   const notes = [];
   const other = panelFixture({ createRdTaskProgressNote: () => late.promise }, { onNotesChanged: (item) => notes.push(item) });
   other.render(); await tick(); other.click('上传新文件');
-  other.find((node) => node.type === 'input' && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'late.png' }], value: 'selected' } });
+  other.find((node) => node.type === "Input" && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'late.png' }], value: 'selected' } });
   other.update({ taskId: 'B', notes: [] }); await tick();
   late.resolve(note('A', 'late-note', [attachment('late-file')])); await tick();
   assert.equal(notes.length, 0);
@@ -323,7 +323,7 @@ test('refreshed note files supersede the local upload candidate when the same at
   const original = { ...attachment('uploaded-image'), object_key: 'rd/first.png' };
   const ui = panelFixture({ createRdTaskProgressNote: async () => note('A', 'uploaded-note', [original]) }, { notes: [] });
   ui.render(); await tick(); ui.click('上传新文件');
-  ui.find((node) => node.type === 'input' && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'drawing.png' }], value: 'selected' } }); await tick();
+  ui.find((node) => node.type === "Input" && node.props.type === 'file').props.onChange({ target: { files: [{ name: 'drawing.png' }], value: 'selected' } }); await tick();
   ui.field('资料类别', 'drawing'); ui.field('版本标识', 'A'); ui.field('登记说明（必填）', '初次核对'); ui.submit();
   ui.update({ notes: [note('A', 'uploaded-note', [{ ...original, object_key: 'rd/replaced.png' }])] });
   assert.equal(ui.button('确认登记为当前版本').props.disabled, true);
@@ -380,7 +380,7 @@ test('pending attachments can be browsed individually and registration selects t
   assert.match(ui.text(), /未分类/);
   assert.match(ui.text(), /版本待确认/);
   ui.click('登记版本');
-  assert.ok(ui.find((node) => node.type === 'select' && node.props.value === second.key));
+  assert.ok(ui.find((node) => node.type === "NativeSelect" && node.props.value === second.key));
   assert.ok(ui.find((node) => node.type === 'Input' && node.props.value === 'drawing-B.png'));
   assert.ok(ui.find((node) => node.type === 'Input' && node.props.placeholder === '按资料实际标识填写' && node.props.value === ''));
   assert.equal(ui.requests.length, 0);
@@ -399,7 +399,7 @@ test('empty states have one clear next action; entering an empty category presel
   ui.render(); await tick();
   ui.find((node) => node.type === 'Tabs').props.onValueChange('validation');
   ui.click('登记该类资料');
-  assert.ok(ui.find((node) => node.type === 'select' && node.props.value === 'validation'));
+  assert.ok(ui.find((node) => node.type === "NativeSelect" && node.props.value === 'validation'));
   assert.ok(ui.find((node) => node.type === 'Input' && node.props.placeholder === '按资料实际标识填写' && node.props.value === ''));
   assert.equal(ui.requests.length, 0);
   ui.unmount();

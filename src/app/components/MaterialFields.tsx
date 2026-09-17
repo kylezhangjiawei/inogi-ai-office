@@ -3,6 +3,8 @@ import { CalendarDays, LucideIcon } from "lucide-react";
 
 import { cn } from "./ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
 
 type FieldShellProps = {
   label?: string;
@@ -17,12 +19,12 @@ function FieldShell({ label, hint, icon: Icon, children, className }: FieldShell
     <div className={cn("space-y-2", className)}>
       {label ? (
         <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          {Icon ? <Icon className="h-4 w-4 text-slate-400" /> : null}
+          {Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null}
           <span>{label}</span>
         </div>
       ) : null}
       {children}
-      {hint ? <div className="text-xs text-slate-400">{hint}</div> : null}
+      {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }
@@ -36,7 +38,7 @@ type MaterialInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
 export function MaterialInput({ label, hint, icon, className, ...props }: MaterialInputProps) {
   return (
     <FieldShell label={label} hint={hint} icon={icon}>
-      <input
+      <Input
         {...props}
         className={cn("material-input h-11", className)}
       />
@@ -53,7 +55,7 @@ type MaterialTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> &
 export function MaterialTextarea({ label, hint, icon, className, ...props }: MaterialTextareaProps) {
   return (
     <FieldShell label={label} hint={hint} icon={icon}>
-      <textarea
+      <Textarea
         {...props}
         className={cn("material-input min-h-[220px] py-4 leading-7", className)}
       />
@@ -139,7 +141,7 @@ type MaterialDateInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 
 export function MaterialDateInput({ label, hint, className, ...props }: MaterialDateInputProps) {
   return (
     <FieldShell label={label} hint={hint} icon={CalendarDays}>
-      <input
+      <Input
         {...props}
         type="date"
         className={cn("material-input h-11", className)}

@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Clock, GitBranch, History, ImageIcon, Inbox, Info, Loader2, MessageCircleMore, Paperclip, RefreshCw, Search, Users, X } from "lucide-react";
@@ -33,6 +34,7 @@ import {
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
 import { useModalFocus } from "./hooks/useModalFocus";
+import { Input } from "./components/ui/input";
 
 const MOBILE_DATA_REFRESH_INTERVAL_MS = 15_000;
 const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
@@ -40,12 +42,12 @@ const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
 const STATUS_META: Record<RdTaskStatus, { label: string; dot: string; tint: string }> = {
   draft: { label: "草稿", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
-  in_progress: { label: "进行中", dot: "bg-[#002fa7]", tint: "bg-blue-50 text-[#002fa7]" },
+  in_progress: { label: "进行中", dot: "bg-primary", tint: "bg-blue-50 text-primary" },
   paused_leave: { label: "请假", dot: "bg-amber-500", tint: "bg-amber-50 text-amber-600" },
   paused_blocked: { label: "阻塞", dot: "bg-red-500", tint: "bg-red-50 text-red-600" },
   completed: { label: "已完成", dot: "bg-emerald-500", tint: "bg-emerald-50 text-emerald-600" },
   pending_assign: { label: "待指派", dot: "bg-amber-500", tint: "bg-amber-50 text-amber-700" },
-  pending_review: { label: "待审核", dot: "bg-[#002fa7]", tint: "bg-blue-50 text-[#002fa7]" },
+  pending_review: { label: "待审核", dot: "bg-primary", tint: "bg-blue-50 text-primary" },
   on_hold: { label: "已挂起", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
   archived: { label: "已封存", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
 };
@@ -83,7 +85,7 @@ function formatDue(due?: string): { text: string; overdue: boolean } | null {
 function progressColor(status: RdTaskStatus): string {
   if (status === "completed") return "bg-emerald-500";
   if (status === "paused_blocked" || status === "pending_assign") return "bg-red-400";
-  return "bg-[#002fa7]";
+  return "bg-primary";
 }
 
 function ownerInitial(owner: string): string {
@@ -230,7 +232,7 @@ function ImageLightbox({
         <span className="text-xs tabular-nums">
           {safeIdx + 1} / {images.length}
         </span>
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={onClose}
           aria-label="关闭预览"
@@ -238,7 +240,7 @@ function ImageLightbox({
           className="flex size-11 items-center justify-center rounded-xl bg-white/10 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         >
           <X size={20} />
-        </button>
+        </Button>
       </div>
       <div
         className={cn(
@@ -263,7 +265,7 @@ function ImageLightbox({
           onClick={(e) => e.stopPropagation()}
         >
           {images.map((u, i) => (
-            <button
+            <Button variant="unstyled"
               key={`${u}-${i}`}
               type="button"
               onClick={() => setIdx(i)}
@@ -281,7 +283,7 @@ function ImageLightbox({
                 decoding="async"
                 className="h-full w-full object-cover"
               />
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -353,7 +355,7 @@ function MobileFeedCard({
           <span className={cn("size-1.5 rounded-full", status.dot)} />
           {t(status.label)}
         </span>
-        <span className="min-w-[3.5rem] flex-1 truncate text-[11px] font-medium text-slate-400">
+        <span className="min-w-[3.5rem] flex-1 truncate text-[11px] font-medium text-muted-foreground">
           {cat ? `# ${cat}` : ""}
         </span>
         {unreadCount > 0 && (
@@ -397,7 +399,7 @@ function MobileFeedCard({
 
       {/* 封面：放在进度条上方，点击放大预览（阻止冒泡，避免误开详情）*/}
       {cover.length > 0 && (
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -421,7 +423,7 @@ function MobileFeedCard({
               </span>
             )}
           </div>
-        </button>
+        </Button>
       )}
 
       {/* 进度 */}
@@ -453,7 +455,7 @@ function MobileFeedCard({
             <span className="shrink-0 rounded bg-red-50 px-1 text-[10px] font-bold text-red-500">{t("高")}</span>
           )}
           {due && (
-            <span className={cn("shrink-0 text-[11px]", due.overdue ? "font-bold text-red-500" : "text-slate-400")}>
+            <span className={cn("shrink-0 text-[11px]", due.overdue ? "font-bold text-red-500" : "text-muted-foreground")}>
               {due.text}
             </span>
           )}
@@ -732,13 +734,13 @@ export function MobileRDCockpit() {
           <h1 className="text-balance text-base font-semibold text-slate-950">{t("驾驶舱加载失败")}</h1>
           <p className="mt-1 text-pretty text-sm text-slate-500">{error}</p>
         </div>
-        <button
+        <Button
           type="button"
           onClick={reload}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-7 text-sm font-semibold text-white active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl px-7 text-sm font-semibold active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
           {t("重试")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -766,7 +768,7 @@ export function MobileRDCockpit() {
         {/* 状态过滤：手机宽度固定五等分，避免末项被刷新按钮挤出视口。 */}
         <div className="grid grid-cols-5 gap-1.5 px-3 pt-3 sm:flex sm:gap-2 sm:px-4">
           {FILTERS.map((f) => (
-            <button
+            <Button variant="unstyled"
               key={f.key}
               type="button"
               onClick={() => pickStatus(f.key)}
@@ -779,7 +781,7 @@ export function MobileRDCockpit() {
               )}
             >
               {t(f.label)}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -788,25 +790,25 @@ export function MobileRDCockpit() {
           <label className="relative block">
             <Search
               size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
-            <input
+            <Input
               type="search"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder={t("搜索任务、编号、负责人、路径")}
               aria-label={t("搜索任务")}
-              className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-12 text-[13px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 [&::-webkit-search-cancel-button]:hidden"
+              className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-12 text-[13px] text-slate-700 shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 [&::-webkit-search-cancel-button]:hidden"
             />
             {keyword && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setKeyword("")}
                 aria-label={t("清空搜索")}
-                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 active:bg-slate-100 active:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground active:bg-slate-100 active:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
                 <X size={14} />
-              </button>
+              </Button>
             )}
           </label>
         </div>
@@ -814,7 +816,7 @@ export function MobileRDCockpit() {
         {/* 人员过滤 + 刷新 */}
         <div className="flex items-center gap-2 px-4 pb-2.5 pt-2">
           <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => pickPerson(null)}
               aria-pressed={person === null}
@@ -828,16 +830,16 @@ export function MobileRDCockpit() {
               <span
                 className={cn(
                   "ml-0.5 rounded-full px-1 text-[10px] font-bold",
-                  person === null ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
+                  person === null ? "bg-white/20 text-white" : "bg-slate-100 text-muted-foreground",
                 )}
               >
                 {activeCount}
               </span>
-            </button>
+            </Button>
             {owners.map((o) => {
               const active = person === o.key;
               return (
-                <button
+                <Button variant="unstyled"
                   key={o.key}
                   type="button"
                   onClick={() => pickPerson(o.key)}
@@ -860,16 +862,16 @@ export function MobileRDCockpit() {
                   <span
                     className={cn(
                       "rounded-full px-1 text-[10px] font-bold",
-                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-muted-foreground",
                     )}
                   >
                     {o.count}
                   </span>
-                </button>
+                </Button>
               );
             })}
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={reload}
             disabled={loading}
@@ -877,7 +879,7 @@ export function MobileRDCockpit() {
             className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary ring-1 ring-slate-200 active:bg-accent disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
           >
             <RefreshCw size={14} className={loading ? "animate-spin motion-reduce:animate-none" : ""} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -885,13 +887,13 @@ export function MobileRDCockpit() {
         <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
           <AlertTriangle size={14} className="shrink-0" />
           <span className="min-w-0 flex-1">{t("刷新失败，当前显示上次同步的数据")}</span>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={reload}
             className="min-h-11 shrink-0 rounded-lg bg-white px-3 font-semibold text-amber-800 ring-1 ring-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
             {t("重试")}
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -901,20 +903,20 @@ export function MobileRDCockpit() {
           <span className="text-[13px] font-bold text-slate-900">
             {filter === "all" && !person && !normalizedKeyword ? t("全部任务") : t("筛选结果")}
           </span>
-          <span className="text-[11px] font-semibold tabular-nums text-slate-400">{filteredTasks.length}</span>
+          <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{filteredTasks.length}</span>
         </div>
 
         {shownTasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-12 text-center text-slate-300">
+          <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-12 text-center text-muted-foreground">
             <Inbox size={30} />
             <span className="text-pretty text-xs font-medium text-slate-500">{t("没有符合条件的任务")}</span>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={allTasks.length > 0 ? resetFilters : reload}
               className="mt-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-accent px-4 text-xs font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               {allTasks.length > 0 ? t("清除筛选") : t("重新加载")}
-            </button>
+            </Button>
           </div>
         ) : (
           // 双列独立堆叠，封面和长内容只撑高所在列；轮转分列保持最新任务顺序。
@@ -941,7 +943,7 @@ export function MobileRDCockpit() {
         )}
 
         {visible < filteredTasks.length && (
-          <div ref={sentinelRef} className="flex items-center justify-center py-5 text-slate-400">
+          <div ref={sentinelRef} className="flex items-center justify-center py-5 text-muted-foreground">
             <Loader2 className="animate-spin motion-reduce:animate-none" size={20} />
           </div>
         )}
@@ -1001,14 +1003,14 @@ function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () =>
         </h2>
         <p id="rd-mobile-missing-task-id" className="mt-1 break-all text-xs tabular-nums text-slate-500">{taskId}</p>
       </div>
-      <button
+      <Button
         type="button"
         onClick={onClose}
         data-dialog-autofocus
-        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-6 text-sm font-semibold text-white active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        className="inline-flex min-h-11 items-center justify-center rounded-xl px-6 text-sm font-semibold active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
         {t("返回驾驶舱")}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -1120,7 +1122,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
     >
       {/* 顶栏：返回 + 标题 + 状态/负责人 */}
       <header className="flex min-w-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={onClose}
           aria-label="返回"
@@ -1128,7 +1130,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-accent active:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <ArrowLeft size={20} />
-        </button>
+        </Button>
         <div className="min-w-0 flex-1">
           <h2 id="rd-mobile-task-detail-title" className="line-clamp-1 text-balance text-[15px] font-semibold text-slate-950">{task.title}</h2>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
@@ -1136,7 +1138,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               <span className={cn("size-1.5 rounded-full", status.dot)} />
               {t(status.label)}
             </span>
-            <span className="min-w-0 truncate text-slate-400">{owner}</span>
+            <span className="min-w-0 truncate text-muted-foreground">{owner}</span>
             {isRisk && (
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 font-bold text-red-600">
                 <AlertTriangle size={10} />
@@ -1158,7 +1160,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           const Icon = item.icon;
           const active = detailTab === item.key;
           return (
-            <button
+            <Button variant="unstyled"
               key={item.key}
               type="button"
               onClick={() => setDetailTab(item.key)}
@@ -1170,7 +1172,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
             >
               <Icon size={14} />
               {item.label}
-            </button>
+            </Button>
           );
         })}
       </nav>
@@ -1179,7 +1181,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {task.production_sync && (
             <section className="rounded-2xl border border-blue-200 bg-blue-50 p-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-[#002fa7]">
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <GitBranch size={15} />
                 {t("研发同步只读任务")}
               </div>
@@ -1215,13 +1217,13 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                 { label: t("最后更新"), value: formatFullDate(task.last_activity_at ?? task.updated_at) },
               ].map((item) => (
                 <div key={item.label} className="min-w-0 rounded-xl bg-slate-50 p-2.5">
-                  <dt className="text-[10px] font-semibold text-slate-400">{item.label}</dt>
+                  <dt className="text-[10px] font-semibold text-muted-foreground">{item.label}</dt>
                   <dd className="mt-1 break-words text-xs font-bold tabular-nums text-slate-700">{item.value}</dd>
                 </div>
               ))}
             </dl>
             <div className="mt-2 rounded-xl bg-slate-50 p-2.5">
-              <div className="text-[10px] font-semibold text-slate-400">{t("完整分类")}</div>
+              <div className="text-[10px] font-semibold text-muted-foreground">{t("完整分类")}</div>
               <div className="mt-1 break-words text-xs font-bold text-slate-700">{task.category_path || "—"}</div>
             </div>
           </section>
@@ -1241,7 +1243,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                 </span>
               ))}
               {(task.collaborators ?? []).length === 0 && (
-                <span className="text-xs text-slate-400">{t("暂无协作人")}</span>
+                <span className="text-xs text-muted-foreground">{t("暂无协作人")}</span>
               )}
             </div>
           </section>
@@ -1253,15 +1255,15 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                   <ClipboardList size={14} />
                   {t("工作项")}
                 </div>
-                <span className="text-[11px] font-bold text-slate-400">{completedWorkItems}/{workItems.length}</span>
+                <span className="text-[11px] font-bold text-muted-foreground">{completedWorkItems}/{workItems.length}</span>
               </div>
               <ul className="space-y-2">
                 {workItems.map((item) => (
                   <li key={item.id} className="flex items-start gap-2 rounded-xl bg-slate-50 p-2.5">
-                    <CheckCircle2 size={15} className={item.done ? "mt-0.5 shrink-0 text-emerald-500" : "mt-0.5 shrink-0 text-slate-300"} />
+                    <CheckCircle2 size={15} className={item.done ? "mt-0.5 shrink-0 text-emerald-500" : "mt-0.5 shrink-0 text-muted-foreground"} />
                     <div className="min-w-0 flex-1">
-                      <div className={cn("break-words text-xs font-semibold", item.done ? "text-slate-400 line-through" : "text-slate-700")}>{item.title}</div>
-                      {item.owner_name && <div className="mt-0.5 text-[10px] text-slate-400">{item.owner_name}</div>}
+                      <div className={cn("break-words text-xs font-semibold", item.done ? "text-muted-foreground line-through" : "text-slate-700")}>{item.title}</div>
+                      {item.owner_name && <div className="mt-0.5 text-[10px] text-muted-foreground">{item.owner_name}</div>}
                     </div>
                   </li>
                 ))}
@@ -1277,7 +1279,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               </div>
               <div className="space-y-1.5">
                 {groupTasks.map((groupTask) => (
-                  <button
+                  <Button variant="unstyled"
                     key={groupTask.task_id}
                     type="button"
                     onClick={() => onOpenTask(groupTask.task_id)}
@@ -1287,12 +1289,12 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                       groupTask.task_id === task.task_id ? "bg-accent" : "bg-slate-50 active:bg-slate-100",
                     )}
                   >
-                    <span className="mt-0.5 shrink-0 text-[10px] font-bold text-slate-400">{groupTask.note_count}</span>
+                    <span className="mt-0.5 shrink-0 text-[10px] font-bold text-muted-foreground">{groupTask.note_count}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block break-words text-xs font-bold text-slate-700">{groupTask.title}</span>
-                      <span className="mt-0.5 block break-words text-[10px] text-slate-400">{groupTask.path.join(" / ")}</span>
+                      <span className="mt-0.5 block break-words text-[10px] text-muted-foreground">{groupTask.path.join(" / ")}</span>
                     </span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             </section>
@@ -1316,26 +1318,26 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           {technicalDocumentsEnabled && !loading && !loadError && <div className="mb-4"><TechnicalDocumentsPanel key={task.task_id} taskId={task.task_id} notes={notes} onPreview={openMobileAttachmentPreview} onNotesChanged={() => { void loadNotes(false); }} /></div>}
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900">{t("附件库")}</div>
-            <span className="text-xs font-semibold text-slate-400">{attachments.length}</span>
+            <span className="text-xs font-semibold text-muted-foreground">{attachments.length}</span>
           </div>
           {loading ? (
-            <div className="flex justify-center py-12 text-slate-400" role="status" aria-label={t("正在加载附件")}><Loader2 className="animate-spin motion-reduce:animate-none" size={22} /></div>
+            <div className="flex justify-center py-12 text-muted-foreground" role="status" aria-label={t("正在加载附件")}><Loader2 className="animate-spin motion-reduce:animate-none" size={22} /></div>
           ) : loadError ? (
             <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-8 text-center">
               <div className="text-xs font-semibold text-rose-700">{loadError}</div>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => void loadNotes()}
                 className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-4 text-xs font-bold text-rose-700 active:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
               >
                 <RefreshCw size={14} />
                 {t("重新加载")}
-              </button>
+              </Button>
             </div>
           ) : attachments.length > 0 ? (
             <ProgressAttachmentGrid attachments={attachments} imageDisplay="cards" className="space-y-2" />
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-slate-400">{t("暂无附件")}</div>
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-muted-foreground">{t("暂无附件")}</div>
           )}
         </div>
       )}
@@ -1348,7 +1350,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                 <li key={log.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-xs font-bold text-slate-700">{t(getAuditActionMeta(log.action).label)}</div>
-                    <div className="shrink-0 text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</div>
+                    <div className="shrink-0 text-[10px] text-muted-foreground">{new Date(log.timestamp).toLocaleString()}</div>
                   </div>
                   <div className="mt-1 text-[11px] text-slate-500">{log.actor.name}{log.actor.role ? ` · ${log.actor.role}` : ""}</div>
                   {(log.comment || log.resource.name) && <div className="mt-2 break-words text-xs leading-5 text-slate-600">{log.comment || log.resource.name}</div>}
@@ -1356,7 +1358,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               ))}
             </ol>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-slate-400">{t("暂无操作记录")}</div>
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-muted-foreground">{t("暂无操作记录")}</div>
           )}
         </div>
       )}

@@ -13,6 +13,7 @@ import { applyDisposition, createDispositionPreviewState, dispositionLimits } fr
 import { dispositionLabels, type DispositionInput, type DispositionKind, type DispositionRecord } from './receiptDispositionTypes';
 import '../order-processing/horizon.css';
 import './receipt-disposition-preview.css';
+import { Checkbox } from "../components/ui/checkbox";
 
 type Scenario = 'normal' | 'empty' | 'error' | 'readonly';
 const kinds: DispositionKind[] = ['correction', 'inbound', 'isolation', 'return'];
@@ -90,7 +91,7 @@ export function ReceiptDispositionPreviewPage() {
     <Label htmlFor={`rdp-batch-search-${surface}`} className="sr-only">{t('搜索演示收货批次')}</Label>
     <div className="rdp-search"><Search className="size-4" aria-hidden="true" /><Input id={`rdp-batch-search-${surface}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('物料、订单或送货单')} disabled={busy} /></div>
     <p className="rdp-small rdp-list-count">{t('{count} 个演示批次', { count: filtered.length })}</p>
-    {filtered.map((item) => <button key={item.id} type="button" className="rdp-batch" aria-pressed={item.id === receipt.id} disabled={busy} onClick={() => {
+    {filtered.map((item) => <Button variant="unstyled" key={item.id} type="button" className="rdp-batch" aria-pressed={item.id === receipt.id} disabled={busy} onClick={() => {
       if (item.id === receipt.id) { setBatchOpen(false); return; }
       requestChange(() => { setSelectedId(item.id); setBatchOpen(false); resetForm(); });
     }}>
@@ -98,7 +99,7 @@ export function ReceiptDispositionPreviewPage() {
       <span>{item.orderNo} · {t('第 {line} 行', { line: item.lineNo })}</span>
       <span>{item.deliveryNo}</span>
       <span className="rdp-batch-status">{t(item.defectiveQty ? '含不良品' : '待检验')}</span>
-    </button>)}
+    </Button>)}
     {!filtered.length ? <p role="status" className="rdp-small p-3">{t('未找到匹配批次。')}<Button variant="link" onClick={() => setQuery('')}>{t('清除搜索')}</Button></p> : null}
   </div>;
 
@@ -126,7 +127,7 @@ export function ReceiptDispositionPreviewPage() {
     <div className="rdp-preview-note"><span>{t('交互预览')}</span><p>{t('演示数据，刷新后恢复。此处操作不会生成正式单据或修改库存。')}</p></div>
     <details className="rdp-scenarios"><summary>{t('演示场景')}</summary><div className="rdp-scenario-options">
       {([['normal', '正常操作'], ['empty', '暂无收货'], ['error', '读取失败'], ['readonly', '仅可查看']] as const).map(([value, label]) => <Button key={value} variant={scenario === value ? 'secondary' : 'outline'} size="sm" aria-pressed={scenario === value} disabled={busy} onClick={() => requestChange(() => { setScenario(value); resetForm(); })}>{t(label)}</Button>)}
-      <label className="rdp-failure-toggle"><input type="checkbox" checked={failNextSave} disabled={busy || scenario !== 'normal'} onChange={(event) => setFailNextSave(event.target.checked)} />{t('下次保存失败')}</label>
+      <label className="rdp-failure-toggle"><Checkbox checked={failNextSave} disabled={busy || scenario !== 'normal'} onCheckedChange={(checkedValue) => setFailNextSave((checkedValue === true))} />{t('下次保存失败')}</label>
     </div></details>
     {scenario === 'error' ? <section className="rdp-card"><OrderEmptyState Icon={AlertCircle} title={t('收货批次读取失败')} description={t('这是读取失败的演示状态，已有演示记录保持不变。')} action={<Button onClick={() => setScenario('normal')}>{t('重新加载')}</Button>} /></section>
       : scenario === 'empty' ? <section className="rdp-card"><OrderEmptyState Icon={ClipboardList} title={t('暂无收货批次')} description={t('登记收货后，可按批次进行检验和后续处置。')} action={<Button variant="outline" onClick={() => setScenario('normal')}>{t('返回演示批次')}</Button>} /></section>

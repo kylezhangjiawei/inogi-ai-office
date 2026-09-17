@@ -67,6 +67,8 @@ import {
   type Size,
   type Style,
 } from "./imageStudioShared";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 
 // 内联「优化」按钮发给文本模型的默认要求：保留原意，补全图像生成所需的专业要素。
 const DEFAULT_OPTIMIZE_INSTRUCTION =
@@ -128,7 +130,7 @@ function ChatTurn({
       <div className="flex items-start gap-2.5">
         <AssistantAvatar />
         <div className="min-w-0 flex-1 overflow-hidden rounded-[18px] rounded-tl-md border border-border/85 bg-surface-container-lowest shadow-[0_18px_44px_rgba(15,23,42,0.06)] ring-1 ring-white/70">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => onPreview(item)}
             className="group relative block w-full cursor-zoom-in overflow-hidden bg-slate-100"
@@ -140,7 +142,7 @@ function ChatTurn({
               alt={item.prompt}
               className="mx-auto max-h-[56vh] w-full object-contain transition duration-200 group-hover:opacity-95"
             />
-          </button>
+          </Button>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-2.5 text-[11px] text-slate-500">
             <span>{item.model}</span>
             <span>{formatTime(item.createdAt)}</span>
@@ -152,19 +154,19 @@ function ChatTurn({
             ) : null}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border/70 px-2 py-1.5 text-[11px] font-semibold text-slate-600">
-            <button type="button" onClick={() => onPreview(item)} className={actionButtonClass}>
+            <Button variant="unstyled" type="button" onClick={() => onPreview(item)} className={actionButtonClass}>
               <Eye className="h-3.5 w-3.5" />
               预览
-            </button>
-            <button type="button" onClick={() => onDownload(item)} className={actionButtonClass}>
+            </Button>
+            <Button variant="unstyled" type="button" onClick={() => onDownload(item)} className={actionButtonClass}>
               <Download className="h-3.5 w-3.5" />
               下载
-            </button>
-            <button type="button" onClick={() => onEdit(item)} className={actionButtonClass}>
+            </Button>
+            <Button variant="unstyled" type="button" onClick={() => onEdit(item)} className={actionButtonClass}>
               <PencilLine className="h-3.5 w-3.5" />
               修改
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => onFavorite(item)}
               disabled={busy}
@@ -176,11 +178,11 @@ function ChatTurn({
                 <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-rose-500 text-rose-500" : "")} />
               )}
               收藏
-            </button>
+            </Button>
             <span className="flex-1" />
-            <button type="button" onClick={() => onReuse(item)} className={cn(actionButtonClass, "text-slate-500")}>
+            <Button variant="unstyled" type="button" onClick={() => onReuse(item)} className={cn(actionButtonClass, "text-slate-500")}>
               复用
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -519,7 +521,7 @@ export function UIDesignPage() {
       {/* 左侧：生成设置（可收起） */}
       {settingsCollapsed ? (
         <aside className="hz-surface flex w-full shrink-0 flex-row items-center gap-3 p-2.5 xl:w-14 xl:flex-col">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => setSettingsCollapsed(false)}
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[12px] border border-border bg-surface-container-low text-slate-600 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
@@ -527,7 +529,7 @@ export function UIDesignPage() {
             title="展开生成设置"
           >
             <PanelLeftOpen className="h-4 w-4" />
-          </button>
+          </Button>
           <div className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-primary text-primary-foreground" title="AI 图像生成">
             <Wand2 className="h-4 w-4" />
           </div>
@@ -547,7 +549,7 @@ export function UIDesignPage() {
             title="生成设置"
             description="选择模型、画幅与参考图。"
             trailing={(
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setSettingsCollapsed(true)}
                 className="flex size-8 cursor-pointer items-center justify-center rounded-[10px] border border-border bg-surface-container-low text-slate-500 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
@@ -555,7 +557,7 @@ export function UIDesignPage() {
                 title="收起生成设置"
               >
                 <PanelLeftClose className="size-4" />
-              </button>
+              </Button>
             )}
           />
 
@@ -590,7 +592,7 @@ export function UIDesignPage() {
                 {ratios.map((item) => {
                   const active = item.value === selectedRatio;
                   return (
-                    <button
+                    <Button variant="unstyled"
                       key={item.value}
                       type="button"
                       onClick={() => setSelectedRatio(item.value)}
@@ -604,7 +606,7 @@ export function UIDesignPage() {
                     >
                       <div className="text-sm font-semibold">{item.shortLabel}</div>
                       <div className="mt-0.5 text-[10px] text-slate-500">{item.label.replace(/^[\d:]+\s*/, "")}</div>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -618,7 +620,7 @@ export function UIDesignPage() {
                   {referenceImages.length}/{MAX_REFERENCE_IMAGES}
                 </span>
               </div>
-              <input
+              <Input
                 ref={fileInputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
@@ -629,7 +631,7 @@ export function UIDesignPage() {
                   event.target.value = "";
                 }}
               />
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={referenceImageBusy || referenceImages.length >= MAX_REFERENCE_IMAGES}
@@ -638,26 +640,26 @@ export function UIDesignPage() {
                 {referenceImageBusy ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary motion-reduce:animate-none" />
                 ) : (
-                  <Upload className="h-4 w-4 text-slate-400" />
+                  <Upload className="h-4 w-4 text-muted-foreground" />
                 )}
                 <span className="text-xs font-semibold text-slate-600">
                   {referenceImageBusy ? "处理中..." : "上传参考图"}
                 </span>
-                <span className="text-[10px] text-slate-400">PNG / JPG / WebP，可多选</span>
-              </button>
+                <span className="text-[10px] text-muted-foreground">PNG / JPG / WebP，可多选</span>
+              </Button>
               {referenceImages.length > 0 ? (
                 <div className="mt-3 grid grid-cols-4 gap-2">
                   {referenceImages.map((item) => (
                     <div key={item.id} className="group relative aspect-square overflow-hidden rounded-[10px] border border-border bg-slate-100">
                       <img src={item.dataUrl} alt={item.name} className="h-full w-full object-cover" />
-                      <button
+                      <Button variant="unstyled"
                         type="button"
                         onClick={() => removeReferenceImage(item.id)}
                         className="absolute right-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-slate-950/70 text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
                         aria-label={`移除参考图 ${item.name}`}
                       >
                         <X className="h-3 w-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -714,7 +716,7 @@ export function UIDesignPage() {
                       1
                     </span>
                     <p className="text-xs leading-5 text-slate-600">
-                      写下你想要的画面。<span className="text-slate-400">（可选）</span>点
+                      写下你想要的画面。<span className="text-muted-foreground">（可选）</span>点
                       <span className="font-semibold text-slate-800"> 优化描述 </span>
                       让 AI 帮你补成更专业的提示词——
                       <span className="font-semibold text-slate-800">这一步只改文字、不出图</span>。
@@ -761,7 +763,7 @@ export function UIDesignPage() {
             {/* 模式切换：新建一张 / 改上一张 */}
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-full border border-border bg-surface-container-low p-0.5 text-[11px] font-semibold">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setComposerMode("create")}
                   disabled={generating}
@@ -773,8 +775,8 @@ export function UIDesignPage() {
                 >
                   <Plus className="h-3.5 w-3.5" />
                   新建一张
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => setComposerMode("edit")}
                   disabled={!editModeAvailable || generating}
@@ -787,7 +789,7 @@ export function UIDesignPage() {
                 >
                   <PencilLine className="h-3.5 w-3.5" />
                   改上一张
-                </button>
+                </Button>
               </div>
               {composerMode === "edit" && latestImage ? (
                 <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-surface-container-low py-0.5 pl-0.5 pr-2.5 text-[11px] font-semibold text-slate-500">
@@ -802,7 +804,7 @@ export function UIDesignPage() {
             </div>
 
             <label htmlFor="image-studio-prompt" className="sr-only">图像生成提示词</label>
-            <textarea
+            <Textarea
               ref={composerRef}
               id="image-studio-prompt"
               value={prompt}
@@ -834,7 +836,7 @@ export function UIDesignPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {composerMode === "create" ? (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => void handleInlineOptimize()}
                     disabled={optimizing || generating || !prompt.trim()}
@@ -843,14 +845,14 @@ export function UIDesignPage() {
                   >
                     {optimizing ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Wand2 className="h-4 w-4" />}
                     {optimizing ? "优化中..." : "优化描述"}
-                  </button>
+                  </Button>
                 ) : null}
-                <button
+                <Button
                   type="button"
                   onClick={handleComposerSubmit}
                   disabled={generating || !prompt.trim() || (composerMode === "edit" && !editModeAvailable)}
                   title={composerMode === "edit" ? "在最新一张作品上按描述生成新版本" : "按当前描述真正产出一张图片"}
-                  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] px-5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {generating ? (
                     <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
@@ -866,7 +868,7 @@ export function UIDesignPage() {
                     : composerMode === "edit"
                       ? "修改上一张"
                       : "生成图片"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

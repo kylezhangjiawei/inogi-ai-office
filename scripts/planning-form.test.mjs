@@ -28,6 +28,8 @@ function fixture({ kind = 'create', submit, props: overrides = {} } = {}) {
   const dependencies = { react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' }, '../../lib/i18n': { useI18n: () => ({ t }), i18nLocale: () => 'zh-CN' }, '../../components/ui/utils': { cn: (...parts) => parts.filter(Boolean).join(' ') }, './planningTypes': types, './planningModel': model };
   const exports = {};
   new Function('exports', 'require', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name]; if (name.endsWith('.css')) return {};
     assert.ok(name === 'lucide-react' || name.startsWith('../../components/ui/'), `No external write dependency: ${name}`); return components;
   });
@@ -50,7 +52,7 @@ function fixture({ kind = 'create', submit, props: overrides = {} } = {}) {
     button: (label) => elements(tree).find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === label),
     fill(name, value) { const node = view.field(name); assert.ok(node, `${name} exists`); assert.equal(Boolean(node.props.disabled), false); node.props.onChange({ target: { value } }); return view.render(); },
     select(name, value) { const node = view.selectNode(name); assert.ok(node); assert.equal(Boolean(node.props.disabled), false); node.props.onValueChange(value); return view.render(); },
-    check(checked = true) { const node = view.field('reviewed'); assert.ok(node); assert.equal(Boolean(node.props.disabled), false); node.props.onChange({ target: { checked } }); return view.render(); },
+    check(checked = true) { const node = view.field('reviewed'); assert.ok(node); assert.equal(Boolean(node.props.disabled), false); node.props.onCheckedChange(checked); return view.render(); },
     submit() { view.node('form').props.onSubmit({ preventDefault() {} }); return view.render(); },
     confirm() { const action = view.node('AlertDialogAction'); assert.equal(Boolean(action.props.disabled), false); action.props.onClick({ preventDefault() {} }); return view.render(); },
     cancelConfirmation() { view.node('AlertDialog').props.onOpenChange(false); return view.render(); },

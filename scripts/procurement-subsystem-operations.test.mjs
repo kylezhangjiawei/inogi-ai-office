@@ -32,10 +32,10 @@ function fixture(name, props, overrides = {}, sourceAst = ast) {
     saveProductionReport: async (...args) => { requests.push(args); return {}; },
     saveQualityRecord: async (...args) => { requests.push(args); return {}; },
     saveInventoryBomLine: async (...args) => { requests.push(['save-bom', ...args]); return {}; },
+    deleteInventoryBomLine: async (...args) => { requests.push(['delete-bom', ...args]); return {}; },
     getQualityVerifications: async () => [],
     verifyQualityRecord: async (...args) => { requests.push(args); return {}; },
     reopenQualityRecord: async (...args) => { requests.push(args); return {}; },
-    deleteInventoryBomLine: async (...args) => { requests.push(['delete-bom', ...args]); return {}; },
     ...overrides,
   };
   for (const component of ['QualityVerificationDialog', 'AlertDialog', 'AlertDialogAction', 'AlertDialogCancel', 'AlertDialogContent', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogHeader', 'AlertDialogTitle', 'Label', 'NativeSelect', 'Button', 'Dialog', 'DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle', 'Input', 'Textarea', 'Tabs', 'TabsList', 'TabsTrigger', 'Field', 'Stat', 'Empty', 'OperationsEditor', 'AlertTriangle', 'BarChart3', 'ClipboardCheck', 'Factory', 'Loader2', 'Pencil', 'Plus', 'RefreshCw']) bindings[component] = component;
@@ -124,7 +124,7 @@ function renderModuleInventory(warehouses) {
     useSearchParams: () => [new URLSearchParams(), () => {}], useLocation: () => ({ state: null }),
     cn: (...values) => values.filter(Boolean).join(' '), formatQuantity: String,
   };
-  for (const name of ['ArrowLeft', 'AutoTranslatedText', 'Boxes', 'ClipboardList', 'RefreshCw', 'InventoryStat', 'PackageCheck', 'Truck', 'Warehouse']) bindings[name] = name;
+  for (const name of ['Button', 'ArrowLeft', 'AutoTranslatedText', 'Boxes', 'ClipboardList', 'RefreshCw', 'InventoryStat', 'PackageCheck', 'Truck', 'Warehouse']) bindings[name] = name;
   const component = new Function(...Object.keys(bindings), moduleFunction)(...Object.values(bindings));
   return component({ materials: [{ id: 'm-1', name: '测试物料', unit: '件', tpInventoryCode: 'ERP-1' }], node: { id: 'n-1', materialId: 'm-1', productId: 'p-1', name: '子系统', taskIds: [] }, productName: '测试产品', tasks: [], onBack: () => {} });
 }
@@ -188,7 +188,7 @@ function bomEditor(mode, lines = [], overrides = {}) {
   return { ...f, clock, lookups };
 }
 function bomInput(f, label) {
-  const input = find(f.render(), (node) => ['Input', 'Textarea', 'select'].includes(node.type) && node.props['aria-label'] === label);
+  const input = find(f.render(), (node) => ['Input', 'Textarea', "NativeSelect"].includes(node.type) && node.props['aria-label'] === label);
   assert.ok(input, `missing BOM field: ${label}`);
   return input;
 }
@@ -368,7 +368,7 @@ test('未匹配物料库明确提示，不回退到旧分类或 BOM 所属位置
   f.clock.advance(220); await settle();
   assert.equal(bomInput(f, '物料分类').props.value, '未匹配物料库');
   assert.equal(bomInput(f, 'BOM 所属位置').props.value, bomLineA.parentId);
-  assert.equal(find(f.render(), (node) => node.type === 'select' && node.props['aria-label'] === '所属分类'), null);
+  assert.equal(find(f.render(), (node) => node.type === "NativeSelect" && node.props['aria-label'] === '所属分类'), null);
 });
 
 test('分类读取失败显示原因并允许重试，同编码重试成功后仍保留编辑草稿', async () => {
@@ -379,7 +379,7 @@ test('分类读取失败显示原因并允许重试，同编码重试成功后�
   assert.equal(bomInput(f, '物料分类').props.value, '读取失败');
   const alert = find(f.render(), (node) => node.props?.role === 'alert');
   assert.ok(React.Children.toArray(alert.props.children).includes('物料库连接失败'));
-  const retry = find(alert, (node) => node.type === 'button' && node.props.children === '重试读取分类');
+  const retry = find(alert, (node) => node.type === "Button" && node.props.children === '重试读取分类');
   assert.ok(retry); retry.props.onClick();
   assert.equal(bomInput(f, '物料分类').props.value, '正在读取物料分类…');
   assert.equal(reads[0].signal.aborted, true);
@@ -424,6 +424,7 @@ test('未选择来源和删除流程不查询分类，编辑器销毁取消延�
   f.clock.advance(220); f.destroy(); assert.equal(signal.aborted, true);
   waiting.resolve({ matched: true, category: '销毁后的迟到分类', unit: '件' }); await settle();
   assert.deepEqual(f.saved, []);
+});
 
 const verificationSource = readFileSync(new URL('../src/app/procurement/components/QualityVerificationDialog.tsx', import.meta.url), 'utf8');
 const verificationAst = ts.createSourceFile('QualityVerificationDialog.tsx', verificationSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -466,5 +467,4 @@ test('复验数量矛盾时不发送请求，关闭记录重新打开须填写�
   verificationChange(closed, 'evidence', '发现遗漏项'); await submit(closed); assert.equal(closed.requests.length, 0);
   find(closed.render(), (node) => node.type === 'AlertDialogAction').props.onClick(); await settle();
   assert.equal(closed.requests[0][1].reason, '发现遗漏项');
-});
 });

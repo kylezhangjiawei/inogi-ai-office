@@ -12,6 +12,8 @@ function loadModule(path, dependencies = {}, globals = {}) {
   }).outputText;
   const exports = {};
   new Function('exports', 'require', ...Object.keys(globals), compiled)(exports, (id) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(id)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     assert.ok(id in dependencies, `Unexpected dependency ${id} in ${path}`);
     return dependencies[id];
   }, ...Object.values(globals));
@@ -51,7 +53,7 @@ function fixture(props = {}, { width = 1200, deferSelection = false } = {}) {
     };
   }
   function elementFor(node) {
-    assert.equal(node.type, 'button');
+    assert.equal(node.type, "Button");
     assert.notEqual(node.key, null, 'sample button must have a stable identity');
     let element = sampleButtonElements.get(node.key);
     if (!element) { element = createNativeElement(); sampleButtonElements.set(node.key, element); }
@@ -62,7 +64,7 @@ function fixture(props = {}, { width = 1200, deferSelection = false } = {}) {
   function commitNativeRefs(tree) {
     const nextRefs = new Set();
     for (const element of sampleButtonElements.values()) element.isConnected = false;
-    for (const node of all(tree, (item) => item.type === 'button' && item.props['aria-pressed'] !== undefined)) elementFor(node);
+    for (const node of all(tree, (item) => item.type === "Button" && item.props['aria-pressed'] !== undefined)) elementFor(node);
     for (const node of all(tree, (item) => typeof item.type === 'string' && /^[a-z]/.test(item.type) && item.ref && typeof item.ref === 'object')) {
       const ref = node.ref;
       nextRefs.add(ref);
@@ -182,7 +184,7 @@ function closeSelectionFocus(f) {
   return event;
 }
 function listDisclosure(f) { return find(f.render(), (node) => node.type === 'Collapsible' && node.props.asChild && find(node, (child) => child.type === 'aside' && child.props['aria-label'] === '全部样品')); }
-function taskButton(f, id) { return find(f.render(), (node) => node.type === 'button' && node.props['aria-pressed'] !== undefined && text(node).includes(`PROC-${id}`)); }
+function taskButton(f, id) { return find(f.render(), (node) => node.type === "Button" && node.props['aria-pressed'] !== undefined && text(node).includes(`PROC-${id}`)); }
 function button(f, label) { return find(f.render(), (node) => node.type === 'Button' && text(node).trim() === label); }
 function select(f, id) { const item = taskButton(f, id); assert.ok(item, `sample ${id} must be listed`); item.props.onClick({ currentTarget: f.elementFor(item) }); f.render(); }
 function reportInteraction(f, state) { form(f).props.onInteractionStateChange(state); f.render(); }
@@ -363,7 +365,7 @@ test('搜索只改变列表，零结果和清除搜索均保留当前有草稿�
   assert.equal(form(f).props.taskId, 'A');
   assert.match(text(f.render()), /当前正在查看的样品不在筛选结果中/);
   search(f, '不存在的样品');
-  assert.equal(all(f.render(), (node) => node.type === 'button' && node.props['aria-pressed'] !== undefined).length, 0);
+  assert.equal(all(f.render(), (node) => node.type === "Button" && node.props['aria-pressed'] !== undefined).length, 0);
   assert.equal(form(f).key, key);
   button(f, '清除筛选').props.onClick(); f.render();
   assert.ok(taskButton(f, 'A'));

@@ -75,6 +75,7 @@ import {
   type ExternalDocumentDetail,
   type ExternalIntegrationStatus,
 } from "./lib/externalDocsApi";
+import { NativeSelect } from "./components/ui/native-select";
 
 type DocumentStatus = "current" | "review" | "comparing" | "failed";
 type DifferenceType = "modified" | "added" | "removed" | "format";
@@ -620,7 +621,7 @@ export function ExternalDocsPage() {
             </Button>
             <Button
               type="button"
-              className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
+              className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-muted-foreground opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
               onClick={() => openUploadDialog("newVersion")}
               disabled={versionUploadDisabled}
             >
@@ -650,7 +651,7 @@ export function ExternalDocsPage() {
             <div className="hz-toolbar shrink-0 border-b p-3">
               <Label htmlFor="external-doc-search" className="sr-only">搜索对外资料</Label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="external-doc-search"
                   value={searchQuery}
@@ -685,18 +686,18 @@ export function ExternalDocsPage() {
               {filteredDocuments.map((document) => {
                 const selected = document.id === selectedDocument.id;
                 return (
-                  <button
+                  <Button variant="unstyled"
                     key={document.id}
                     type="button"
                     aria-pressed={selected}
                     onClick={() => void selectDocument(document.id)}
                     className={cn(
                       "w-full cursor-pointer rounded-xl border px-3 py-3 text-left transition-colors duration-150",
-                      selected ? "border-[#002fa7] bg-[#eef3ff]" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
+                      selected ? "border-primary bg-accent" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={cn("mt-0.5 rounded-lg p-2", selected ? "bg-white text-[#002fa7]" : "bg-slate-100 text-slate-500")}>
+                      <div className={cn("mt-0.5 rounded-lg p-2", selected ? "bg-white text-primary" : "bg-slate-100 text-slate-500")}>
                         <FileText className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -714,7 +715,7 @@ export function ExternalDocsPage() {
                         </div>
                       </div>
                     </div>
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -742,7 +743,7 @@ export function ExternalDocsPage() {
                     onClick={() => openUploadDialog("newVersion")}
                     disabled={versionUploadDisabled}
                     size="sm"
-                    className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
+                    className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-muted-foreground opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
                   >
                     <CloudUpload className="size-4" />
                     上传该资料新版本
@@ -791,15 +792,15 @@ export function ExternalDocsPage() {
                       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                         <p className="min-w-0 truncate text-xs text-slate-500">{candidateFileSize} · {compareJobId}</p>
                         {comparisonStatus !== "archived" && (
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => openUploadDialog("replaceCandidate")}
-                            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-2.5 text-[11px] font-semibold text-blue-700 transition-colors duration-200 hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-primary/25 bg-white px-2.5 text-[11px] font-semibold text-primary transition-colors duration-200 hover:border-primary/25 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             title="候选文件上传错误时，用正确文件替换并重新比对"
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                             重新上传候选文件
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -852,7 +853,7 @@ export function ExternalDocsPage() {
                           <TabsTrigger
                             key={key}
                             value={key}
-                            className="h-auto rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-0 text-sm font-semibold text-slate-500 shadow-none data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:text-[#002fa7]"
+                            className="h-auto rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-0 text-sm font-semibold text-slate-500 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
                           >
                             {label}
                           </TabsTrigger>
@@ -873,48 +874,48 @@ export function ExternalDocsPage() {
                               ["removed", `删除 ${differences.filter((item) => item.type === "removed").length}`],
                               ["format", `版式 ${differences.filter((item) => item.type === "format").length}`],
                             ] as Array<[DifferenceFilter, string]>).map(([key, label]) => (
-                              <button
+                              <Button variant="unstyled"
                                 key={key}
                                 type="button"
                                 aria-pressed={differenceFilter === key}
                                 onClick={() => setDifferenceFilter(key)}
                                 className={cn(
-                                  "cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                                  "cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                                   differenceFilter === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
                                 )}
                               >
                                 {label}
-                              </button>
+                              </Button>
                             ))}
                           </div>
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => void handleReviewAll()}
                             disabled={comparisonStatus !== "review" || allReviewed || isActionPending}
-                            className="inline-flex cursor-pointer items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-default disabled:opacity-50 lg:self-auto"
+                            className="inline-flex cursor-pointer items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-50 lg:self-auto"
                           >
                             <CheckCircle2 className="h-4 w-4" />
                             全部标记为已复核
-                          </button>
+                          </Button>
                         </div>
 
                         <div className="divide-y divide-slate-100">
                           {filteredDifferences.map((difference) => (
                             <article key={difference.id} className={cn("p-4 transition-colors sm:p-5", difference.reviewed ? "bg-white" : "bg-amber-50/20")}>
                               <div className="flex items-start gap-3">
-                                <button
+                                <Button variant="unstyled"
                                   type="button"
                                   aria-label={`${difference.reviewed ? "取消" : "确认"}${difference.title}`}
                                   aria-pressed={difference.reviewed}
                                   onClick={() => void toggleDifference(difference.id)}
                                   disabled={comparisonStatus !== "review"}
                                   className={cn(
-                                    "mt-0.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default",
-                                    difference.reviewed ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-blue-400",
+                                    "mt-0.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default",
+                                    difference.reviewed ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-primary",
                                   )}
                                 >
                                   <Check className="h-4 w-4" />
-                                </button>
+                                </Button>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset", differenceTypeConfig[difference.type].className)}>
@@ -924,7 +925,7 @@ export function ExternalDocsPage() {
                                       {riskConfig[difference.risk].label}
                                     </span>
                                     <span className="text-[11px] text-slate-500">{difference.location}</span>
-                                    <span className="ml-auto text-[11px] text-slate-400">置信度 {difference.confidence}%</span>
+                                    <span className="ml-auto text-[11px] text-muted-foreground">置信度 {difference.confidence}%</span>
                                   </div>
                                   <h3 className="mt-2 text-balance text-sm font-semibold text-slate-900">{difference.title}</h3>
                                   <div className="mt-3 grid gap-2 lg:grid-cols-2">
@@ -939,9 +940,9 @@ export function ExternalDocsPage() {
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                                     <span className="inline-flex items-center gap-1"><Fingerprint className="h-3.5 w-3.5" />{difference.source}</span>
-                                    <button type="button" onClick={() => openEvidenceViewer(difference)} className="cursor-pointer font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                                    <Button variant="unstyled" type="button" onClick={() => openEvidenceViewer(difference)} className="cursor-pointer font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                                       查看原文定位
-                                    </button>
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
@@ -1018,15 +1019,15 @@ export function ExternalDocsPage() {
                             该版本已归档锁定，摘要不可重新生成
                           </div>
                         ) : (
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => void handleRegenerateSummary()}
                             disabled={isActionPending}
-                            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           >
                             {isActionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                             根据复核结果重新生成
-                          </button>
+                          </Button>
                         )}
                       </TabsContent>
 
@@ -1072,16 +1073,16 @@ export function ExternalDocsPage() {
                                       <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-700">当前修订 R{version.uploadRevision}</span>
                                     )}
                                     <span className="ml-auto text-[11px] text-slate-500">{version.uploadedAt}</span>
-                                    <button
+                                    <Button variant="unstyled"
                                       type="button"
                                       onClick={() => void openVersionFile(version)}
                                       disabled={openingVersionId === `${version.id}:${version.uploadRevision}`}
-                                      className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60"
+                                      className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:border-primary/25 hover:text-primary-hover disabled:cursor-wait disabled:opacity-60"
                                       title={`下载当前文件修订 R${version.uploadRevision}`}
                                     >
                                       {openingVersionId === `${version.id}:${version.uploadRevision}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                                       下载
-                                    </button>
+                                    </Button>
                                   </div>
                                   <p className="mt-2 truncate text-xs font-medium text-slate-800" title={version.fileName}>{version.fileName}</p>
                                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
@@ -1101,16 +1102,16 @@ export function ExternalDocsPage() {
                                               <div className="flex flex-wrap items-center gap-2">
                                                 <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-700">旧修订 R{replacement.revision}</span>
                                                 <p className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-800" title={replacement.fileName}>{replacement.fileName}</p>
-                                                <button
+                                                <Button variant="unstyled"
                                                   type="button"
                                                   onClick={() => void openVersionFile(version, replacement.revision)}
                                                   disabled={openingVersionId === openingReplacementId}
-                                                  className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60"
+                                                  className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/25 hover:text-primary-hover disabled:cursor-wait disabled:opacity-60"
                                                   title={`打开旧文件修订 R${replacement.revision}`}
                                                 >
                                                   {openingVersionId === openingReplacementId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                                                   旧文件
-                                                </button>
+                                                </Button>
                                               </div>
                                               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4 text-slate-500">
                                                 <span>{replacement.size}</span><span>{replacement.uploadedBy} · {replacement.uploadedAt}</span><span className="font-mono">{replacement.hash}</span>
@@ -1213,7 +1214,7 @@ export function ExternalDocsPage() {
 
             <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
               {uploadMode !== "replaceCandidate" && <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="上传类型">
-                <button
+                <Button variant="unstyled"
                   type="button"
                   aria-pressed={uploadMode === "newDocument"}
                   onClick={() => {
@@ -1222,11 +1223,11 @@ export function ExternalDocsPage() {
                     setUploadCategory("产品资料");
                     setUploadError("");
                   }}
-                  className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", uploadMode === "newDocument" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
+                  className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary", uploadMode === "newDocument" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
                 >
                   新建资料首版
-                </button>
-                <button
+                </Button>
+                <Button variant="unstyled"
                   type="button"
                   aria-pressed={uploadMode === "newVersion"}
                   onClick={() => {
@@ -1237,10 +1238,10 @@ export function ExternalDocsPage() {
                     setUploadError("");
                   }}
                   disabled={!hasDocuments}
-                  className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", uploadMode === "newVersion" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
+                  className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary", uploadMode === "newVersion" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
                 >
                   上传已有资料新版本
-                </button>
+                </Button>
               </div>}
 
               {uploadMode === "newVersion" && (
@@ -1285,9 +1286,9 @@ export function ExternalDocsPage() {
                 {uploadMode === "newDocument" ? (
                   <div className="space-y-1.5">
                     <Label htmlFor="external-doc-category" className="text-xs font-semibold text-slate-700">资料分类</Label>
-                    <select id="external-doc-category" value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100">
+                    <NativeSelect id="external-doc-category" value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25">
                       <option>产品资料</option><option>技术资料</option><option>合规资质</option><option>注册资料</option><option>售前资料</option><option>未分类</option>
-                    </select>
+                    </NativeSelect>
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -1301,14 +1302,14 @@ export function ExternalDocsPage() {
 
               <Label
                 htmlFor="external-doc-file"
-                className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-7 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"
+                className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-7 text-center transition-colors hover:border-primary hover:bg-accent/40 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary"
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                   event.preventDefault();
                   selectUploadFile(event.dataTransfer.files?.[0] ?? null);
                 }}
               >
-                <input id="external-doc-file" type="file" className="sr-only" accept=".pdf,.docx,.xls,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.webp,.bmp" onChange={handleFileChange} />
+                <Input id="external-doc-file" type="file" className="sr-only" accept=".pdf,.docx,.xls,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.webp,.bmp" onChange={handleFileChange} />
                 {uploadFile ? (
                   <div className="flex items-center justify-center gap-3 text-left">
                     <div className="rounded-xl bg-emerald-100 p-2.5 text-emerald-700"><FileCheck2 className="h-6 w-6" /></div>

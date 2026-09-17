@@ -8,7 +8,7 @@ const forbidden = () => assert.fail('预览页面不能读取真实服务或持�
 const noStorage = new Proxy({}, { get: forbidden, set: forbidden });
 function evaluate(source, deps, window = {}) {
   const exports = {};
-  new Function('exports', 'require', 'fetch', 'localStorage', 'sessionStorage', 'window', compile(source))(exports, (key) => { assert.ok(Object.hasOwn(deps, key), `审查依赖 ${key}`); return deps[key]; }, forbidden, noStorage, noStorage, window);
+  new Function('exports', 'require', 'fetch', 'localStorage', 'sessionStorage', 'window', compile(source))(exports, (key) => { if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(key)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };  assert.ok(Object.hasOwn(deps, key), `审查依赖 ${key}`); return deps[key]; }, forbidden, noStorage, noStorage, window);
   return exports;
 }
 const model = evaluate(read('keyMaterialsModel.ts'), {});
@@ -51,13 +51,13 @@ function fixture(initial = '') {
   const view = {
     render() { cursor = 0; tree = KeyMaterialsPreviewPage(); while (effects.length) effects.shift()(); return view; },
     nodes() { return nodes(tree); }, text() { return text(tree); },
-    button(label) { return view.nodes().find((node) => ['button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node) === label); },
+    button(label) { return view.nodes().find((node) => ["Button", 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && text(node) === label); },
     click(label) { const button = view.button(label); assert.ok(button, `找到按钮 ${label}`); assert.equal(Boolean(button.props.disabled), false, `可操作 ${label}`); button.props.onClick?.(); return view.render(); },
     field(label) { return view.nodes().find((node) => node.props['aria-label'] === label); },
     input(label, value) { const input = view.field(label); assert.ok(input, `找到字段 ${label}`); input.props.onChange({ target: { value } }); return view.render(); },
-    checkbox(label, checked) { const item = view.nodes().find((node) => node.type === 'label' && text(node).includes(label)); assert.ok(item, label); nodes(item).find((node) => node.type === 'input').props.onChange({ target: { checked } }); return view.render(); },
-    open(id) { const row = view.nodes().find((node) => node.type === 'button' && node.props.className === 'km-clue' && text(node).startsWith(id)); assert.ok(row, id); row.props.onClick(); return view.render(); },
-    clues() { return view.nodes().filter((node) => node.type === 'button' && node.props.className === 'km-clue'); },
+    checkbox(label, checked) { const item = view.nodes().find((node) => node.type === 'label' && text(node).includes(label)); assert.ok(item, label); nodes(item).find((node) => node.type === "Checkbox").props.onCheckedChange(checked); return view.render(); },
+    open(id) { const row = view.nodes().find((node) => node.type === "Button" && node.props.className === 'km-clue' && text(node).startsWith(id)); assert.ok(row, id); row.props.onClick(); return view.render(); },
+    clues() { return view.nodes().filter((node) => node.type === "Button" && node.props.className === 'km-clue'); },
     submit() { const form = view.nodes().find((node) => node.type === 'form'); assert.ok(form); form.props.onSubmit({ preventDefault() {} }); return view.render(); },
     navigate(search, pathname = location.pathname) { navigate({ pathname, search }); return view.render(); },
     params() { return new URLSearchParams(location.search); },
@@ -77,9 +77,9 @@ test('搜索与状态切换有结果且空态可恢复全部目录', () => {
 });
 test('月度视图按唯一料号展开，单位和共享库存边界明确', () => {
   const view = fixture(); view.click('月度明细'); assert.match(view.text(), /产品筛选不做库存分配，各产品预测不可相加/);
-  const rows = view.nodes().filter((node) => node.type === 'button' && node.props.className === 'km-material-link');
+  const rows = view.nodes().filter((node) => node.type === "Button" && node.props.className === 'km-material-link');
   assert.equal(rows.length, 22); view.input('月度明细分组', 'supplier');
-  assert.equal(view.nodes().filter((node) => node.type === 'button' && node.props.className === 'km-material-link').length, 22);
+  assert.equal(view.nodes().filter((node) => node.type === "Button" && node.props.className === 'km-material-link').length, 22);
 });
 test('未知产品保留查询并停止数量显示，跨年未知库存不回退已知样例', () => {
   const view = fixture('?product=IN-100&month=2027-01&scope=owned'); assert.equal(view.params().get('product'), 'IN-100'); assert.match(view.text(), /来源上下文待映射/); assert.equal(view.clues().length, 31);

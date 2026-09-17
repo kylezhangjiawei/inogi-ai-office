@@ -58,7 +58,7 @@ export function QuoteImportPreview({ items, existingRows, imageUrls = [] }: {
       <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("请逐条核对识别结果；如需修改，请修正文件后重新选择。筛选仅用于核对，不会改变导入范围。")}</p>
       <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("已存在商品沿用物料库中的规格、分类与单位；仅新增商品使用文件中的资料。")}</p>
       <div className="relative mt-2">
-        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input ref={searchRef} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} aria-label={t("搜索待导入报价")} placeholder={t("搜索商品 / 厂家 / 型号")} className="h-9 pl-9 pr-10 text-sm" />
         {search && <Button type="button" variant="ghost" size="icon" aria-label={t("清空搜索")} onClick={() => { setSearch(""); setPage(1); searchRef.current?.focus(); }} className="absolute right-0.5 top-0.5 size-8"><X className="size-4" /></Button>}
       </div>
@@ -380,7 +380,7 @@ export function QuoteImportModal({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain break-words px-6 py-4">
           <Input ref={fileRef} type="file" accept=".xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp" disabled={busy || parseBusy || aiBusy} className="hidden" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; void pick(picked); }} />
           {/* 点击或拖拽上传：dragOver 必须 preventDefault 才能触发 drop */}
-          <button
+          <Button variant="unstyled"
             type="button"
             disabled={busy || parseBusy || aiBusy}
             aria-busy={parseBusy || aiBusy}
@@ -401,7 +401,7 @@ export function QuoteImportModal({
               dragging ? "border-primary/40 bg-accent" : "border-slate-200 hover:border-primary/40 hover:bg-slate-50/60",
             )}
           >
-            <FileSpreadsheet className={cn("size-7", dragging ? "text-primary" : "text-slate-300")} />
+            <FileSpreadsheet className={cn("size-7", dragging ? "text-primary" : "text-muted-foreground")} />
             {parseBusy || aiBusy ? (
               <span className="inline-flex items-center gap-2 text-sm font-medium text-primary"><Loader2 className="size-4 animate-spin" />{parseBusy ? t("正在解析表格…") : t("正在识别报价…")}</span>
             ) : file ? (
@@ -410,10 +410,10 @@ export function QuoteImportModal({
               <span className="text-sm text-slate-600">{t("点击选择或拖拽文件到此处（xlsx / xls / 表格截图）")}</span>
             )}
               <span className="text-pretty text-[11px] text-slate-500">{t("业务报价表原样导入：自动识别列名、提取商品图片、跳过总计行；表格图片走 OCR + AI 识别")}</span>
-          </button>
+          </Button>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             {file ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 disabled={busy || parseBusy || aiBusy}
                 onClick={rerunRecognition}
@@ -422,9 +422,9 @@ export function QuoteImportModal({
               >
                 {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                 {t(aiBusy ? "AI 识别中…" : "AI 智能识别")}
-              </button>
+              </Button>
             ) : <span />}
-            <button type="button" onClick={() => void downloadQuoteBookTemplate().catch((err: unknown) => setOperationError(err instanceof Error ? err.message : t("下载失败")))} className="text-xs text-primary hover:underline">{t("下载标准模板")}</button>
+            <Button variant="unstyled" type="button" onClick={() => void downloadQuoteBookTemplate().catch((err: unknown) => setOperationError(err instanceof Error ? err.message : t("下载失败")))} className="text-xs text-primary hover:underline">{t("下载标准模板")}</Button>
           </div>
 
           {aiInfo && (
@@ -491,11 +491,11 @@ export function QuoteImportModal({
         <div className="proc-quote-import-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
           <span aria-live="polite" className="min-w-0 flex-1 basis-40 text-pretty text-xs tabular-nums text-slate-500">{busy ? t("正在写入 {count} 条报价，请勿关闭", { count: items.length }) : items.length > 0 ? t("已识别 {count} 条，核对后再导入", { count: items.length }) : t("请选择文件开始")}</span>
           <div className="flex shrink-0 items-center gap-2">
-          <button type="button" disabled={busy || aiBusy || parseBusy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
-          <button type="button" disabled={busy || aiBusy || parseBusy || items.length === 0} onClick={() => void apply()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+          <Button variant="unstyled" type="button" disabled={busy || aiBusy || parseBusy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</Button>
+          <Button variant="unstyled" type="button" disabled={busy || aiBusy || parseBusy || items.length === 0} onClick={() => void apply()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {busy ? t("正在导入…") : t("确认导入 {count} 条", { count: items.length })}
-          </button>
+          </Button>
           </div>
         </div>
       </DialogContent>

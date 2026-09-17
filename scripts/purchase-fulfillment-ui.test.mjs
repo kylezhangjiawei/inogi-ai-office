@@ -4,7 +4,9 @@ import test from 'node:test';
 import ts from 'typescript';
 const load = (path, dependencies) => {
   const code = ts.transpileModule(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  const exports = {}; new Function('exports', 'require', code)(exports, (name) => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }); return exports;
+  const exports = {}; new Function('exports', 'require', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+ assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }); return exports;
 };
 const ledger = () => ({ line: { id: 'line-1', orderNo: 'PO-1', lineNo: '1', name: '轴承', unit: '件', updatedAt: '2026-09-10T01:00:00.000Z' }, version: 2, canPropose: true, canApprove: true, canReadAffectedPlans: true, entries: [],
   summary: { erpOrderedQty: 20, erpReceivedQty: 10, effectiveOrderedQty: 20, effectiveReceivedQty: 10, remainingQty: 10, localGrossReceivedQty: 10, localNetReceivedQty: 10, localQualifiedQty: 6, qualifiedAvailableQty: null, cancelledQty: 0, returnedQty: 0, reversedQty: 0, coverageComplete: false, coverageCurrent: false, issues: [], receipts: [{ id: 'r-1', qualifiedQty: 6, defectiveQty: 1, pendingJudgmentQty: 2, pendingQty: 1, netReceivedQty: 10 }] },
@@ -41,7 +43,7 @@ function fixture(ctx, { value = ledger(), get = async () => value, propose = asy
     render() { for (let n = 0; n < 20; n++) { cursor = 0; changed = false; tree = PurchaseFulfillmentDrawer(props); while (effects.length) effects.shift()(); if (!changed) return tree; } assert.fail('Did not settle'); },
     async flush() { this.render(); await new Promise(setImmediate); return this.render(); },
     button(label) { return children(this.render()).find((node) => node.type === 'Button' && text(node).trim() === label); },
-    field(label) { const parent = children(this.render()).find((node) => node.type === 'label' && text(node).trim().startsWith(label)); assert.ok(parent, label); return children(parent).find((node) => ['input', 'textarea', 'select'].includes(node.type)); },
+    field(label) { const parent = children(this.render()).find((node) => node.type === 'label' && text(node).trim().startsWith(label)); assert.ok(parent, label); return children(parent).find((node) => ["Input", "Textarea", "NativeSelect"].includes(node.type)); },
     change(label, value) { this.field(label).props.onChange({ target: { value } }); this.render(); },
     setProps(next) { props = { ...props, ...next }; this.render(); },
     setUser(next) { user = next; this.render(); },

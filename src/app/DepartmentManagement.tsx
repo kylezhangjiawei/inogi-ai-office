@@ -79,7 +79,7 @@ const EMPTY_FORM: DepartmentFormData = {
 const PAGE_SIZE = 10;
 const TABLE_HEADER_CLASS = "px-4 py-3 text-xs font-semibold text-slate-600 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
-const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-colors focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-colors focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary";
 
 function SelectControl({
   value,
@@ -407,7 +407,7 @@ export function DepartmentManagement() {
             <div className="min-w-0">
               <Label htmlFor="department-search" className="mb-1.5 block text-xs font-semibold text-slate-700">搜索部门</Label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   id="department-search"
                   className="pl-9"
@@ -490,10 +490,10 @@ export function DepartmentManagement() {
                   </tr>
                 ) : (
                   pagedDepartments.map((department) => (
-                    <tr key={department.id} className="hover:bg-blue-50/35">
+                    <tr key={department.id} className="hover:bg-accent/35">
                       <td className={TABLE_CELL_CLASS}>
                         <div className="flex min-w-0 items-start gap-3">
-                          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#002fa7]" aria-hidden="true">
+                          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-primary" aria-hidden="true">
                             <Building2 className="size-[18px]" />
                           </span>
                           <div className="min-w-0">
@@ -524,10 +524,10 @@ export function DepartmentManagement() {
                             </span>
                           )}
                         >
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             className={cn(
-                              "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                              "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                               department.enabled
                                 ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
                                 : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200",
@@ -536,7 +536,7 @@ export function DepartmentManagement() {
                             aria-label={`${department.enabled ? "停用" : "启用"}部门 ${department.name}`}
                           >
                             {department.enabled ? "启用" : "停用"}
-                          </button>
+                          </Button>
                         </PermissionGuard>
                       </td>
                       <td className={cn(TABLE_CELL_CLASS, "text-right")}>

@@ -266,9 +266,9 @@ export function RAKnowledgePage() {
                 {[...frameworks, ...regTypes, ...categories].map((filter) => (
                   <span key={filter} className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1 text-xs font-semibold text-blue-700">
                     {filter}
-                    <button type="button" className="inline-flex size-6 items-center justify-center rounded-full hover:bg-blue-100" onClick={() => removeFilter(filter)} aria-label={`移除筛选 ${filter}`}>
+                    <Button variant="unstyled" type="button" className="inline-flex size-6 items-center justify-center rounded-full hover:bg-accent" onClick={() => removeFilter(filter)} aria-label={`移除筛选 ${filter}`}>
                       <X className="size-3.5" />
-                    </button>
+                    </Button>
                   </span>
                 ))}
               </div>
@@ -284,13 +284,13 @@ export function RAKnowledgePage() {
           <div className="hz-toolbar space-y-3 border-b p-3">
             <Label htmlFor="regulation-search" className="sr-only">搜索法规与条款</Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input id="regulation-search" type="search" value={keyword} onChange={(event) => { setKeyword(event.target.value); setSelectedId(""); }} placeholder="搜索法规、条款或关键词" className="bg-white pl-9" />
             </div>
             <Tabs value={searchMode} onValueChange={(value) => { setSearchMode(value as SearchMode); setSelectedId(""); }}>
               <TabsList className="grid w-full grid-cols-2 bg-slate-100" aria-label="检索方式">
-                <TabsTrigger value="精确匹配" className="data-[state=active]:text-[#002fa7]">精确匹配</TabsTrigger>
-                <TabsTrigger value="语义检索" className="data-[state=active]:text-[#002fa7]">语义检索</TabsTrigger>
+                <TabsTrigger value="精确匹配" className="data-[state=active]:text-primary">精确匹配</TabsTrigger>
+                <TabsTrigger value="语义检索" className="data-[state=active]:text-primary">语义检索</TabsTrigger>
               </TabsList>
             </Tabs>
             <p className="text-pretty text-[11px] leading-4 text-slate-500">
@@ -302,13 +302,13 @@ export function RAKnowledgePage() {
               <ul className="divide-y divide-slate-100" aria-label="法规文档列表">
                 {filtered.map((regulation) => (
                   <li key={regulation.id}>
-                    <button
+                    <Button variant="unstyled"
                       type="button"
                       aria-pressed={selected?.id === regulation.id}
                       onClick={() => setSelectedId(regulation.id)}
                       className={cn(
                         "w-full cursor-pointer px-4 py-3.5 text-left transition-colors hover:bg-slate-50",
-                        selected?.id === regulation.id && "border-l-2 border-[#002fa7] bg-blue-50/70 pl-[14px]",
+                        selected?.id === regulation.id && "border-l-2 border-primary bg-accent/70 pl-[14px]",
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -321,7 +321,7 @@ export function RAKnowledgePage() {
                         <span className="truncate">{regulation.category.join(" · ")}</span>
                         <time className="shrink-0 tabular-nums" dateTime={regulation.date}>{regulation.date}</time>
                       </div>
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -339,7 +339,7 @@ export function RAKnowledgePage() {
                 <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="font-mono font-semibold text-[#002fa7]">{selected.id}</span>
+                      <span className="font-mono font-semibold text-primary">{selected.id}</span>
                       <span>·</span>
                       <span>{selected.regType}</span>
                       <span className="inline-flex items-center gap-1 text-emerald-700"><BadgeCheck className="size-3.5" />{selected.status}</span>
@@ -358,8 +358,8 @@ export function RAKnowledgePage() {
               <Tabs key={selected.id} defaultValue="clauses" className="gap-0">
                 <div className="border-b border-slate-100 px-4 pt-3 sm:px-5">
                   <TabsList className="bg-slate-100" aria-label="法规详情视图">
-                    <TabsTrigger value="clauses" className="data-[state=active]:text-[#002fa7]">条款与标注</TabsTrigger>
-                    <TabsTrigger value="history" className="data-[state=active]:text-[#002fa7]">版本历史</TabsTrigger>
+                    <TabsTrigger value="clauses" className="data-[state=active]:text-primary">条款与标注</TabsTrigger>
+                    <TabsTrigger value="history" className="data-[state=active]:text-primary">版本历史</TabsTrigger>
                   </TabsList>
                 </div>
                 <TabsContent value="clauses" className="m-0 p-4 sm:p-5">
@@ -378,7 +378,7 @@ export function RAKnowledgePage() {
                         >
                           <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden hover:bg-slate-50">
                             <div className="flex min-w-0 items-center gap-3">
-                              <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-bold text-[#002fa7]">{clause.num}</span>
+                              <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-bold text-primary">{clause.num}</span>
                               <span className="line-clamp-2 text-sm font-semibold text-slate-700">{clause.text}</span>
                             </div>
                             <span className="shrink-0 text-xs text-slate-500">{expanded ? "收起条款" : "展开条款"}</span>
@@ -407,7 +407,7 @@ export function RAKnowledgePage() {
                     ].map((version, index) => (
                       <li key={`${selected.id}-${version.version}`} className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
                         <div className="relative flex justify-center">
-                          <span className={cn("z-10 mt-0.5 inline-flex size-7 items-center justify-center rounded-full border", version.active ? "border-blue-200 bg-blue-50 text-[#002fa7]" : "border-slate-200 bg-white text-slate-500")}><History className="size-3.5" /></span>
+                          <span className={cn("z-10 mt-0.5 inline-flex size-7 items-center justify-center rounded-full border", version.active ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-white text-slate-500")}><History className="size-3.5" /></span>
                           {index === 0 ? <span className="absolute bottom-0 top-7 w-px bg-slate-200" aria-hidden="true" /> : null}
                         </div>
                         <div className="min-w-0 rounded-xl border border-slate-200 p-3">

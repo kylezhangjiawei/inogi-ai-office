@@ -9,6 +9,8 @@ const transpile = (source) => ts.transpileModule(source, { compilerOptions: { ta
 function loadModule(path, dependencies = {}, expose = []) {
   const exports = {};
   new Function('exports', 'require', `${transpile(read(path))}\n${expose.map((name) => `exports.${name} = ${name};`).join('\n')}`)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     if (name in dependencies) return dependencies[name];
     if (name.endsWith('.css')) return {};
     throw new Error(`Unexpected test dependency: ${name}`);
@@ -138,7 +140,7 @@ test('starting an attachment upload freezes all fields and step navigation until
   inputs[1].props.onUploading(1);
   const uploadingTree = host.render(props);
   assert.equal(host.nodes(uploadingTree).filter((node) => node.props.field).every((node) => node.props.disabled), true);
-  assert.equal(host.nodes(uploadingTree).find((node) => node.type === 'button' && node.props.type === 'submit').props.disabled, true);
+  assert.equal(host.nodes(uploadingTree).find((node) => node.type === "Button" && node.props.type === 'submit').props.disabled, true);
   inputs = host.nodes(uploadingTree).filter((node) => node.props.field);
   inputs[1].props.onUploading(-1);
   assert.equal(host.nodes(host.render(props)).filter((node) => node.props.field).every((node) => !node.props.disabled), true);
@@ -154,14 +156,14 @@ test('photo and document selectors reject disallowed files before uploading and 
   };
   const photoHost = componentHost('src/app/applicant-forms/ApplicantFormRenderer.tsx', 'FieldInput', { './form-state': helpers });
   const photo = propsFor('photo');
-  let input = photoHost.nodes(photoHost.render(photo)).find((node) => node.type === 'input' && node.props.type === 'file');
+  let input = photoHost.nodes(photoHost.render(photo)).find((node) => node.type === "Input" && node.props.type === 'file');
   assert.equal(input.props.accept, 'image/jpeg,image/png,image/webp');
   input.props.onChange({ target: { files: [{ name: 'large.png', type: 'image/png', size: 5 * 1024 * 1024 + 1 }] } });
   assert.equal(uploadCalls.length, 0);
   assert.ok(photoHost.nodes(photoHost.render(photo)).some((node) => node.props.role === 'alert' && node.props.children.includes('5 MB')));
   const docHost = componentHost('src/app/applicant-forms/ApplicantFormRenderer.tsx', 'FieldInput', { './form-state': helpers });
   const document = propsFor('document');
-  input = docHost.nodes(docHost.render(document)).find((node) => node.type === 'input' && node.props.type === 'file');
+  input = docHost.nodes(docHost.render(document)).find((node) => node.type === "Input" && node.props.type === 'file');
   assert.equal(input.props.accept, '.pdf,.doc,.docx');
   input.props.onChange({ target: { files: [{ name: 'image.png', type: 'image/png', size: 100 }] } });
   assert.equal(uploadCalls.length, 0, 'document field does not send an image the backend will reject');
@@ -209,6 +211,8 @@ async function adminHost(overrides = {}) {
     sonner: { toast: Object.fromEntries(['success', 'error', 'info'].map((level) => [level, (message) => calls.notifications.push({ level, message })])) },
     './auth': { useAuth: () => ({ user: { permissions: ['*'] } }) },
     './lib/permissions': { hasPermission: () => true },
+    './components/ui/tabs': ui(['Tabs', 'TabsList', 'TabsTrigger', 'TabsContent']),
+    './components/ui/toggle-group': ui(['ToggleGroup', 'ToggleGroupItem']),
     './components/ui/button': ui(['Button']), './components/ui/switch': ui(['Switch']),
     './components/ui/alert-dialog': ui(['AlertDialog', 'AlertDialogCancel', 'AlertDialogContent', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogHeader', 'AlertDialogTitle']),
     './components/ui/dialog': ui(['Dialog', 'DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle']),
@@ -243,7 +247,7 @@ test('admin cannot publish unsaved edits; saving and confirming publish use succ
     assert.equal(host.calls.publishes.length, 0, 'opening confirmation does not publish');
     await host.button('确认发布').props.onClick();
     assert.deepEqual(host.calls.publishes, [{ id: 'template-1', expectedRevision: 4 }]);
-    const link = host.nodes(host.render()).find((node) => node.type === 'input' && node.props['aria-label'] === '公开填写链接');
+    const link = host.nodes(host.render()).find((node) => node.type === "Input" && node.props['aria-label'] === '公开填写链接');
     assert.equal(link.props.value, 'http://localhost/apply/stable-slug');
     assert.equal(host.button('发布表单').props.disabled, true, 'JSONB object key order does not count as a new edit after publishing');
   } finally { globalThis.window = oldWindow; }
@@ -257,19 +261,19 @@ test('entering records and versions refreshes counts while preserving dirty sche
     const host = await adminHost({ getTemplate: (initial) => ({ ...initial, submissionCount: count, ...(count ? { name: '别处的新名字', revision: 99 } : {}) }), getVersions: () => [version()] });
     host.nodes(host.render()).find((node) => node.type === 'Switch' && node.props['aria-label'] === '姓名必填').props.onCheckedChange(true);
     count = 1;
-    host.nodes(host.render()).find((node) => node.type === 'button' && textContent(node).startsWith('登记记录')).props.onClick();
+    host.nodes(host.render()).find((node) => node.type === 'Tabs').props.onValueChange('records');
     for (let i = 0; i < 5; i++) { host.render(); host.flushEffects(); await Promise.resolve(); }
-    assert.equal(textContent(host.nodes(host.render()).find((node) => node.type === 'button' && textContent(node).startsWith('登记记录'))), '登记记录1');
+    assert.equal(textContent(host.nodes(host.render()).find((node) => node.type === 'TabsTrigger' && textContent(node).startsWith('登记记录'))), '登记记录1');
     const records = host.nodes(host.render()).find((node) => node.type === 'SubmissionRecords');
     assert.equal(records.props.versions[0].submissionCount, 1);
     count = 2;
     await records.props.onRefreshMetadata();
     assert.equal(host.nodes(host.render()).find((node) => node.type === 'SubmissionRecords').props.versions[0].submissionCount, 2);
     count = 3;
-    host.nodes(host.render()).find((node) => node.type === 'button' && textContent(node) === '发布历史').props.onClick();
+    host.nodes(host.render()).find((node) => node.type === 'Tabs').props.onValueChange('versions');
     for (let i = 0; i < 5; i++) { host.render(); host.flushEffects(); await Promise.resolve(); }
     assert.ok(textContent(host.render()).includes('3 条登记'));
-    host.nodes(host.render()).find((node) => node.type === 'button' && textContent(node) === '表单模板').props.onClick();
+    host.nodes(host.render()).find((node) => node.type === 'Tabs').props.onValueChange('builder');
     assert.equal(host.nodes(host.render()).find((node) => node.type === 'ApplicantFormRenderer').props.schema.fields[0].required, true);
     await host.button('保存草稿').props.onClick();
     assert.equal(host.calls.saves[0].name, '测试模板');

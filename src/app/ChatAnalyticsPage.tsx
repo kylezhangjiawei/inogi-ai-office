@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
@@ -80,6 +81,8 @@ import {
   type ChatFeedbackRow,
 } from './lib/chatAnalyticsApi';
 import { hasPermission } from './lib/permissions';
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 
 type RangeDays = 7 | 30 | 90;
 type FeedbackFilter = 'all' | ChatFeedbackRow['status'];
@@ -159,7 +162,7 @@ function SectionHeader({
 }
 
 function Delta({ value, suffix = '' }: { value: number; suffix?: string }) {
-  if (value === 0) return <span className="text-slate-400">较上期持平</span>;
+  if (value === 0) return <span className="text-muted-foreground">较上期持平</span>;
   const Icon = value > 0 ? ArrowUpRight : ArrowDownRight;
   return (
     <span className={cn('inline-flex items-center gap-0.5', value > 0 ? 'text-emerald-600' : 'text-rose-600')}>
@@ -175,12 +178,12 @@ function ProgressMetric({ label, value, target, unit }: { label: string; value: 
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className="mt-1 text-lg font-semibold text-slate-950 tabular-nums">{value}<span className="text-sm font-medium text-slate-400">/{target} {unit}</span></p>
+          <p className="mt-1 text-lg font-semibold text-slate-950 tabular-nums">{value}<span className="text-sm font-medium text-muted-foreground">/{target} {unit}</span></p>
         </div>
-        <span className="text-xs font-medium text-slate-400">{progress}%</span>
+        <span className="text-xs font-medium text-muted-foreground">{progress}%</span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${progress}%` }} />
+        <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
       </div>
     </div>
   );
@@ -225,17 +228,17 @@ function ListPagination({
         </span>
       </div>
       <nav className="flex items-center gap-1" aria-label="列表分页">
-        <button
+        <Button variant="unstyled"
           type="button"
           aria-label="上一页"
           disabled={safePage <= 1}
           onClick={() => onPageChange(safePage - 1)}
-          className="flex size-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex size-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />
-        </button>
+        </Button>
         {visiblePages.map((pageNumber) => (
-          <button
+          <Button variant="unstyled"
             key={pageNumber}
             type="button"
             aria-label={`第 ${pageNumber} 页`}
@@ -243,21 +246,21 @@ function ListPagination({
             onClick={() => onPageChange(pageNumber)}
             className={cn(
               'h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition-colors',
-              safePage === pageNumber ? 'bg-[#002fa7] text-white shadow-sm' : 'border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-[#002fa7]',
+              safePage === pageNumber ? 'bg-primary text-white shadow-sm' : 'border border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:text-primary',
             )}
           >
             {pageNumber}
-          </button>
+          </Button>
         ))}
-        <button
+        <Button variant="unstyled"
           type="button"
           aria-label="下一页"
           disabled={safePage >= totalPages}
           onClick={() => onPageChange(safePage + 1)}
-          className="flex size-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex size-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronRight className="h-4 w-4" />
-        </button>
+        </Button>
       </nav>
     </div>
   );
@@ -584,29 +587,29 @@ export function ChatAnalyticsPage() {
           <>
             <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="统计周期">
               {RANGE_OPTIONS.map((option) => (
-                <button
+                <Button variant="unstyled"
                   key={option.value}
                   type="button"
                   aria-pressed={days === option.value}
                   onClick={() => setDays(option.value)}
                   className={cn(
-                    'min-h-9 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300',
-                    days === option.value ? 'bg-[#002fa7] text-white' : 'text-slate-600 hover:bg-white hover:text-[#002fa7]',
+                    'min-h-9 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25',
+                    days === option.value ? 'bg-primary text-white' : 'text-slate-600 hover:bg-white hover:text-primary',
                   )}
                 >
                   {option.label}
-                </button>
+                </Button>
               ))}
             </div>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => void load()}
               disabled={loading}
               aria-label="刷新 AI 使用与反馈数据"
-              className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-200 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:border-primary/25 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={cn('size-4', loading && 'animate-spin')} />刷新
-            </button>
+            </Button>
           </>
         )}
       />
@@ -660,11 +663,11 @@ export function ChatAnalyticsPage() {
           ) : (
             <>
               <section className="hz-surface relative overflow-hidden">
-                <div className="absolute inset-y-0 left-0 w-1 bg-[#002fa7]" aria-hidden="true" />
+                <div className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
                 <div className="grid xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.75fr)]">
                   <div className="px-6 py-6 lg:px-7">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#002fa7]">管理结论</span>
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-primary">管理结论</span>
                       {sampleInsufficient && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">样本积累期</span>}
                     </div>
                     <h2 className="mt-3 text-balance text-2xl font-semibold text-slate-950 lg:text-[28px]">{adoptionTitle}</h2>
@@ -712,13 +715,13 @@ export function ChatAnalyticsPage() {
                         <YAxis yAxisId="questions" allowDecimals={false} tick={{ fontSize: 11, fill: '#7c899d' }} axisLine={false} tickLine={false} />
                         <YAxis yAxisId="users" orientation="right" allowDecimals={false} tick={{ fontSize: 11, fill: '#7c899d' }} axisLine={false} tickLine={false} />
                         <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', boxShadow: '0 10px 30px rgba(15,23,42,.08)', fontSize: 12 }} />
-                        <Area yAxisId="questions" type="monotone" dataKey="questions" name="提问量" stroke="#002fa7" strokeWidth={2.2} fill="#dbeafe" fillOpacity={0.8} />
+                        <Area yAxisId="questions" type="monotone" dataKey="questions" name="提问量" stroke="var(--primary)" strokeWidth={2.2} fill="#dbeafe" fillOpacity={0.8} />
                         <Line yAxisId="users" type="monotone" dataKey="activeUsers" name="日活人数" stroke="#0f8c88" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                   <div className="mt-1 flex items-center gap-5 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                    <span className="flex items-center gap-2"><i className="h-0.5 w-5 rounded-full bg-[#002fa7]" />提问量</span>
+                    <span className="flex items-center gap-2"><i className="h-0.5 w-5 rounded-full bg-primary" />提问量</span>
                     <span className="flex items-center gap-2"><i className="h-0.5 w-5 rounded-full bg-teal-600" />日活人数</span>
                     <span className="ml-auto">最近使用 {formatDateTime(data.dataFreshness.lastQuestionAt)}</span>
                   </div>
@@ -729,36 +732,36 @@ export function ChatAnalyticsPage() {
                     <SectionHeader title="管理关注" description="由当前数据自动识别，点击可下钻查看对应对象。" />
                   </div>
                   <div className="divide-y divide-slate-100">
-                    <button type="button" onClick={() => scrollToPeople('not_used')} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
+                    <Button variant="unstyled" type="button" onClick={() => scrollToPeople('not_used')} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-sm font-semibold text-rose-600">1</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-slate-900">{notUsedCount > 0 ? `${notUsedCount} 人尚未形成使用` : '所有在用账号均已尝试'}</span>
                         <span className="mt-1 block text-xs leading-5 text-slate-500">{notUsedCount > 0 ? `占全部在用账号 ${Number(((notUsedCount / summary.eligibleUsers) * 100).toFixed(1))}%，需结合部门判断覆盖缺口。` : '覆盖已完成，下一步关注复用与质量。'}</span>
                       </span>
-                      <ChevronRight className="mt-2 size-4 shrink-0 text-slate-300 transition-colors group-hover:text-[#002fa7]" />
-                    </button>
-                    <button type="button" onClick={() => scrollToPeople(oneTimeCount > 0 ? 'one_time' : 'repeat')} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
+                      <ChevronRight className="mt-2 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+                    </Button>
+                    <Button variant="unstyled" type="button" onClick={() => scrollToPeople(oneTimeCount > 0 ? 'one_time' : 'repeat')} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-sm font-semibold text-amber-700">2</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-slate-900">{oneTimeCount > 0 ? `${oneTimeCount} 人仅尝试过一次` : `${summary.repeatUsers} 人已跨天复用`}</span>
                         <span className="mt-1 block text-xs leading-5 text-slate-500">当前复用率 {summary.repeatRate}%，{summary.repeatRate < 40 ? '尚未形成稳定使用习惯。' : '已具备初步持续使用基础。'}</span>
                       </span>
-                      <ChevronRight className="mt-2 size-4 shrink-0 text-slate-300 transition-colors group-hover:text-[#002fa7]" />
-                    </button>
-                    <button type="button" onClick={showFeedback ? scrollToFeedback : undefined} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
+                      <ChevronRight className="mt-2 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+                    </Button>
+                    <Button variant="unstyled" type="button" onClick={showFeedback ? scrollToFeedback : undefined} className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sm font-semibold text-sky-700">3</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold text-slate-900">{summary.openFeedback > 0 ? `${summary.openFeedback} 条问题尚未闭环` : `有效反馈 ${summary.feedbackCount}/30 条`}</span>
                         <span className="mt-1 block text-xs leading-5 text-slate-500">{summary.openFeedback > 0 ? '需查看具体问答和原因，避免问题长期悬空。' : summary.feedbackCount < 30 ? '质量样本仍少，暂不宜据此判断模型共性问题。' : '反馈样本达到初步分析门槛。'}</span>
                       </span>
-                      {showFeedback && <ChevronRight className="mt-2 size-4 shrink-0 text-slate-300 transition-colors group-hover:text-[#002fa7]" />}
-                    </button>
+                      {showFeedback && <ChevronRight className="mt-2 size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />}
+                    </Button>
                   </div>
                   {lowAdoptionDepartment && (
-                    <button type="button" onClick={() => scrollToPeople('all', lowAdoptionDepartment.department)} className="flex w-full cursor-pointer items-center justify-between gap-3 border-t border-blue-100 bg-blue-50/60 px-5 py-3 text-left text-xs text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-300">
+                    <Button variant="unstyled" type="button" onClick={() => scrollToPeople('all', lowAdoptionDepartment.department)} className="flex w-full cursor-pointer items-center justify-between gap-3 border-t border-primary/25 bg-accent/60 px-5 py-3 text-left text-xs text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/25">
                       <span><Building2 className="mr-1.5 inline h-3.5 w-3.5" />采用率最低：<strong>{lowAdoptionDepartment.department} {lowAdoptionDepartment.adoptionRate}%</strong></span>
                       <span className="font-semibold">查看人员</span>
-                    </button>
+                    </Button>
                   )}
                 </article>
               </section>
@@ -769,38 +772,38 @@ export function ChatAnalyticsPage() {
                   <div className="mt-4 divide-y divide-slate-100">
                     {data.scenarios.slice(0, 3).map((scenario, index) => (
                       <div key={scenario.key} className="flex items-center gap-3 py-3 first:pt-1">
-                        <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold', index === 0 ? 'bg-[#002fa7] text-white' : 'bg-slate-100 text-slate-500')}>{index + 1}</span>
+                        <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold', index === 0 ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500')}>{index + 1}</span>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-slate-800">{scenario.label}</p>
-                          <p className="mt-0.5 text-xs text-slate-400">{scenario.users} 人参与</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{scenario.users} 人参与</p>
                         </div>
                         <div className="text-right">
                           <p className="text-base font-semibold text-slate-950">{scenario.questions}</p>
-                          <p className="text-[11px] text-slate-400">个问题</p>
+                          <p className="text-[11px] text-muted-foreground">个问题</p>
                         </div>
                       </div>
                     ))}
-                    {data.scenarios.length === 0 && <p className="py-8 text-center text-sm text-slate-400">暂无真实用途样本</p>}
+                    {data.scenarios.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">暂无真实用途样本</p>}
                   </div>
                 </article>
 
                 <article className="hz-surface p-5">
                   <SectionHeader title="部门采用变化" description="采用率 = 活跃人数 ÷ 部门在用账号" />
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-100">
-                    <div className="grid grid-cols-[minmax(0,1fr)_72px_72px] bg-slate-50 px-3 py-2 text-[11px] font-medium text-slate-400">
+                    <div className="grid grid-cols-[minmax(0,1fr)_72px_72px] bg-slate-50 px-3 py-2 text-[11px] font-medium text-muted-foreground">
                       <span>部门</span><span className="text-right">本期</span><span className="text-right">较上期</span>
                     </div>
                     {data.departments.slice(0, 5).map((department) => {
                       const delta = department.adoptionRate - department.previousAdoptionRate;
                       return (
-                        <button key={department.department} type="button" onClick={() => scrollToPeople('all', department.department)} className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_72px_72px] items-center border-t border-slate-100 px-3 py-3 text-left transition-colors hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-300">
+                        <Button variant="unstyled" key={department.department} type="button" onClick={() => scrollToPeople('all', department.department)} className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_72px_72px] items-center border-t border-slate-100 px-3 py-3 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/25">
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-medium text-slate-700">{department.department}</span>
-                            <span className="mt-0.5 block text-[11px] text-slate-400">{department.activeUsers}/{department.eligibleUsers} 人</span>
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{department.activeUsers}/{department.eligibleUsers} 人</span>
                           </span>
                           <span className="text-right text-sm font-semibold text-slate-900">{department.adoptionRate}%</span>
-                          <span className={cn('text-right text-xs font-medium', delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-400')}>{signed(delta, 'pp')}</span>
-                        </button>
+                          <span className={cn('text-right text-xs font-medium', delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-muted-foreground')}>{signed(delta, 'pp')}</span>
+                        </Button>
                       );
                     })}
                   </div>
@@ -810,24 +813,24 @@ export function ChatAnalyticsPage() {
                   <SectionHeader title="持续使用人员" description="统计周期内跨天复用" />
                   <div className="mt-4 space-y-2.5">
                     {sustainedUsers.slice(0, 4).map((row) => (
-                      <button key={row.userId} type="button" onClick={() => setSelectedUserId(row.userId)} className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-1.5 text-left transition-colors hover:bg-slate-50">
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-[#002fa7]">{row.name.slice(0, 1)}</span>
+                      <Button variant="unstyled" key={row.userId} type="button" onClick={() => setSelectedUserId(row.userId)} className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-1 py-1.5 text-left transition-colors hover:bg-slate-50">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-primary">{row.name.slice(0, 1)}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-slate-800">{row.name}</span>
-                          <span className="mt-0.5 block truncate text-[11px] text-slate-400">{row.department}</span>
+                          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{row.department}</span>
                         </span>
                         <span className="text-right">
                           <span className="block text-sm font-semibold text-slate-900">{row.activeDays} 天</span>
-                          <span className="block text-[11px] text-slate-400">{row.questions} 问</span>
+                          <span className="block text-[11px] text-muted-foreground">{row.questions} 问</span>
                         </span>
-                        <ChevronRight className="size-4 text-slate-300 transition-colors group-hover:text-[#002fa7]" />
-                      </button>
+                        <ChevronRight className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                      </Button>
                     ))}
                     {sustainedUsers.length === 0 && (
                       <div className="rounded-xl bg-amber-50 px-4 py-5 text-center">
                         <Repeat2 className="mx-auto h-5 w-5 text-amber-500" />
                         <p className="mt-2 text-sm font-medium text-amber-800">尚无跨天复用人员</p>
-                        <button type="button" onClick={() => scrollToPeople('one_time')} className="mt-2 text-xs font-semibold text-amber-700">查看试用人员</button>
+                        <Button variant="unstyled" type="button" onClick={() => scrollToPeople('one_time')} className="mt-2 text-xs font-semibold text-amber-700">查看试用人员</Button>
                       </div>
                     )}
                   </div>
@@ -843,7 +846,7 @@ export function ChatAnalyticsPage() {
                   <div className="mt-4 overflow-x-auto">
                     <table className="w-full min-w-[520px] text-sm">
                       <thead>
-                        <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
+                        <tr className="border-b border-slate-100 text-left text-xs text-muted-foreground">
                           <th className="pb-2 font-medium">阶段</th>
                           <th className="pb-2 text-right font-medium">p50</th>
                           <th className="pb-2 text-right font-medium">p95</th>
@@ -856,7 +859,7 @@ export function ChatAnalyticsPage() {
                             <td className="py-2 text-slate-700">{phase.label}</td>
                             <td className="py-2 text-right tabular-nums text-slate-600">{formatMs(phase.p50Ms)}</td>
                             <td className="py-2 text-right font-semibold tabular-nums text-slate-900">{formatMs(phase.p95Ms)}</td>
-                            <td className="py-2 text-right tabular-nums text-slate-400">{phase.samples}</td>
+                            <td className="py-2 text-right tabular-nums text-muted-foreground">{phase.samples}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -868,7 +871,7 @@ export function ChatAnalyticsPage() {
               <section className="hz-surface mt-4 px-5 py-4 lg:px-6">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
                   <div className="lg:w-56">
-                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Target className="size-4 text-[#002fa7]" />样本门槛进度</p>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Target className="size-4 text-primary" />样本门槛进度</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">达到门槛后再评估模型共性优化</p>
                   </div>
                   <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
@@ -890,8 +893,8 @@ export function ChatAnalyticsPage() {
                   />
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.3fr)_minmax(160px,0.8fr)_minmax(180px,0.9fr)_auto]">
                     <label className="relative block">
-                      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                      <input value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="搜索姓名、部门、职位或场景" aria-label="搜索人员" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+                      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="搜索姓名、部门、职位或场景" aria-label="搜索人员" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25" />
                     </label>
                     <FilterSelect
                       value={departmentFilter ?? 'all'}
@@ -905,17 +908,17 @@ export function ChatAnalyticsPage() {
                       ariaLabel="按使用场景筛选人员"
                       options={[{ value: 'all', label: '全部使用场景' }, ...scenarioOptions.map((scenario) => ({ value: scenario, label: scenario }))]}
                     />
-                    <button type="button" onClick={resetPeopleFilters} disabled={!hasPeopleFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Button variant="unstyled" type="button" onClick={resetPeopleFilters} disabled={!hasPeopleFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                       <RefreshCw className="h-3.5 w-3.5" />重置
-                    </button>
+                    </Button>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
                     {PEOPLE_FILTERS.map((filter) => (
-                      <button key={filter.value} type="button" onClick={() => setPeopleFilter(filter.value)} className={cn('rounded-full px-3 py-1.5 text-xs font-medium transition-colors', peopleFilter === filter.value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+                      <Button variant="unstyled" key={filter.value} type="button" onClick={() => setPeopleFilter(filter.value)} className={cn('rounded-full px-3 py-1.5 text-xs font-medium transition-colors', peopleFilter === filter.value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
                         {filter.label}
-                      </button>
+                      </Button>
                     ))}
-                    <span className="ml-auto text-xs text-slate-400">共 {filteredUsers.length} 人</span>
+                    <span className="ml-auto text-xs text-muted-foreground">共 {filteredUsers.length} 人</span>
                   </div>
                 </div>
                 <div className="overflow-auto">
@@ -935,10 +938,10 @@ export function ChatAnalyticsPage() {
                       {pagedUsers.map((row) => {
                         const stage = adoptionStage(row);
                         return (
-                          <TableRow key={row.userId} tabIndex={0} role="button" aria-label={`查看 ${row.name} 的使用详情`} onClick={() => setSelectedUserId(row.userId)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedUserId(row.userId); } }} className="cursor-pointer transition-colors hover:bg-blue-50/60 focus:bg-blue-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-300">
+                          <TableRow key={row.userId} tabIndex={0} role="button" aria-label={`查看 ${row.name} 的使用详情`} onClick={() => setSelectedUserId(row.userId)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedUserId(row.userId); } }} className="cursor-pointer transition-colors hover:bg-accent/60 focus:bg-accent/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
                           <TableCell>
                             <div className="flex items-center gap-3">
-                              <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold', row.questions > 0 ? 'bg-blue-50 text-[#002fa7]' : 'bg-slate-100 text-slate-500')}>{row.name.slice(0, 1)}</span>
+                              <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold', row.questions > 0 ? 'bg-blue-50 text-primary' : 'bg-slate-100 text-slate-500')}>{row.name.slice(0, 1)}</span>
                               <div>
                                 <p className="font-semibold text-slate-900">{row.name}</p>
                                 <p className="mt-0.5 text-xs text-slate-500">{row.department}{row.role ? ` · ${row.role}` : ''}</p>
@@ -950,12 +953,12 @@ export function ChatAnalyticsPage() {
                           <TableCell>{row.activeDays}</TableCell>
                           <TableCell><span className="text-xs text-slate-600">{row.primaryScenario}</span></TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatDateTime(row.lastActiveAt)}</TableCell>
-                          <TableCell className="text-right"><span className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7]">查看<ChevronRight className="size-4" /></span></TableCell>
+                          <TableCell className="text-right"><span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">查看<ChevronRight className="size-4" /></span></TableCell>
                           </TableRow>
                         );
                       })}
                       {filteredUsers.length === 0 && (
-                        <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-slate-400">没有符合当前筛选条件的人员</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">没有符合当前筛选条件的人员</TableCell></TableRow>
                       )}
                     </TableBody>
                   </Table>
@@ -969,8 +972,8 @@ export function ChatAnalyticsPage() {
                     <SectionHeader title="反馈与问题跟进" description="点赞作为质量信号；点踩进入问题处理流程并保留处理结论。" />
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_140px_150px_minmax(150px,0.75fr)_auto]">
                       <label className="relative block">
-                        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                        <input value={feedbackQuery} onChange={(event) => setFeedbackQuery(event.target.value)} placeholder="搜索人员、问题、回答或反馈" aria-label="搜索反馈" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+                        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input value={feedbackQuery} onChange={(event) => setFeedbackQuery(event.target.value)} placeholder="搜索人员、问题、回答或反馈" aria-label="搜索反馈" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25" />
                       </label>
                       <FilterSelect
                         value={feedbackReaction}
@@ -996,9 +999,9 @@ export function ChatAnalyticsPage() {
                         ariaLabel="按部门筛选反馈"
                         options={[{ value: 'all', label: '全部部门' }, ...feedbackDepartmentOptions.map((department) => ({ value: department, label: department }))]}
                       />
-                      <button type="button" onClick={resetFeedbackFilters} disabled={!hasFeedbackFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />重置</button>
+                      <Button variant="unstyled" type="button" onClick={resetFeedbackFilters} disabled={!hasFeedbackFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />重置</Button>
                     </div>
-                    <p className="mt-3 border-t border-slate-100 pt-3 text-right text-xs text-slate-400">共 {filteredFeedback.length} 条</p>
+                    <p className="mt-3 border-t border-slate-100 pt-3 text-right text-xs text-muted-foreground">共 {filteredFeedback.length} 条</p>
                   </div>
                   <div className="overflow-auto">
                     <Table>
@@ -1006,7 +1009,7 @@ export function ChatAnalyticsPage() {
                       <TableBody>
                         {pagedFeedback.map((row) => (
                           <TableRow key={row.id} className="align-top">
-                            <TableCell><button type="button" onClick={() => setSelectedUserId(row.userId)} className="cursor-pointer text-left"><p className="font-semibold text-slate-900">{row.user}</p><p className="mt-1 text-xs text-slate-500">{row.department}</p></button></TableCell>
+                            <TableCell><Button variant="unstyled" type="button" onClick={() => setSelectedUserId(row.userId)} className="cursor-pointer text-left"><p className="font-semibold text-slate-900">{row.user}</p><p className="mt-1 text-xs text-slate-500">{row.department}</p></Button></TableCell>
                             <TableCell>
                               <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span>
                               {row.reasonLabels.length > 0 && <p className="mt-2 text-xs leading-5 text-slate-700">{row.reasonLabels.join('、')}</p>}
@@ -1027,7 +1030,7 @@ export function ChatAnalyticsPage() {
                             ) : <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', STATUS_META[row.status].className)}>{STATUS_META[row.status].label}</span>}</TableCell>
                           </TableRow>
                         ))}
-                        {filteredFeedback.length === 0 && <TableRow><TableCell colSpan={5} className="py-12 text-center text-sm text-slate-400">没有符合当前筛选条件的反馈</TableCell></TableRow>}
+                        {filteredFeedback.length === 0 && <TableRow><TableCell colSpan={5} className="py-12 text-center text-sm text-muted-foreground">没有符合当前筛选条件的反馈</TableCell></TableRow>}
                       </TableBody>
                     </Table>
                   </div>
@@ -1040,7 +1043,7 @@ export function ChatAnalyticsPage() {
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <p className="leading-5">{Object.values(data.definitions).join('；')}。</p>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {data.dataQuality.checks.map((check) => <div key={check.key} className="rounded-lg bg-slate-50 px-3 py-2"><span className="font-medium text-slate-700">{check.label}</span><span className="float-right">{check.value}</span><p className="mt-1 text-[11px] leading-4 text-slate-400">{check.detail}</p></div>)}
+                    {data.dataQuality.checks.map((check) => <div key={check.key} className="rounded-lg bg-slate-50 px-3 py-2"><span className="font-medium text-slate-700">{check.label}</span><span className="float-right">{check.value}</span><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{check.detail}</p></div>)}
                   </div>
                 </div>
               </details>
@@ -1052,7 +1055,7 @@ export function ChatAnalyticsPage() {
               Icon={AlertCircle}
               title="使用数据暂时无法加载"
               description="请检查服务状态后重试，当前筛选条件会被保留。"
-              action={<button type="button" onClick={() => void load()} className="inline-flex min-h-9 items-center justify-center rounded-xl bg-[#002fa7] px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">重新加载</button>}
+              action={<Button type="button" onClick={() => void load()} className="inline-flex min-h-9 items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2">重新加载</Button>}
             />
           </section>
         )}
@@ -1062,7 +1065,7 @@ export function ChatAnalyticsPage() {
         <SheetContent className="horizon-portal w-full gap-0 overflow-hidden border-slate-200 bg-[#f5f7fb] p-0 sm:max-w-[720px]">
           <SheetHeader className="border-b border-slate-200 bg-white px-6 py-5 pr-12 text-left">
             <div className="flex items-center gap-3">
-              <span className="flex size-11 items-center justify-center rounded-full bg-blue-50 text-lg font-semibold text-[#002fa7]">{(userDetail?.person.name ?? '人').slice(0, 1)}</span>
+              <span className="flex size-11 items-center justify-center rounded-full bg-blue-50 text-lg font-semibold text-primary">{(userDetail?.person.name ?? '人').slice(0, 1)}</span>
               <div>
                 <SheetTitle className="text-xl text-slate-950">{userDetail?.person.name ?? '人员使用详情'}</SheetTitle>
                 <SheetDescription className="mt-1 text-xs text-slate-500">{userDetail ? `${userDetail.person.department}${userDetail.person.position ? ` · ${userDetail.person.position}` : ''}` : `近 ${days} 天使用情况`}</SheetDescription>
@@ -1089,14 +1092,14 @@ export function ChatAnalyticsPage() {
                   </section>
                   <section className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="grid gap-3 text-xs sm:grid-cols-2">
-                      <div className="flex items-center gap-2 text-slate-600"><CalendarDays className="size-4 text-[#002fa7]" />首次使用：<strong className="font-medium text-slate-900">{formatDate(userDetail.summary.firstUsedAt)}</strong></div>
-                      <div className="flex items-center gap-2 text-slate-600"><Clock3 className="size-4 text-[#002fa7]" />最近使用：<strong className="font-medium text-slate-900">{formatDateTime(userDetail.summary.lastActiveAt)}</strong></div>
+                      <div className="flex items-center gap-2 text-slate-600"><CalendarDays className="size-4 text-primary" />首次使用：<strong className="font-medium text-slate-900">{formatDate(userDetail.summary.firstUsedAt)}</strong></div>
+                      <div className="flex items-center gap-2 text-slate-600"><Clock3 className="size-4 text-primary" />最近使用：<strong className="font-medium text-slate-900">{formatDateTime(userDetail.summary.lastActiveAt)}</strong></div>
                     </div>
                   </section>
                   {userDetail.scenarios.length > 0 && (
                     <section className="rounded-2xl border border-slate-200 bg-white p-4">
                       <SectionHeader title="主要使用场景" />
-                      <div className="mt-4 space-y-3">{userDetail.scenarios.map((scenario) => <div key={scenario.key}><div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium text-slate-700">{scenario.label}</span><span className="font-semibold text-slate-900">{scenario.questions} 问 · {scenario.share}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${scenario.share}%` }} /></div></div>)}</div>
+                      <div className="mt-4 space-y-3">{userDetail.scenarios.map((scenario) => <div key={scenario.key}><div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium text-slate-700">{scenario.label}</span><span className="font-semibold text-slate-900">{scenario.questions} 问 · {scenario.share}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary" style={{ width: `${scenario.share}%` }} /></div></div>)}</div>
                     </section>
                   )}
                   {userDetail.recentActivity.length > 0 && (
@@ -1104,7 +1107,7 @@ export function ChatAnalyticsPage() {
                       <div className="p-4">
                         <SectionHeader title="近期使用记录" description="查看该人员在什么时间、用 AI 处理了什么问题。" />
                         <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
-                          <label className="relative block"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-slate-400" /><input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="搜索问题、回答或模型" aria-label="搜索个人使用记录" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" /></label>
+                          <label className="relative block"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="搜索问题、回答或模型" aria-label="搜索个人使用记录" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25" /></label>
                           <FilterSelect
                             value={activityScenario}
                             onValueChange={setActivityScenario}
@@ -1112,8 +1115,8 @@ export function ChatAnalyticsPage() {
                             options={[{ value: 'all', label: '全部使用场景' }, ...activityScenarioOptions.map((scenario) => ({ value: scenario, label: scenario }))]}
                           />
                         </div>
-                        <div className="mt-4 space-y-3">{pagedActivity.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5"><div className="flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-[#002fa7]">{row.scenario}</span><span className="text-[11px] text-slate-400">{formatDateTime(row.createdAt)}</span></div><p className="mt-2 text-pretty text-sm leading-6 text-slate-800">{row.question}</p>{row.hasAttachments && <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400"><Paperclip className="size-3" />含附件</p>}{row.answer && <p className="mt-2 line-clamp-3 rounded-lg bg-slate-50 px-3 py-2 text-pretty text-xs leading-5 text-slate-500">AI：{row.answer}</p>}{row.reaction && <div className="mt-2 flex justify-end text-[11px]">{row.reaction === 'like' ? <span className="flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3" />有帮助</span> : <span className="flex items-center gap-1 text-rose-600"><ThumbsDown className="size-3" />需改进</span>}</div>}</article>)}</div>
-                        {filteredActivity.length === 0 && <p className="py-10 text-center text-sm text-slate-400">没有符合当前筛选条件的使用记录</p>}
+                        <div className="mt-4 space-y-3">{pagedActivity.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5"><div className="flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-primary">{row.scenario}</span><span className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</span></div><p className="mt-2 text-pretty text-sm leading-6 text-slate-800">{row.question}</p>{row.hasAttachments && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"><Paperclip className="size-3" />含附件</p>}{row.answer && <p className="mt-2 line-clamp-3 rounded-lg bg-slate-50 px-3 py-2 text-pretty text-xs leading-5 text-slate-500">AI：{row.answer}</p>}{row.reaction && <div className="mt-2 flex justify-end text-[11px]">{row.reaction === 'like' ? <span className="flex items-center gap-1 text-emerald-600"><ThumbsUp className="size-3" />有帮助</span> : <span className="flex items-center gap-1 text-rose-600"><ThumbsDown className="size-3" />需改进</span>}</div>}</article>)}</div>
+                        {filteredActivity.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">没有符合当前筛选条件的使用记录</p>}
                       </div>
                       <ListPagination page={safeActivityPage} pageSize={activityPageSize} totalItems={filteredActivity.length} onPageChange={setActivityPage} onPageSizeChange={setActivityPageSize} pageSizeOptions={[5, 10, 20]} />
                     </section>
@@ -1136,8 +1139,8 @@ export function ChatAnalyticsPage() {
                             options={[{ value: 'all', label: '全部处理状态' }, ...Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label }))]}
                           />
                         </div>
-                        <div className="mt-4 space-y-3">{pagedPersonFeedback.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5 text-xs"><div className="flex items-center justify-between gap-3"><span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="text-slate-400">{formatDateTime(row.submittedAt)}</span></div>{row.reasonLabels.length > 0 && <p className="mt-2 text-slate-700">{row.reasonLabels.join('、')}</p>}{row.comment && <p className="mt-1 text-slate-500">“{row.comment}”</p>}{row.resolutionNote && <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-slate-600">处理结论：{row.resolutionNote}</p>}</article>)}</div>
-                        {filteredPersonFeedback.length === 0 && <p className="py-10 text-center text-sm text-slate-400">没有符合当前筛选条件的反馈</p>}
+                        <div className="mt-4 space-y-3">{pagedPersonFeedback.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5 text-xs"><div className="flex items-center justify-between gap-3"><span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="text-muted-foreground">{formatDateTime(row.submittedAt)}</span></div>{row.reasonLabels.length > 0 && <p className="mt-2 text-slate-700">{row.reasonLabels.join('、')}</p>}{row.comment && <p className="mt-1 text-slate-500">“{row.comment}”</p>}{row.resolutionNote && <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-slate-600">处理结论：{row.resolutionNote}</p>}</article>)}</div>
+                        {filteredPersonFeedback.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">没有符合当前筛选条件的反馈</p>}
                       </div>
                       <ListPagination page={safePersonFeedbackPage} pageSize={personFeedbackPageSize} totalItems={filteredPersonFeedback.length} onPageChange={setPersonFeedbackPage} onPageSizeChange={setPersonFeedbackPageSize} pageSizeOptions={[5, 10, 20]} />
                     </section>
@@ -1146,10 +1149,10 @@ export function ChatAnalyticsPage() {
                     <details className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
                       <summary className="cursor-pointer font-medium text-slate-700">查看回答运行信息</summary>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        {(userDetail.summary.avgResponseMs !== null || userDetail.summary.successRate !== null) && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><Gauge className="size-4 text-[#002fa7]" />回答表现</p><p className="mt-2">完成率 {userDetail.summary.successRate ?? '—'}% · 平均耗时 {formatMs(userDetail.summary.avgResponseMs)}</p></div>}
-                        {userDetail.models.length > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><Sparkles className="size-4 text-[#002fa7]" />模型</p><p className="mt-2">{userDetail.models.map((row) => `${row.model} ${row.answers}条`).join(' · ')}</p></div>}
-                        {userDetail.sources.length > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><FileText className="size-4 text-[#002fa7]" />信息来源</p><p className="mt-2">{userDetail.sources.map((row) => `${row.source} ${row.answers}条`).join(' · ')}</p></div>}
-                        {userDetail.summary.copyCount + userDetail.summary.shareCount + userDetail.summary.regenerateCount > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><ArrowRight className="size-4 text-[#002fa7]" />后续动作</p><div className="mt-2 flex gap-3"><span><Copy className="mr-1 inline size-3" />{userDetail.summary.copyCount}</span><span><Share2 className="mr-1 inline size-3" />{userDetail.summary.shareCount}</span><span><RefreshCw className="mr-1 inline size-3" />{userDetail.summary.regenerateCount}</span></div></div>}
+                        {(userDetail.summary.avgResponseMs !== null || userDetail.summary.successRate !== null) && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><Gauge className="size-4 text-primary" />回答表现</p><p className="mt-2">完成率 {userDetail.summary.successRate ?? '—'}% · 平均耗时 {formatMs(userDetail.summary.avgResponseMs)}</p></div>}
+                        {userDetail.models.length > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><Sparkles className="size-4 text-primary" />模型</p><p className="mt-2">{userDetail.models.map((row) => `${row.model} ${row.answers}条`).join(' · ')}</p></div>}
+                        {userDetail.sources.length > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><FileText className="size-4 text-primary" />信息来源</p><p className="mt-2">{userDetail.sources.map((row) => `${row.source} ${row.answers}条`).join(' · ')}</p></div>}
+                        {userDetail.summary.copyCount + userDetail.summary.shareCount + userDetail.summary.regenerateCount > 0 && <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 font-semibold text-slate-800"><ArrowRight className="size-4 text-primary" />后续动作</p><div className="mt-2 flex gap-3"><span><Copy className="mr-1 inline size-3" />{userDetail.summary.copyCount}</span><span><Share2 className="mr-1 inline size-3" />{userDetail.summary.shareCount}</span><span><RefreshCw className="mr-1 inline size-3" />{userDetail.summary.regenerateCount}</span></div></div>}
                       </div>
                     </details>
                   )}
@@ -1169,7 +1172,7 @@ export function ChatAnalyticsPage() {
             </DialogHeader>
             <div className="px-6 py-5">
               <label className="block text-sm font-medium text-slate-700">处理结论{(statusDraft.status === 'resolved' || statusDraft.status === 'ignored') && <span className="text-rose-500"> *</span>}
-                <textarea
+                <Textarea
                   ref={resolutionInputRef}
                   value={statusDraft.resolutionNote}
                   onChange={(event) => setStatusDraft({ ...statusDraft, resolutionNote: event.target.value })}
@@ -1182,7 +1185,7 @@ export function ChatAnalyticsPage() {
                     "mt-2 w-full resize-none rounded-xl border px-3 py-2 text-sm leading-6 outline-none focus:ring-2",
                     statusSubmitAttempted && statusNeedsResolution
                       ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
-                      : "border-slate-200 focus:border-blue-300 focus:ring-blue-100",
+                      : "border-slate-200 focus:border-primary/25 focus:ring-primary/25",
                   )}
                 />
               </label>
@@ -1191,8 +1194,8 @@ export function ChatAnalyticsPage() {
               ) : null}
             </div>
             <DialogFooter className="border-t border-slate-100 px-6 py-4">
-              <button type="button" onClick={() => { setStatusDraft(null); setStatusSubmitAttempted(false); }} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">取消</button>
-              <button type="button" onClick={() => void updateStatus()} disabled={updatingId === statusDraft.row.id} className="rounded-xl bg-[#002fa7] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-60">确认更新</button>
+              <Button variant="unstyled" type="button" onClick={() => { setStatusDraft(null); setStatusSubmitAttempted(false); }} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">取消</Button>
+              <Button type="button" onClick={() => void updateStatus()} disabled={updatingId === statusDraft.row.id} className="rounded-xl px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:opacity-60">确认更新</Button>
             </DialogFooter>
           </DialogContent>
         )}

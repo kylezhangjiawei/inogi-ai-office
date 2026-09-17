@@ -86,7 +86,7 @@ export function statusBadgeClass(status: PurchaseOrderStatus) {
     case '待确认':
       return 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-50';
     case '已下单':
-      return 'border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7] hover:bg-[#eef3ff]';
+      return 'border-[#cbd8f6] bg-accent text-primary hover:bg-accent';
     case '部分到货':
       return 'border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-50';
     case '已完成':
@@ -307,7 +307,7 @@ export function PurchaseOrders() {
         <div className="order-horizon-toolbar shrink-0 border-b border-slate-100 px-4 py-3">
           <div role="search" aria-label={t('采购订单筛选')} className="flex flex-wrap items-center gap-2">
             <div className="relative w-full min-w-0 sm:min-w-[220px] sm:flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => {
@@ -416,7 +416,7 @@ export function PurchaseOrders() {
           role="region"
           aria-label={t('采购订单列表，可横向滚动查看更多字段')}
           tabIndex={0}
-          className="relative min-h-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]">
+          className="relative min-h-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
           <span role="status" aria-live="polite" className="sr-only">
             {loading ? t('正在加载采购订单') : t('采购订单加载完成，共 {count} 条', { count: total })}
           </span>
@@ -466,14 +466,14 @@ export function PurchaseOrders() {
                         {t('查看')}
                       </Button>
                     ) : (
-                      <span className="text-xs text-slate-400">{t('无详情权限')}</span>
+                      <span className="text-xs text-muted-foreground">{t('无详情权限')}</span>
                     )}
                   </TableCell>
                 </TableRow>
               ))}
               {!loading && loadError && orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-44 text-center text-sm text-slate-400">
+                  <TableCell colSpan={11} className="h-44 text-center text-sm text-muted-foreground">
                     <OrderEmptyState
                       Icon={AlertCircle}
                       title={t('采购订单加载失败')}
@@ -490,7 +490,7 @@ export function PurchaseOrders() {
               ) : null}
               {!loading && !loadError && orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-44 text-center text-sm text-slate-400">
+                  <TableCell colSpan={11} className="h-44 text-center text-sm text-muted-foreground">
                     <OrderEmptyState
                       Icon={PackageCheck}
                       title={hasActiveFilters ? t('暂无匹配的采购订单') : t('暂无采购订单')}

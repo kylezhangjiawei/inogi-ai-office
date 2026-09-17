@@ -38,6 +38,8 @@ import { t, useI18n, type I18nLang } from "./lib/i18n";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 import { useResetPageScroll } from "./hooks/useResetPageScroll";
+import { Input } from "./components/ui/input";
+import { Button } from "./components/ui/button";
 
 type ShotMarker = { n: number; x: number; y: number };
 
@@ -750,10 +752,10 @@ function TopicIndexCard({ topic }: { topic: ManualTopic }) {
   return (
     <Link
       to={`${routePath("page:manual", "/manual")}/${topic.id}`}
-      className="group flex min-h-56 min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-[#002fa7]/35 hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2"
+      className="group flex min-h-56 min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-primary/35 hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
     >
       <div className="flex min-w-0 items-start justify-between gap-4">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden="true">
           <Icon className="size-5" />
         </span>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
@@ -771,7 +773,7 @@ function TopicIndexCard({ topic }: { topic: ManualTopic }) {
             steps: topic.howTos?.length ?? 0,
           })}
         </span>
-        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#002fa7]">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           <BookOpen className="size-4" aria-hidden="true" />
           {t("查看手册")}
         </span>
@@ -847,8 +849,8 @@ export function ManualPage() {
         <div className="border-t border-slate-100 p-4 sm:p-5">
           <label htmlFor="manual-topic-search" className="sr-only">{t("搜索操作手册")}</label>
           <div className="relative max-w-2xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-            <input
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
               id="manual-topic-search"
               name="manual-topic-search"
               type="search"
@@ -856,17 +858,17 @@ export function ManualPage() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("例如：批量转派、权限分值、上传文件…")}
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm text-slate-800 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/15"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm text-slate-800 shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
             />
             {query ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => setQuery("")}
                 aria-label={t("清除搜索")}
-                className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+                className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
               >
                 <X className="size-4" aria-hidden="true" />
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
@@ -891,10 +893,10 @@ export function ManualPage() {
               title={t("没有匹配的手册主题")}
               description={t("换一个页面名称、业务动作或权限关键词，或清除当前搜索。")}
               action={
-                <button type="button" onClick={() => setQuery("")} className="hz-secondary-action">
+                <Button variant="unstyled" type="button" onClick={() => setQuery("")} className="hz-secondary-action">
                   <X className="size-4" aria-hidden="true" />
                   {t("清除搜索")}
-                </button>
+                </Button>
               }
             />
           </div>
@@ -954,7 +956,7 @@ export function ManualTopicPage() {
             <a
               key={item.id}
               href={`#${item.id}`}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-[#002fa7]/30 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/30 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
             >
               {t(item.label)}
             </a>
@@ -988,11 +990,11 @@ export function ManualTopicPage() {
             src={shotSrc}
             alt={t(topic.title)}
             title={t(topic.title)}
-            className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-[#002fa7]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+            className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
           >
             <ManualShotImage shot={topic.shot} lang={lang} alt={t(topic.title)} />
           </MobileImagePreviewLink>
-          <figcaption className="text-xs text-slate-400">{t("点击图片查看大图")}</figcaption>
+          <figcaption className="text-xs text-muted-foreground">{t("点击图片查看大图")}</figcaption>
         </figure>
 
         <section id="tour" className="scroll-mt-24">
@@ -1051,7 +1053,7 @@ export function ManualTopicPage() {
                     src={manualShotSrc(dive.shot, lang)}
                     alt={t(dive.title)}
                     title={t(dive.title)}
-                    className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-[#002fa7]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+                    className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                   >
                     <ManualShotImage shot={dive.shot} lang={lang} alt={t(dive.title)} />
                   </MobileImagePreviewLink>

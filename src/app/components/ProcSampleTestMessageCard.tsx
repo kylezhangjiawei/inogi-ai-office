@@ -21,7 +21,7 @@ export function ProcSampleTestMessageCard({ body, onOpen }: { body: ProcurementS
     [t("来源研发任务"), body.rd_task_title],
   ].filter(([, value]) => value);
   return <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" aria-label={t(request ? "样品测试待办" : "样品测试结果")}>
-    <div className="flex items-center gap-2 text-sm font-semibold text-[#002fa7]"><ClipboardCheck className="size-4" aria-hidden="true" />{t(request ? "样品测试待办" : sampleTestResultLabel(body.result))}</div>
+    <div className="flex items-center gap-2 text-sm font-semibold text-primary"><ClipboardCheck className="size-4" aria-hidden="true" />{t(request ? "样品测试待办" : sampleTestResultLabel(body.result))}</div>
     <h3 className="text-base font-semibold text-slate-900">{body.material_name || t("样品测试")}</h3>
     <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-0.5 break-words text-sm text-slate-800">{value}</dd></div>)}</dl>
     {!request && <div className="rounded-lg bg-slate-50 px-3 py-2"><p className="text-xs font-semibold text-slate-500">{t("测试结论")}</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800">{body.conclusion || t("结论待补充")}</p></div>}

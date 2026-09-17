@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import { RenewableImage } from "./components/RenewableImage";
 import { ResourceDownloadLink } from "./components/ResourceDownloadLink";
 import { refreshRdAttachment } from "./lib/attachmentAccess";
@@ -189,7 +190,7 @@ export function TaskImageGallery({
 
   return (
     <div className={cn("rd-task-image-gallery rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5", className)}>
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
         aria-expanded={!collapsed}
@@ -201,20 +202,20 @@ export function TaskImageGallery({
           {t("任务图片")}
           <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{t("{n} 张", { n: images.length })}</span>
         </span>
-        <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", collapsed && "-rotate-90")} />
-      </button>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", collapsed && "-rotate-90")} />
+      </Button>
 
       {!collapsed && (
         <div id={galleryPanelId} className="mt-2 max-h-[300px] space-y-2.5 overflow-y-auto">
           {groups.map((group) => (
             <div key={group.date}>
-              <div className="mb-1 text-[10px] font-semibold text-slate-400">
+              <div className="mb-1 text-[10px] font-semibold text-muted-foreground">
                 {group.date} · {t("{n} 张", { n: group.items.length })}
               </div>
               {/* 横向滑动缩略条：图片多也不撑开布局，PC 滚轮/拖动、移动端触摸横滑 */}
               <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
                 {group.items.map((img) => (
-                  <button
+                  <Button variant="unstyled"
                     key={img.att.id}
                     type="button"
                     onClick={() => {
@@ -222,7 +223,7 @@ export function TaskImageGallery({
                       setLightboxIndex(indexOf.get(img.att.id) ?? 0);
                     }}
                     title={`${img.att.name}${img.actor ? ` · ${img.actor}` : ""}`}
-                    className="size-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 hover:border-[#002fa7]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                    className="size-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   >
                     <RenewableImage
                       resourceKey={`rd-thumb:${img.att.task_id}:${img.att.id}`}
@@ -233,7 +234,7 @@ export function TaskImageGallery({
                       loading="lazy"
                       decoding="async"
                     />
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -497,23 +498,23 @@ export function TaskImageLightbox({
         <div className="flex shrink-0 items-center gap-1.5">
           {zoomEnabled && (
             <>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => zoomImageTo(imageTransformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/90 transition hover:bg-white/20"
                 aria-label="缩小图片"
               >
                 <ZoomOut className="h-4 w-4" />
-              </button>
+              </Button>
               <span ref={zoomLabelRef} className="w-11 text-center text-[11px] tabular-nums text-white/70" aria-live="polite">100%</span>
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => zoomImageTo(imageTransformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/90 transition hover:bg-white/20"
                 aria-label="放大图片"
               >
                 <ZoomIn className="h-4 w-4" />
-              </button>
+              </Button>
             </>
           )}
           <ResourceDownloadLink
@@ -527,7 +528,7 @@ export function TaskImageLightbox({
           >
             <Download className="h-4 w-4" />
           </ResourceDownloadLink>
-          <button
+          <Button variant="unstyled"
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
@@ -535,7 +536,7 @@ export function TaskImageLightbox({
             aria-label="关闭"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -633,14 +634,14 @@ export function TaskImageLightbox({
         }}
       >
         {hasPrev && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => moveTo(index - 1)}
             className="absolute left-2 top-1/2 z-10 hidden size-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25 sm:flex"
             aria-label="上一张"
           >
             <ChevronLeft className="h-6 w-6" />
-          </button>
+          </Button>
         )}
         <div ref={carouselFrameRef} className="relative flex h-full w-full items-center justify-center">
           {!resource.failed && (resource.refreshing || loadedUrl !== currentUrl) && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
@@ -669,14 +670,14 @@ export function TaskImageLightbox({
           </div>
         </div>
         {hasNext && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => moveTo(index + 1)}
             className="absolute right-2 top-1/2 z-10 hidden size-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25 sm:flex"
             aria-label="下一张"
           >
             <ChevronRight className="h-6 w-6" />
-          </button>
+          </Button>
         )}
       </div>
     </DialogContent>
@@ -811,7 +812,7 @@ export function ProgressAttachmentGrid({
     managed ? (
       <span className="absolute right-1.5 top-1.5 z-10 hidden items-center gap-1 group-hover/att:flex group-focus-within/att:flex">
         {onReplaceAttachment && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={(e) => { e.stopPropagation(); onReplaceAttachment(att); }}
             title={t("替换附件")}
@@ -819,10 +820,10 @@ export function ProgressAttachmentGrid({
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-amber-50 hover:text-amber-600"
           >
             <RefreshCw className="h-3 w-3" />
-          </button>
+          </Button>
         )}
         {onDeleteAttachment && (
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={(e) => { e.stopPropagation(); onDeleteAttachment(att); }}
             title={t("删除附件")}
@@ -830,7 +831,7 @@ export function ProgressAttachmentGrid({
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-red-50 hover:text-red-600"
           >
             <Trash2 className="h-3 w-3" />
-          </button>
+          </Button>
         )}
       </span>
     ) : null;
@@ -863,13 +864,13 @@ export function ProgressAttachmentGrid({
                 )}
               >
                 {renderActions(att)}
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
                   aria-label={thumbnailMode ? `预览图片 ${imagePosition}/${imageAttachments.length}：${att.name}` : undefined}
                   className={cn(
-                    "group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left hover:border-[#002fa7]/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                    "group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left hover:border-primary/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                     thumbnailMode && "h-full bg-white",
                   )}
                 >
@@ -905,10 +906,10 @@ export function ProgressAttachmentGrid({
                   {!thumbnailMode ? (
                     <div className={cn("flex items-center justify-between gap-2", compact ? "px-1.5 py-1" : "px-2 py-1.5")}>
                       <span className={cn("min-w-0 truncate font-medium text-slate-700", compact ? "text-[10px]" : "text-[11px]")}>{att.name}</span>
-                      <span className="shrink-0 text-[9px] text-slate-400">{formatRdFileSize(att.size)}</span>
+                      <span className="shrink-0 text-[9px] text-muted-foreground">{formatRdFileSize(att.size)}</span>
                     </div>
                   ) : null}
-                </button>
+                </Button>
               </div>
             );
           }
@@ -917,11 +918,11 @@ export function ProgressAttachmentGrid({
             return (
               <div key={att.id} className={cn("group/att relative", thumbnailMode && "w-full", clippedCardMode && "w-[156px] shrink-0")}>
                 {renderActions(att)}
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
-                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left hover:border-[#002fa7]/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left hover:border-primary/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <div className={cn("relative overflow-hidden bg-slate-900", clippedCardMode ? "h-16" : compact ? "h-12" : "h-32")}>
                     <video
@@ -933,7 +934,7 @@ export function ProgressAttachmentGrid({
                       aria-label={att.name}
                     />
                     <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="flex size-9 items-center justify-center rounded-full bg-white/90 text-[#002fa7] shadow-lg">
+                      <span className="flex size-9 items-center justify-center rounded-full bg-white/90 text-primary shadow-lg">
                         <PlayCircle className="h-5 w-5" />
                       </span>
                     </span>
@@ -947,9 +948,9 @@ export function ProgressAttachmentGrid({
                   </div>
                   <div className={cn("flex items-center justify-between gap-2 bg-white", compact ? "px-1.5 py-1" : "px-2 py-1.5")}>
                     <span className={cn("min-w-0 truncate font-medium text-slate-700", compact ? "text-[10px]" : "text-[11px]")}>{att.name}</span>
-                    <span className="shrink-0 text-[9px] text-slate-400">{formatRdFileSize(att.size)}</span>
+                    <span className="shrink-0 text-[9px] text-muted-foreground">{formatRdFileSize(att.size)}</span>
                   </div>
-                </button>
+                </Button>
               </div>
             );
           }
@@ -957,19 +958,19 @@ export function ProgressAttachmentGrid({
           return (
             <div key={att.id} className={cn("group/att relative", thumbnailMode && "w-full", clippedCardMode && "w-[156px] shrink-0")}>
               {renderActions(att)}
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => openPreview(att)}
                 title={`${att.name} · ${formatRdFileSize(att.size)}`}
                 className={cn(
-                  "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 text-left text-xs text-slate-700 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300",
+                  "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 text-left text-xs text-slate-700 transition hover:border-primary/25 hover:bg-accent/60 hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25",
                   compact ? "py-1.5" : "py-2",
                 )}
               >
-                <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{att.name}</span>
-                <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(att.size)}</span>
-              </button>
+                <span className="shrink-0 text-[10px] text-muted-foreground">{formatRdFileSize(att.size)}</span>
+              </Button>
             </div>
           );
         })}
@@ -1121,24 +1122,24 @@ export function AttachmentPreviewModal({
               download={attachment.name}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               <Download className="h-3.5 w-3.5" />
               下载
             </ResourceDownloadLink>
-            <button
+            <Button variant="unstyled"
               ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               aria-label="关闭预览"
             >
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
-          {resource.refreshing ? <div role="status" className="flex min-h-[52vh] items-center justify-center"><Loader2 className="size-6 animate-spin text-slate-400" /></div> : resource.failed ? <div role="alert" className="p-6 text-sm text-slate-500">{t("附件加载失败，请重新打开或下载查看。")}</div> : isImage ? (
+          {resource.refreshing ? <div role="status" className="flex min-h-[52vh] items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div> : resource.failed ? <div role="alert" className="p-6 text-sm text-slate-500">{t("附件加载失败，请重新打开或下载查看。")}</div> : isImage ? (
             <div className="flex min-h-[52vh] items-center justify-center">
               <img
                 src={resource.src || undefined}
@@ -1181,11 +1182,11 @@ export function AttachmentPreviewModal({
             />
           ) : canInlinePreview && !inlinePreview.failed ? (
             <div className="flex min-h-[52vh] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : canInlinePreview ? (
             <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
-              <FileText className="h-10 w-10 text-slate-300" />
+              <FileText className="h-10 w-10 text-muted-foreground" />
               <div className="mt-4 text-sm font-semibold text-slate-900">该附件没有可在线预览的地址</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
                 多为早期内嵌存储的历史附件。文件本身仍可用，请点右上角「下载」查看；重新上传一次即可恢复在线预览。
@@ -1193,7 +1194,7 @@ export function AttachmentPreviewModal({
             </div>
           ) : (
             <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
-              <FileText className="h-10 w-10 text-slate-300" />
+              <FileText className="h-10 w-10 text-muted-foreground" />
               <div className="mt-4 text-sm font-semibold text-slate-900">当前格式暂不支持内嵌预览</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
                 文件已保留在当前留痕记录中，可直接下载查看，不会离开当前驾驶舱页面。
@@ -1237,17 +1238,17 @@ function XlsxTablePreview({ url }: { url: string }) {
   if (error) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center" role="alert">
-        <FileText className="h-10 w-10 text-slate-300" />
+        <FileText className="h-10 w-10 text-muted-foreground" />
         <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">表格预览失败</div>
         <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{error}，可点右上角「下载」打开。</p>
-        <button
+        <Button
           type="button"
           onClick={() => setRetryKey((current) => current + 1)}
-          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-2 text-xs font-semibold text-white hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <RefreshCw className="size-3.5" aria-hidden="true" />
           重新解析
-        </button>
+        </Button>
       </div>
     );
   }
@@ -1265,7 +1266,7 @@ function XlsxTablePreview({ url }: { url: string }) {
   if (sheets.length === 0 || sheets.every((s) => s.rowCount === 0)) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
-        <Table2 className="h-10 w-10 text-slate-300" />
+        <Table2 className="h-10 w-10 text-muted-foreground" />
         <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">这张表是空的</div>
         <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">未读取到任何单元格内容。</p>
       </div>
@@ -1278,17 +1279,17 @@ function XlsxTablePreview({ url }: { url: string }) {
       {sheets.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 py-1.5">
           {sheets.map((s, i) => (
-            <button
+            <Button variant="unstyled"
               key={i}
               type="button"
               onClick={() => setActive(i)}
               className={cn(
-                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                i === active ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
+                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                i === active ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
               )}
             >
               {s.name}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -1361,7 +1362,7 @@ export function ProgressNoteList({
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center">
         <p className="text-balance text-sm font-semibold text-slate-600">{emptyText ?? t("暂无进度记录")}</p>
-        <p className="mt-1 text-pretty text-xs leading-5 text-slate-400">{t("后续进展、结论和附件会按时间显示在这里。")}</p>
+        <p className="mt-1 text-pretty text-xs leading-5 text-muted-foreground">{t("后续进展、结论和附件会按时间显示在这里。")}</p>
       </div>
     );
   }
@@ -1376,7 +1377,7 @@ export function ProgressNoteList({
               {renderSource?.(note)}
               <span className="min-w-0">
                 {note.actor.name}
-                {note.actor.role ? <span className="ml-1 text-slate-400">· {t(note.actor.role)}</span> : null}
+                {note.actor.role ? <span className="ml-1 text-muted-foreground">· {t(note.actor.role)}</span> : null}
               </span>
             </span>
             <span className="shrink-0 whitespace-nowrap tabular-nums">{formatTraceDateTime(note.created_at)}</span>
@@ -1388,7 +1389,7 @@ export function ProgressNoteList({
               </span>
             )}
             {note.attachments.length > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#eef3ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-primary">
                 <Paperclip className="h-3 w-3" />
                 {t("{n} 个附件", { n: note.attachments.length })}
               </span>

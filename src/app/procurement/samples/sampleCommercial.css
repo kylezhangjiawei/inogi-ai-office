@@ -1,4 +1,4 @@
-.sample-commercial-summary { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.sample-commercial-summary { min-width: 0; padding: 16px; border: 1px solid transparent; border-radius: var(--m3-shape-card); background: var(--card); box-shadow: var(--shadow-card); }
 .sample-commercial-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 .sample-commercial-heading > div { flex: 1 1 220px; min-width: 0; }
 .sample-commercial-heading h3 { font-size: 14px; font-weight: 600; color: var(--foreground); }

@@ -292,7 +292,7 @@ export function MailboxManagementPage() {
           <div className="hz-toolbar flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full sm:max-w-sm">
               <Label htmlFor="mailbox-search" className="sr-only">搜索邮箱地址</Label>
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 id="mailbox-search"
                 name="mailbox-search"

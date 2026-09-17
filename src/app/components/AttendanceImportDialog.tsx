@@ -25,6 +25,9 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { cn } from './ui/utils';
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 
 const STATUS_LABEL: Record<string, string> = {
   normal: '正常',
@@ -183,7 +186,7 @@ export function AttendanceImportDialog({
       >
         <DialogHeader className="border-b border-slate-100 bg-slate-50/80 px-6 py-5 pr-14">
           <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-xl bg-[#002fa7] text-white">
+            <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-white">
               <Upload className="h-4.5 w-4.5" />
             </span>
             <div>
@@ -196,7 +199,7 @@ export function AttendanceImportDialog({
         </DialogHeader>
 
         <div className="max-h-[62vh] overflow-y-auto px-6 py-5">
-          <input
+          <Input
             ref={inputRef}
             type="file"
             accept=".xlsx,.xls"
@@ -228,14 +231,14 @@ export function AttendanceImportDialog({
               busy
                 ? 'cursor-not-allowed border-slate-200 bg-slate-50'
                 : dragging
-                  ? 'cursor-copy border-[#002fa7]/40 bg-[#eef3ff]'
-                  : 'cursor-pointer border-slate-300 hover:border-[#002fa7]/40 hover:bg-[#eef3ff]',
+                  ? 'cursor-copy border-primary/40 bg-accent'
+                  : 'cursor-pointer border-slate-300 hover:border-primary/40 hover:bg-accent',
             )}
           >
             {parsing ? (
-              <Loader2 className="size-5 shrink-0 animate-spin text-[#002fa7]" />
+              <Loader2 className="size-5 shrink-0 animate-spin text-primary" />
             ) : (
-              <FileSpreadsheet className={cn('size-5 shrink-0', dragging ? 'text-[#002fa7]' : 'text-slate-400')} />
+              <FileSpreadsheet className={cn('size-5 shrink-0', dragging ? 'text-primary' : 'text-muted-foreground')} />
             )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-800">
@@ -249,7 +252,7 @@ export function AttendanceImportDialog({
                     : '支持 .xlsx / .xls'}
               </p>
             </div>
-            {file && !busy ? <span className="shrink-0 text-xs font-semibold text-[#002fa7]">重新选择</span> : null}
+            {file && !busy ? <span className="shrink-0 text-xs font-semibold text-primary">重新选择</span> : null}
           </div>
 
           {error ? (
@@ -328,7 +331,7 @@ export function AttendanceImportDialog({
                         <span className="font-mono text-slate-500">{item.attendanceDate}</span>
                         　<span className="font-semibold text-slate-800">{item.employeeName}</span>
                         　{STATUS_LABEL[item.status] ?? item.status}
-                        {item.note ? <span className="text-slate-400">　{item.note}</span> : null}
+                        {item.note ? <span className="text-muted-foreground">　{item.note}</span> : null}
                       </li>
                     ))}
                   </ul>
@@ -365,7 +368,7 @@ export function AttendanceImportDialog({
                 新增 <span className="font-semibold text-emerald-700">{impact.createCount}</span> 条 ·
                 覆盖 <span className="font-semibold text-amber-700">{impact.overwriteCount}</span> 条
                 {impact.manualSkipCount > 0 ? (
-                  <> · 保留手工修改 <span className="font-semibold tabular-nums text-[#002fa7]">{impact.manualSkipCount}</span> 条</>
+                  <> · 保留手工修改 <span className="font-semibold tabular-nums text-primary">{impact.manualSkipCount}</span> 条</>
                 ) : null}
               </>
             ) : (
@@ -373,10 +376,10 @@ export function AttendanceImportDialog({
             )}
           </p>
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={handleClose} disabled={importing} className="material-button-secondary px-4 py-2 text-xs disabled:opacity-50">
+            <Button variant="unstyled" type="button" onClick={handleClose} disabled={importing} className="material-button-secondary px-4 py-2 text-xs disabled:opacity-50">
               取消
-            </button>
-            <button
+            </Button>
+            <Button variant="unstyled"
               type="button"
               onClick={() => void handleConfirm()}
               disabled={!preview || selected.size === 0 || importing || parsing}
@@ -384,7 +387,7 @@ export function AttendanceImportDialog({
             >
               {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               确认导入
-            </button>
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>
@@ -425,9 +428,9 @@ function GroupSection({
     <section>
       <div className="flex items-center justify-between gap-3">
         <h4 className={cn('flex items-center gap-1.5 text-sm font-semibold', tone)}>{icon}{title}（{groups.length}）</h4>
-        <button type="button" onClick={() => onToggleAll(!allChecked)} className="text-xs font-semibold text-[#002fa7] hover:underline">
+        <Button variant="unstyled" type="button" onClick={() => onToggleAll(!allChecked)} className="text-xs font-semibold text-primary hover:underline">
           {allChecked ? '全部取消' : '全部选中'}
-        </button>
+        </Button>
       </div>
       {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
       <div className="mt-2 overflow-hidden rounded-xl border border-slate-200">
@@ -449,23 +452,22 @@ function GroupSection({
             {groups.map((group) => {
               const checked = selected.has(group.employeeId);
               return (
-                <tr key={group.employeeId} className={cn('transition', checked ? 'bg-white' : 'bg-slate-50/60 text-slate-400')}>
+                <tr key={group.employeeId} className={cn('transition', checked ? 'bg-white' : 'bg-slate-50/60 text-muted-foreground')}>
                   <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checked}
-                      onChange={() => onToggle(group.employeeId)}
-                      className="size-3.5 cursor-pointer accent-[#002fa7]"
+                      onCheckedChange={() => onToggle(group.employeeId)}
+                      className="size-3.5 cursor-pointer accent-primary"
                     />
                   </td>
                   <td className="px-3 py-2">
                     <span className="font-semibold text-slate-800">{group.employeeName}</span>
-                    <span className="ml-1.5 text-slate-400">{group.rosterNo || '无工号'}</span>
+                    <span className="ml-1.5 text-muted-foreground">{group.rosterNo || '无工号'}</span>
                   </td>
                   <td className="px-3 py-2 text-slate-600">
                     {group.department || '—'}
                     {group.wecomDepartment && group.wecomDepartment !== group.department ? (
-                      <span className="ml-1 text-slate-400" title="企业微信中的部门">（企微：{group.wecomDepartment}）</span>
+                      <span className="ml-1 text-muted-foreground" title="企业微信中的部门">（企微：{group.wecomDepartment}）</span>
                     ) : null}
                   </td>
                   <td className="px-3 py-2 text-center tabular-nums">{group.punchedDays}</td>
@@ -478,7 +480,7 @@ function GroupSection({
                   <td className="px-3 py-2 text-center text-[11px]">
                     <span className="text-emerald-700">+{group.createCount}</span>
                     {group.overwriteCount > 0 ? <span className="ml-1 text-amber-700">改{group.overwriteCount}</span> : null}
-                    {group.manualSkipCount > 0 ? <span className="ml-1 tabular-nums text-[#002fa7]">留{group.manualSkipCount}</span> : null}
+                    {group.manualSkipCount > 0 ? <span className="ml-1 tabular-nums text-primary">留{group.manualSkipCount}</span> : null}
                   </td>
                 </tr>
               );

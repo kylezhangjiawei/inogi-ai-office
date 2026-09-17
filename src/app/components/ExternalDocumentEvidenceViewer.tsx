@@ -24,6 +24,7 @@ import {
 } from "./ui/dialog";
 import { cn } from "./ui/utils";
 import { MobileZoomableImage } from "./MobileZoomableImage";
+import { Button } from "./ui/button";
 
 export type ExternalEvidenceVersion = {
   id: string;
@@ -173,7 +174,7 @@ function DocxPageRenderer({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-3">
         <div className="flex items-center gap-1">
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => scrollToPage(currentPage - 1)}
             disabled={rendering || currentPage <= 1}
@@ -182,11 +183,11 @@ function DocxPageRenderer({
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
           <span className="min-w-[72px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
             第 {currentPage} / {pageCount} 页
           </span>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => scrollToPage(currentPage + 1)}
             disabled={rendering || currentPage >= pageCount}
@@ -195,7 +196,7 @@ function DocxPageRenderer({
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
 
         <div className="flex items-center gap-1">
@@ -204,7 +205,7 @@ function DocxPageRenderer({
               文本第 {lineNumber} 行附近
             </span>
           )}
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => adjustZoom(-1)}
             disabled={zoom === ZOOM_STEPS[0]}
@@ -213,11 +214,11 @@ function DocxPageRenderer({
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
             <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          </Button>
           <span className="w-9 text-center text-[10px] font-semibold tabular-nums text-slate-500">
             {Math.round(zoom * 100)}%
           </span>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => adjustZoom(1)}
             disabled={zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1]}
@@ -226,7 +227,7 @@ function DocxPageRenderer({
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -238,7 +239,7 @@ function DocxPageRenderer({
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100/95 text-slate-500">
             <Loader2 className="h-7 w-7 animate-spin text-blue-700" />
             <p className="mt-3 text-xs font-semibold">正在还原 Word 页面…</p>
-            <p className="mt-1 text-[11px] text-slate-400">表格、图片与特殊符号均在浏览器本地解析</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">表格、图片与特殊符号均在浏览器本地解析</p>
           </div>
         )}
         {error && (
@@ -324,15 +325,15 @@ function VersionEvidencePanel({
               {version.fileName}
             </p>
           </div>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => blob && downloadBlob(blob, version.fileName)}
             disabled={!blob}
-            className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#8fa8df] hover:text-[#002fa7] disabled:cursor-wait disabled:opacity-45"
+            className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#8fa8df] hover:text-primary disabled:cursor-wait disabled:opacity-45"
           >
             <Download className="h-3.5 w-3.5" />
             下载原文件
-          </button>
+          </Button>
         </div>
         <div className={cn(
           "mt-2 rounded-[4px] border px-3 py-2",
@@ -374,7 +375,7 @@ function VersionEvidencePanel({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-white px-6 text-center">
-          {kind === "image" ? <FileImage className="h-10 w-10 text-slate-300" /> : <FileText className="h-10 w-10 text-slate-300" />}
+          {kind === "image" ? <FileImage className="h-10 w-10 text-muted-foreground" /> : <FileText className="h-10 w-10 text-muted-foreground" />}
           <p className="mt-3 text-sm font-semibold text-slate-800">该格式暂不支持页面还原</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">可下载原文件使用对应软件核对，文本差异仍保留在主页面。</p>
         </div>
@@ -400,11 +401,11 @@ export function ExternalDocumentEvidenceViewer({
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-3.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] px-2.5 py-1 text-[10px] font-bold text-[#002fa7]">
+              <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-[#b8c8ec] bg-accent px-2.5 py-1 text-[10px] font-bold text-primary">
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 受控原文视觉证据
               </span>
-              <span className="text-[11px] text-slate-400">{difference.id} · {difference.location}</span>
+              <span className="text-[11px] text-muted-foreground">{difference.id} · {difference.location}</span>
             </div>
             <DialogTitle id="external-evidence-title" className="mt-2 truncate text-base font-semibold text-slate-950">
               {difference.title}
@@ -414,14 +415,14 @@ export function ExternalDocumentEvidenceViewer({
             </DialogDescription>
           </div>
           <DialogClose asChild>
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-label="关闭原文视觉核对"
               title="关闭原文视觉核对"
-              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#8fa8df] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#8fa8df] hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
             >
               <X className="h-5 w-5" aria-hidden="true" />
-            </button>
+            </Button>
           </DialogClose>
         </header>
 
@@ -440,7 +441,7 @@ export function ExternalDocumentEvidenceViewer({
           />
         </div>
 
-        <footer className="flex h-9 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 text-[10px] text-slate-400">
+        <footer className="flex h-9 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <Eye className="h-3.5 w-3.5" aria-hidden="true" />
             视觉预览用于核对复杂表格、图片、印章、特殊字体与低置信度文本

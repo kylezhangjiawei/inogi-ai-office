@@ -156,7 +156,7 @@ export function ReportCompressionPage() {
                 <legend className="text-sm font-medium text-slate-700">材料类型</legend>
                 <div className="flex flex-wrap gap-2">
                   {(["经营汇报", "周报", "会议纪要"] as const).map((mode) => (
-                    <Button key={mode} type="button" size="sm" variant={compressionMode === mode ? "secondary" : "outline"} className={compressionMode === mode ? "border-blue-200 bg-blue-50 text-[#002fa7]" : ""} aria-pressed={compressionMode === mode} onClick={() => setCompressionMode(mode)}>{mode}</Button>
+                    <Button key={mode} type="button" size="sm" variant={compressionMode === mode ? "secondary" : "outline"} className={compressionMode === mode ? "border-primary/25 bg-accent text-primary" : ""} aria-pressed={compressionMode === mode} onClick={() => setCompressionMode(mode)}>{mode}</Button>
                   ))}
                 </div>
               </fieldset>
@@ -169,7 +169,7 @@ export function ReportCompressionPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
-                  <Upload className="mx-auto size-8 text-[#002fa7]" aria-hidden="true" />
+                  <Upload className="mx-auto size-8 text-primary" aria-hidden="true" />
                   <div className="mt-3 font-semibold text-slate-800">使用示例经营汇报文件</div>
                   <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">演示环境以结构化示例代替真实 PDF / Word 解析。</p>
                   <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => useDemoSource("示例文件已载入。")}>载入示例文件</Button>
@@ -189,10 +189,10 @@ export function ReportCompressionPage() {
             <ul className="divide-y divide-slate-100">
               {historyItems.map((item) => (
                 <li key={item.id}>
-                  <button type="button" className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50" onClick={() => { setCompressionMode(item.mode); useDemoSource(`已加载历史任务：${item.title}`); }}>
+                  <Button variant="unstyled" type="button" className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50" onClick={() => { setCompressionMode(item.mode); useDemoSource(`已加载历史任务：${item.title}`); }}>
                     <div className="flex items-start justify-between gap-3"><span className="line-clamp-2 text-sm font-semibold text-slate-800">{item.title}</span><span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500">{item.mode}</span></div>
                     <div className="mt-2 text-xs text-slate-500">{item.owner} · <span className="tabular-nums">{item.updatedAt}</span></div>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -226,9 +226,9 @@ export function ReportCompressionPage() {
           <section className="hz-surface min-w-0 overflow-hidden border" aria-label="结构化摘要">
             <HorizonSectionHeader Icon={ClipboardList} title="结构化摘要" description="同步提取结论、证据和下一步行动。" />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-0 divide-y divide-slate-100 p-4 sm:divide-y-0 2xl:divide-x">
-              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">核心结论</div><p className="mt-2 text-pretty text-sm font-semibold leading-6 text-slate-800">{structuredReport.conclusion}</p></div>
-              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">关键证据</div><ul className="mt-2 space-y-2">{structuredReport.evidence.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />{item}</li>)}</ul></div>
-              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">行动建议</div><ul className="mt-2 space-y-2">{structuredReport.actions.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />{item}</li>)}</ul></div>
+              <div className="p-3"><div className="text-xs font-semibold text-primary">核心结论</div><p className="mt-2 text-pretty text-sm font-semibold leading-6 text-slate-800">{structuredReport.conclusion}</p></div>
+              <div className="p-3"><div className="text-xs font-semibold text-primary">关键证据</div><ul className="mt-2 space-y-2">{structuredReport.evidence.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />{item}</li>)}</ul></div>
+              <div className="p-3"><div className="text-xs font-semibold text-primary">行动建议</div><ul className="mt-2 space-y-2">{structuredReport.actions.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />{item}</li>)}</ul></div>
             </div>
           </section>
         </div>

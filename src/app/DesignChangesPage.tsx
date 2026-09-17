@@ -31,6 +31,7 @@ import {
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
+import { NativeSelect } from "./components/ui/native-select";
 
 const changes = [
   { id: "ECO-2416", title: "主板供电保护逻辑修订", type: "电气设计", owner: "王宁", impact: "高", version: "DHF-2.4", status: "评审中", date: "2026-04-16", stage: "研发" },
@@ -172,14 +173,14 @@ export function DesignChangesPage() {
               <div className="flex min-w-0 flex-1 gap-2">
                 <div className="relative min-w-0 flex-1">
                   <Label htmlFor="design-change-search" className="sr-only">搜索设计变更</Label>
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                   <Input id="design-change-search" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索 ECO 编号、标题或负责人" className="pl-9" />
                 </div>
                 <Button type="button" variant="outline" onClick={() => setDialogMode("filter")}><Filter className="size-4" />筛选</Button>
               </div>
               <div className="flex flex-wrap gap-2" aria-label="按状态筛选">
                 {["全部", "评审中", "待提交", "已完成"].map((item) => (
-                  <Button key={item} type="button" size="sm" variant="outline" aria-pressed={status === item} className={cn("rounded-lg", status === item && "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]")} onClick={() => setStatus(item)}>{item}</Button>
+                  <Button key={item} type="button" size="sm" variant="outline" aria-pressed={status === item} className={cn("rounded-lg", status === item && "border-primary bg-accent text-primary")} onClick={() => setStatus(item)}>{item}</Button>
                 ))}
               </div>
             </div>
@@ -203,9 +204,9 @@ export function DesignChangesPage() {
                       return (
                         <tr key={item.id} aria-selected={active} className={cn("hover:bg-slate-50", active && "bg-[#f4f7fe]")}>
                           <td className="px-4 py-3">
-                            <button type="button" aria-label={`${selectedRows[item.id] ? "取消选择" : "选择"} ${item.id}`} aria-pressed={Boolean(selectedRows[item.id])} onClick={() => toggleRow(item.id)} className={cn("flex size-8 items-center justify-center rounded-lg border transition-colors", selectedRows[item.id] ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-slate-200 bg-white text-slate-500 hover:border-[#002fa7]")}>{selectedRows[item.id] ? <Check className="size-4" /> : <Plus className="size-4" />}</button>
+                            <Button variant="unstyled" type="button" aria-label={`${selectedRows[item.id] ? "取消选择" : "选择"} ${item.id}`} aria-pressed={Boolean(selectedRows[item.id])} onClick={() => toggleRow(item.id)} className={cn("flex size-8 items-center justify-center rounded-lg border transition-colors", selectedRows[item.id] ? "border-primary bg-primary text-white" : "border-slate-200 bg-white text-slate-500 hover:border-primary")}>{selectedRows[item.id] ? <Check className="size-4" /> : <Plus className="size-4" />}</Button>
                           </td>
-                          <td className="px-4 py-3"><button type="button" aria-current={active ? "true" : undefined} aria-label={`查看 ${item.id} ${item.title}`} onClick={() => setSelectedId(item.id)} className="font-semibold text-[#1b2559] underline-offset-4 hover:text-[#002fa7] hover:underline tabular-nums">{item.id}</button></td>
+                          <td className="px-4 py-3"><Button variant="unstyled" type="button" aria-current={active ? "true" : undefined} aria-label={`查看 ${item.id} ${item.title}`} onClick={() => setSelectedId(item.id)} className="font-semibold text-[#1b2559] underline-offset-4 hover:text-primary hover:underline tabular-nums">{item.id}</Button></td>
                           <td className="max-w-[18rem] px-4 py-3 font-medium text-slate-800"><span className="line-clamp-2">{item.title}</span></td>
                           <td className="px-4 py-3"><span className={cn("rounded-full px-2 py-1 text-xs font-semibold", statusTone[item.status])}>{item.status}</span></td>
                           <td className="px-4 py-3"><span className={cn("rounded-full px-2 py-1 text-xs font-semibold", impactTone[item.impact])}>{item.impact}</span></td>
@@ -234,7 +235,7 @@ export function DesignChangesPage() {
           {selected ? (
             <div className="space-y-4 p-4">
               <div className="rounded-xl border border-[#dce4f8] bg-[#f4f7fe] p-4">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#002fa7] tabular-nums">{selected.id}</span><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusTone[selected.status])}>{selected.status}</span></div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-primary tabular-nums">{selected.id}</span><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusTone[selected.status])}>{selected.status}</span></div>
                 <h2 className="mt-2 text-balance text-base font-semibold text-[#1b2559]">{selected.title}</h2>
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-slate-500">负责人</dt><dd className="mt-1 font-medium text-slate-800">{selected.owner}</dd></div><div><dt className="text-xs text-slate-500">版本</dt><dd className="mt-1 font-medium text-slate-800 tabular-nums">{selected.version}</dd></div><div><dt className="text-xs text-slate-500">所属阶段</dt><dd className="mt-1 font-medium text-slate-800">{selected.stage}</dd></div><div><dt className="text-xs text-slate-500">申请日期</dt><dd className="mt-1 font-medium text-slate-800 tabular-nums">{selected.date}</dd></div></dl>
               </div>
@@ -259,8 +260,8 @@ export function DesignChangesPage() {
               <div className="px-5 py-5">
                 {dialogMode === "filter" ? (
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5"><Label htmlFor="design-impact-filter">影响等级</Label><select id="design-impact-filter" className="material-input" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)}>{["全部", "高", "中", "低"].map((item) => <option key={item}>{item}</option>)}</select></div>
-                    <div className="space-y-1.5"><Label htmlFor="design-stage-filter">所属阶段</Label><select id="design-stage-filter" className="material-input" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>{["全部", "研发", "验证", "结构", "软件", "注册"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label htmlFor="design-impact-filter">影响等级</Label><NativeSelect id="design-impact-filter" className="material-input" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)}>{["全部", "高", "中", "低"].map((item) => <option key={item}>{item}</option>)}</NativeSelect></div>
+                    <div className="space-y-1.5"><Label htmlFor="design-stage-filter">所属阶段</Label><NativeSelect id="design-stage-filter" className="material-input" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>{["全部", "研发", "验证", "结构", "软件", "注册"].map((item) => <option key={item}>{item}</option>)}</NativeSelect></div>
                   </div>
                 ) : dialogMode === "create" ? (
                   <dl className="grid gap-3 rounded-xl bg-[#f4f7fe] p-4 text-sm"><div><dt className="text-xs text-slate-500">默认标题</dt><dd className="mt-1 font-medium text-slate-800">压缩机启动阈值优化</dd></div><div><dt className="text-xs text-slate-500">默认负责人</dt><dd className="mt-1 font-medium text-slate-800">王宁</dd></div><div><dt className="text-xs text-slate-500">初始状态</dt><dd className="mt-1 font-medium text-slate-800">待提交</dd></div></dl>

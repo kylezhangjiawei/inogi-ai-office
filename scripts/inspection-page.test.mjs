@@ -15,6 +15,8 @@ const noStorage = new Proxy({}, { get: noExternal, set: noExternal });
 function evaluate(code, dependencies = {}, env = {}) {
   const exports = {};
   new Function('exports', 'require', 'window', 'URL', 'fetch', 'localStorage', 'sessionStorage', 'indexedDB', 'Date', code)(exports, (name) => {
+    if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(name)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };
+
     assert.ok(Object.hasOwn(dependencies, name), `未审查的依赖 ${name}`); return dependencies[name];
   }, env.window ?? {}, env.URL ?? URL, noExternal, noStorage, noStorage, noStorage, FixedDate);
   return exports;
@@ -59,7 +61,7 @@ function fixture(initialSearch = '', mobile = false) {
     './InspectionSections': { InspectionSections: 'InspectionSections' }, './InspectionActionForm': { InspectionActionForm: 'InspectionActionForm' },
     '../../order-processing/horizon.css': {}, './inspection-preview.css': {},
   };
-  for (const name of ['alert-dialog', 'button', 'input', 'label', 'select', 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
+  for (const name of ['alert-dialog', "button", "input", 'label', "select", 'sheet', 'tabs']) dependencies[`../../components/ui/${name}`] = primitives;
   const exports = evaluate(pageCode, dependencies, { window: {
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: (name, handler) => { if (listeners.get(name) === handler) listeners.delete(name); },
     document: { createElement(name) { assert.equal(name, 'a'); const link = { click() { downloads.push({ href: link.href, download: link.download }); }, remove() {} }; return link; }, body: { appendChild() {} }, getElementById(id) { assert.ok(nodes(tree).some((node) => node.props.id === id), `滚动目标 ${id} 存在`); return { scrollIntoView(options) { scrolls.push({ id, options }); } }; } },
@@ -71,7 +73,7 @@ function fixture(initialSearch = '', mobile = false) {
     section: () => view.byType('InspectionSections'), form: () => view.byType('InspectionActionForm'), state: () => slots.find((value) => value?.tasks && value?.records && value?.issues),
     content() { return view.section() ? sections.InspectionSections(view.section().props) : null; }, contentText() { return normalized(view.content()); },
     sheet: (title) => view.nodes().find((node) => node.type === 'Sheet' && (!title || normalized(node).includes(title))), params: () => new URLSearchParams(location.search), location: () => ({ ...location }), downloads, blobs, revoked, navigations, scrolls,
-    button(label) { return view.nodes().find((node) => ['Button', 'button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
+    button(label) { return view.nodes().find((node) => ['Button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type) && (node.props['aria-label'] === label || normalized(node) === label)); },
     click(label) { const node = view.button(label); assert.ok(node, `${label} exists`); assert.equal(Boolean(node.props.disabled), false, `${label} enabled`); node.props.onClick(); return view.render(); },
     input(id, value) { const node = view.byId(id); assert.ok(node, id); node.props.onChange({ target: { value } }); return view.render(); },
     select(id, value) { const node = view.nodes().find((node) => node.type === 'Select' && nodes(node).some((child) => child.props.id === id)); assert.ok(node, id); node.props.onValueChange(value); return view.render(); },
@@ -84,7 +86,7 @@ function fixture(initialSearch = '', mobile = false) {
     discard() { view.click('放弃并继续'); return view.render(); },
     cancelExit() { nodes(view.exitDialog()).find((node) => node.type === 'AlertDialogCancel').props.onClick(); return view.render(); },
     exit() { view.click('放弃并离开'); return view.render(); },
-    failNext() { view.nodes().find((node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); return view.render(); },
+    failNext() { view.nodes().find((node) => node.type === "Checkbox").props.onCheckedChange(true); return view.render(); },
     failExport(value = true) { exportFails = value; },
     inputAction(patch = {}) {
       const props=view.form().props, ctx=props.context;
@@ -102,7 +104,7 @@ function fixture(initialSearch = '', mobile = false) {
 const currentTask=(page)=>page.state().tasks.find((item)=>item.id===page.section()?.props.taskId);
 const progress=(page)=>model.getInspectionProgress(page.state(),currentTask(page).id);
 const role=(page,id)=>page.select('inspection-actor',id);
-function clickSection(page,label) {const node=nodes(page.content()).find((node)=>['Button','button'].includes(node.type)&&(node.props['aria-label']===label||normalized(node)===label));assert.ok(node,label);assert.equal(Boolean(node.props.disabled),false);node.props.onClick();page.render();}
+function clickSection(page,label) {const node=nodes(page.content()).find((node)=>['Button'].includes(node.type)&&(node.props['aria-label']===label||normalized(node)===label));assert.ok(node,label);assert.equal(Boolean(node.props.disabled),false);node.props.onClick();page.render();}
 const photoData='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1cAAAAASUVORK5CYII=';
 const photo={id:'photo-local',name:'原始检验照片.png',type:'image/png',size:Buffer.from(photoData,'base64').length,dataUrl:`data:image/png;base64,${photoData}`};
 

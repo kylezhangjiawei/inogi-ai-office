@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 
 const compile = (path) => ts.transpileModule(readFileSync(new URL('../' + path, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-function load(path, deps = {}) { const out = {}; new Function('exports', 'require', compile(path))(out, (id) => { assert.ok(id in deps, id); return deps[id]; }); return out; }
+function load(path, deps = {}) { const out = {}; new Function('exports', 'require', compile(path))(out, (id) => { if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(id)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };  assert.ok(id in deps, id); return deps[id]; }); return out; }
 const model = load('src/app/procurement/samples/sampleRecordsModel.ts');
 const facts = load('src/app/lib/procSampleFacts.ts');
 const timing = load('src/app/procurement/samples/sampleTimingModel.ts', { '../../lib/procSampleFacts': facts });
@@ -38,7 +38,7 @@ function fixture(props = {}, save) {
   const onInteractionStateChange = (state) => calls.interaction.push(state);
   const exports = {};
   const deps = { react: hooks, 'react/jsx-runtime': jsxRuntime, '../../lib/i18n': i18n, '../../components/ui/button': { Button: 'button' }, '../../lib/procurementApi': { updateProcSampleRecords: update }, './sampleRecordsModel': model, './SampleRoundHistory': { ...history, SampleConditionsView: 'conditions-view' } };
-  new Function('exports', 'require', panel)(exports, (id) => { assert.ok(id in deps, id); return deps[id]; });
+  new Function('exports', 'require', panel)(exports, (id) => { if (/\/ui\/(?:button|input|native-select|textarea|checkbox|radio-group|slider)$/.test(id)) return { Button: "Button", Input: "Input", NativeSelect: "NativeSelect", Textarea: "Textarea", Checkbox: "Checkbox", RadioGroup: "RadioGroup", RadioGroupItem: "RadioGroupItem", Slider: "Slider" };  assert.ok(id in deps, id); return deps[id]; });
   return { calls,
     render() { assert.equal(destroyed, false); let tree; for (let i = 0; i < 25; i++) { cursor = 0; rerender = false; tree = exports.SampleRecordsPanel({ ...current, onInteractionStateChange, onSaved: (value) => { calls.saved.push(value); current = { ...current, detail: value }; } }); while (effects.length) effects.shift()(); if (!rerender) return tree; } assert.fail('unsettled render'); },
     setProps(next) { current = { ...current, ...next }; return this.render(); },
@@ -48,7 +48,7 @@ function fixture(props = {}, save) {
 function all(tree, predicate) { if (!tree || typeof tree !== 'object') return []; return [...(predicate(tree) ? [tree] : []), ...React.Children.toArray(tree.props?.children).flatMap((child) => all(child, predicate))]; }
 function text(tree) { if (tree == null || typeof tree === 'boolean') return ''; if (typeof tree !== 'object') return String(tree); return React.Children.toArray(tree.props?.children).map(text).join(''); }
 const field = (f, label) => all(f.render(), (node) => node.props?.['aria-label'] === label)[0];
-const button = (f, label) => all(f.render(), (node) => node.type === 'button' && text(node) === label)[0];
+const button = (f, label) => all(f.render(), (node) => node.type === "Button" && text(node) === label)[0];
 const change = (f, label, value) => { field(f, label).props.onChange({ target: { value } }); f.render(); };
 const submit = (f) => all(f.render(), (node) => node.type === 'form')[0].props.onSubmit({ preventDefault() {} });
 

@@ -17,9 +17,9 @@ const service = await readFile(
 
 test("personal workspace renders flat task cards with primary and assist tabs", () => {
   assert.match(workspacePage, /useState<WorkspaceRoleTab>\("primary"\)/);
-  assert.match(workspacePage, /role="tablist"/);
-  assert.match(workspacePage, /setTaskRoleTab\("primary"\)/);
-  assert.match(workspacePage, /setTaskRoleTab\("collaborator"\)/);
+  assert.match(workspacePage, /<ToggleGroup/);
+  assert.match(workspacePage, /value="primary"/);
+  assert.match(workspacePage, /value="collaborator"/);
   assert.match(workspacePage, /taskRoleTab === "primary" \? filteredMyTasks : filteredCollabTasks/);
   assert.match(workspacePage, /const activeRoleTasks = useMemo/);
   assert.match(workspacePage, /<WorkspaceTaskCard/);

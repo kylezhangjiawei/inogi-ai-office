@@ -240,7 +240,7 @@ export function I18nManagementPage() {
                 type="button"
                 onClick={() => void translateMissing()}
                 disabled={bulkTranslating || missingCount === 0}
-                className="bg-[#002fa7] text-white hover:bg-[#002581]"
+                className="bg-primary text-white hover:bg-primary-hover"
               >
                 {bulkTranslating ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Bot className="size-4" aria-hidden="true" />}
                 AI 翻译缺失（<span className="tabular-nums">{missingCount}</span>）
@@ -249,7 +249,7 @@ export function I18nManagementPage() {
           )}
         />
 
-        <input
+        <Input
           ref={importInputRef}
           type="file"
           accept="application/json,.json"
@@ -277,7 +277,7 @@ export function I18nManagementPage() {
             <div className="min-w-0">
               <label htmlFor="i18n-keyword" className="mb-1.5 block text-xs font-semibold text-slate-700">搜索词条</label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   id="i18n-keyword"
                   value={keyword}
@@ -375,7 +375,7 @@ export function I18nManagementPage() {
                   const editing = editingKey === row.zh;
                   const meta = STATUS_META[row.status];
                   return (
-                    <tr key={row.zh} className="group hover:bg-blue-50/40">
+                    <tr key={row.zh} className="group hover:bg-accent/40">
                       <td className="max-w-[320px] border-b border-slate-100 px-4 py-3 text-slate-800">
                         <span className="line-clamp-2 break-all text-pretty">{row.zh}</span>
                       </td>
@@ -393,7 +393,7 @@ export function I18nManagementPage() {
                               aria-label={`编辑“${row.zh}”的英文翻译`}
                               className="h-8 text-sm"
                             />
-                            <button
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => void saveEntry(row.zh, editingValue)}
                               disabled={savingKey === row.zh}
@@ -402,27 +402,27 @@ export function I18nManagementPage() {
                               className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-green-700 transition-colors hover:bg-green-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {savingKey === row.zh ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="size-4" aria-hidden="true" />}
-                            </button>
-                            <button
+                            </Button>
+                            <Button variant="unstyled"
                               type="button"
                               onClick={() => closeEditor(row.zh)}
                               aria-label={`取消编辑“${row.zh}”`}
                               title="取消（Esc）"
-                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
                               <X className="size-4" aria-hidden="true" />
-                            </button>
+                            </Button>
                           </div>
                         ) : (
-                          <button
+                          <Button variant="unstyled"
                             type="button"
                             onClick={() => { setEditingKey(row.zh); setEditingValue(row.en); }}
                             aria-label={`编辑“${row.zh}”的英文翻译`}
-                            className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           >
-                            <span className={cn("min-w-0 flex-1 break-all text-pretty", row.en ? "text-slate-700" : "text-slate-400")}>{row.en || "（未翻译）"}</span>
-                            <Pencil className="size-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-hidden="true" />
-                          </button>
+                            <span className={cn("min-w-0 flex-1 break-all text-pretty", row.en ? "text-slate-700" : "text-muted-foreground")}>{row.en || "（未翻译）"}</span>
+                            <Pencil className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-hidden="true" />
+                          </Button>
                         )}
                       </td>
                       <td className="border-b border-slate-100 px-4 py-3 text-xs text-slate-500">{row.module || "—"}</td>
@@ -430,17 +430,17 @@ export function I18nManagementPage() {
                         <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", meta.cls)}>{meta.label}</span>
                       </td>
                       <td className="border-b border-slate-100 px-4 py-3">
-                        <button
+                        <Button variant="unstyled"
                           type="button"
                           onClick={() => void translateOne(row.zh)}
                           disabled={translatingKey === row.zh}
                           aria-label={`使用 AI 重翻“${row.zh}”`}
                           title="AI 重翻此条（带术语基准与 UX Writer 校对）"
-                          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-accent px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {translatingKey === row.zh ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Bot className="size-3.5" aria-hidden="true" />}
                           AI 重翻
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   );

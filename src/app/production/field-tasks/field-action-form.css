@@ -1,5 +1,5 @@
-.field-action-form, .field-action-confirm, .field-action-select { --primary:#002fa7; --primary-foreground:#fff; --ring:#002fa7; }
-.field-action-select { --accent:#eef3ff; --accent-foreground:#002fa7; }
+.field-action-form, .field-action-confirm, .field-action-select {  --primary-foreground:#fff; --ring:var(--primary); }
+.field-action-select { --accent-foreground:var(--primary); }
 .field-action-form [data-slot='select-value'] { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .field-action-form [data-slot='select-trigger'] > svg { flex-shrink:0; }
 .field-action-form input, .field-action-form textarea { max-width:100%; }

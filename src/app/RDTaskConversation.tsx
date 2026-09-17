@@ -1,3 +1,4 @@
+import { Button } from "./components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import {
@@ -47,6 +48,8 @@ import { auditActorMatchesIdentity, type AuditActorIdentity } from "./lib/auditL
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { formatRdFileSize, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope } from "./RDProgressEvidence";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 
 const DISCUSSION_MAX_FILES = 10;
 const DISCUSSION_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -156,7 +159,7 @@ function PendingAttachment({
           </span>
         </div>
       ) : (
-        <div className="flex h-20 items-center justify-center bg-slate-50 text-slate-400">
+        <div className="flex h-20 items-center justify-center bg-slate-50 text-muted-foreground">
           <FileText className="h-7 w-7" />
         </div>
       )}
@@ -164,11 +167,11 @@ function PendingAttachment({
         <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-500">
           {icon}
           <span>{label}</span>
-          <span className="ml-auto tabular-nums text-slate-400">{formatRdFileSize(file.size)}</span>
+          <span className="ml-auto tabular-nums text-muted-foreground">{formatRdFileSize(file.size)}</span>
         </div>
         <div className="mt-0.5 truncate text-[11px] font-medium text-slate-700" title={file.name}>{file.name}</div>
       </div>
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onRemove}
         disabled={disabled}
@@ -176,7 +179,7 @@ function PendingAttachment({
         aria-label={t("移除附件")}
       >
         <X className="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -469,15 +472,15 @@ function LoadEarlierButton({
 }) {
   return (
     <div className="flex justify-center py-1.5">
-      <button
+      <Button variant="unstyled"
         type="button"
         onClick={onClick}
         disabled={loading}
-        className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 disabled:cursor-wait disabled:opacity-60"
+        className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600 shadow-sm transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-wait disabled:opacity-60"
       >
         {loading && <Loader2 className="h-3 w-3 animate-spin" />}
         {loading ? t("正在加载…") : t("加载更早消息")}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -512,9 +515,9 @@ function progressTone(progress?: number) {
     };
   }
   return {
-    border: "border-l-[#002fa7]",
+    border: "border-l-[var(--primary)]",
     header: "bg-blue-50/70",
-    badge: "bg-[#002fa7]",
+    badge: "bg-primary",
   };
 }
 
@@ -532,15 +535,15 @@ function ThreadButton({
   const count = summary?.message_count ?? 0;
   const unread = summary?.unread_count ?? 0;
   return (
-    <button
+    <Button variant="unstyled"
       type="button"
       onClick={onClick}
       className={cn(
-        "group inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-1",
+        "group inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
         inverted
-          ? "bg-white/12 text-blue-50 hover:bg-white/20"
+          ? "bg-white/12 text-primary hover:bg-white/20"
           : count > 0
-            ? "bg-blue-50 text-[#002fa7] hover:bg-blue-100"
+            ? "bg-accent text-primary hover:bg-accent"
             : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
       )}
       aria-label={count > 0 ? t("查看 {n} 条讨论", { n: count }) : label}
@@ -552,7 +555,7 @@ function ThreadButton({
           {unread > 99 ? "99+" : unread}
         </span>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -672,11 +675,11 @@ function InlineCommentItem({
           <span className="font-bold text-slate-800">{message.author_name}</span>
           {message.reply_to ? (
             <>
-              <span className="text-slate-400">{t("回复")}</span>
-              <span className="font-semibold text-[#002fa7]">{message.reply_to.author_name}</span>
+              <span className="text-muted-foreground">{t("回复")}</span>
+              <span className="font-semibold text-primary">{message.reply_to.author_name}</span>
             </>
           ) : null}
-          {mine ? <span className="rounded bg-blue-100 px-1 text-[9px] font-semibold text-[#002fa7]">{t("我")}</span> : null}
+          {mine ? <span className="rounded bg-blue-100 px-1 text-[9px] font-semibold text-primary">{t("我")}</span> : null}
         </div>
         {message.body ? (
           <p className="mt-0.5 whitespace-pre-wrap break-words text-pretty text-xs leading-[18px] text-slate-700">
@@ -690,15 +693,15 @@ function InlineCommentItem({
           maxVisibleImages={3}
           className="mt-1.5"
         />
-        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
           <time className="tabular-nums">{formatCompactDateTime(message.created_at)}</time>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => onReply(message)}
-            className="cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35"
+            className="cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-500 transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
           >
             {t("回复")}
-          </button>
+          </Button>
         </div>
       </div>
     </li>
@@ -806,14 +809,14 @@ function InlineNoteComments({
       ) : error ? (
         <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50 px-2.5 py-2 text-xs text-rose-700">
           <span className="min-w-0 truncate">{error}</span>
-          <button
+          <Button variant="unstyled"
             type="button"
             onClick={() => void loadComments()}
             className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-semibold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
           >
             <RefreshCw className="size-3" />
             {t("重试")}
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -835,26 +838,26 @@ function InlineNoteComments({
 
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {hiddenCount > 0 ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 aria-expanded={expanded}
                 onClick={() => setExpanded((current) => !current)}
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35"
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
               >
                 <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
                 {expanded ? t("收起留言") : t("展开其余 {n} 条留言", { n: hiddenCount })}
-              </button>
+              </Button>
             ) : null}
             {expanded && discussion?.page_info.has_more ? (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 onClick={() => void loadEarlier()}
                 disabled={loadingEarlier}
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-wait disabled:opacity-60"
               >
                 {loadingEarlier ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
                 {t("加载更早留言")}
-              </button>
+              </Button>
             ) : null}
           </div>
 
@@ -927,7 +930,7 @@ function ProgressAnchorCard({
         tone.header,
       )}>
         <span className={cn(
-          "inline-flex shrink-0 items-center gap-1 font-bold text-[#002fa7]",
+          "inline-flex shrink-0 items-center gap-1 font-bold text-primary",
           timeline ? "text-[11px]" : "text-[10px]",
         )}>
           <Sparkles className="h-3 w-3" />
@@ -935,20 +938,20 @@ function ProgressAnchorCard({
         </span>
         <span className="h-3.5 w-px shrink-0 bg-slate-300/80" aria-hidden="true" />
         {onActorClick ? (
-          <button
+          <Button variant="unstyled"
             type="button"
             aria-pressed={actorSelected}
             onClick={() => onActorClick({ id: note.actor.id, name: note.actor.name })}
             title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
             className={cn(
-              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-blue-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35",
+              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
               timeline ? "text-[11px]" : "text-[10px]",
-              actorSelected && "bg-blue-100 text-[#002fa7] ring-1 ring-inset ring-blue-200",
+              actorSelected && "bg-accent text-primary ring-1 ring-inset ring-primary/25",
             )}
           >
             <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
             <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
-          </button>
+          </Button>
         ) : (
           <span className={cn("inline-flex min-w-0 shrink items-center gap-1", timeline ? "text-[11px]" : "text-[10px]")}>
             <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
@@ -968,16 +971,16 @@ function ProgressAnchorCard({
       <div className={cn("rd-progress-anchor-card__body", timeline ? "px-4 py-3" : "px-2.5 py-1.5")}>
         {sourceTask && (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={() => onOpenSourceTask?.(sourceTask.task_id)}
               disabled={!onOpenSourceTask}
               title={sourceTask.path.join(" / ")}
-              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-blue-50 px-1.5 py-1 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-100 disabled:cursor-default"
+              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-accent px-1.5 py-1 text-[10px] font-semibold text-primary transition-colors hover:bg-accent disabled:cursor-default"
             >
               <GitBranch className="h-3 w-3 shrink-0" />
               <span className="truncate">{sourceTask.title}</span>
-            </button>
+            </Button>
             {sourceTask.is_before_merge && (
               <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
                 {t("合并前")}
@@ -1001,22 +1004,22 @@ function ProgressAnchorCard({
         />
         <div className="mt-1.5 flex items-center gap-1 border-t border-slate-100 pt-1">
           <ThreadButton summary={summary} onClick={onOpenThread} label={t("讨论")} />
-          <button
+          <Button variant="unstyled"
             type="button"
             aria-expanded={commentsOpen}
             aria-controls={commentsRegionId}
             onClick={() => setCommentsOpen((current) => !current)}
             className={cn(
-              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-1",
+              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
               commentsOpen || commentCount > 0
-                ? "bg-blue-50 text-[#002fa7] hover:bg-blue-100"
+                ? "bg-accent text-primary hover:bg-accent"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
             )}
           >
             <MessageCircleReply className="size-3" />
             <span>{t("留言")}{commentCount > 0 ? ` ${commentCount}` : ""}</span>
             <ChevronDown className={cn("size-3 transition-transform", commentsOpen && "rotate-180")} />
-          </button>
+          </Button>
         </div>
         {commentsOpen ? (
           <InlineNoteComments
@@ -1066,17 +1069,17 @@ function MessageBubble({
         {!mine && !compactTop && (
           <div className="mb-0.5 px-1 text-[10px] font-semibold text-slate-600">
             {message.author_name}
-            {message.author_role && <span className="ml-1 font-normal text-slate-400">· {t(message.author_role)}</span>}
+            {message.author_role && <span className="ml-1 font-normal text-muted-foreground">· {t(message.author_role)}</span>}
           </div>
         )}
         <div
           className={cn(
             "rd-message-bubble__surface relative overflow-hidden px-3 py-2 shadow-sm transition-[box-shadow,background-color]",
             mine
-              ? "rounded-[20px] rounded-br-[7px] bg-[#002fa7] text-white shadow-[0_8px_18px_rgba(0,47,167,0.16)]"
+              ? "rounded-[20px] rounded-br-[7px] bg-primary text-white shadow-[0_8px_18px_rgba(var(--primary-rgb),0.16)]"
               : "rounded-[20px] rounded-bl-[7px] border border-slate-200 bg-white text-slate-800",
             highlighted && (mine
-              ? "ring-2 ring-[#002fa7]/30 ring-offset-2"
+              ? "ring-2 ring-primary/30 ring-offset-2"
               : "border-blue-300 bg-blue-50 ring-2 ring-blue-200 ring-offset-2"),
           )}
         >
@@ -1084,7 +1087,7 @@ function MessageBubble({
             <div
               className={cn(
                 "mb-1.5 rounded-lg border-l-2 px-2 py-1 text-[11px]",
-                mine ? "border-white/70 bg-white/12 text-blue-50" : "border-[#002fa7]/55 bg-slate-50 text-slate-500",
+                mine ? "border-white/70 bg-white/12 text-blue-50" : "border-primary/55 bg-slate-50 text-slate-500",
               )}
             >
               <div className={cn("font-semibold", mine ? "text-white" : "text-slate-700")}>{message.reply_to.author_name}</div>
@@ -1098,25 +1101,25 @@ function MessageBubble({
                 message.mentions,
                 mine
                   ? "rounded bg-white/20 px-1 font-semibold text-white"
-                  : "rounded bg-blue-50 px-1 font-semibold text-[#002fa7]",
+                  : "rounded bg-blue-50 px-1 font-semibold text-primary",
               )}
             </p>
           )}
           <ProgressAttachmentGrid attachments={message.attachments} compact imageDisplay="clipped-cards" className="mt-2" />
-          <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums", mine ? "text-blue-100" : "text-slate-400")}>
+          <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums", mine ? "text-blue-100" : "text-muted-foreground")}>
             <span>{formatTime(message.created_at)}</span>
             {message.edited_at && <span>· {t("已编辑")}</span>}
           </div>
         </div>
         <div className={cn("flex items-center gap-1", mine && "justify-end")}>
           {insideThread && onQuote ? (
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={onQuote}
-              className="mt-1 cursor-pointer rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
+              className="mt-1 cursor-pointer rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               {t("引用回复")}
-            </button>
+            </Button>
           ) : onOpenThread ? (
             <ThreadButton summary={threadSummary} onClick={onOpenThread} inverted={mine} />
           ) : null}
@@ -1267,7 +1270,7 @@ function Composer({
       }}
     >
       {draggingFiles && (
-          <div className="absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/95 text-[#002fa7] shadow-lg">
+          <div className="absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/95 text-primary shadow-lg">
             <span className="inline-flex items-center gap-2 text-sm font-bold">
               <UploadCloud className="h-5 w-5" />
               {t("松开即可添加到本条消息")}
@@ -1283,19 +1286,19 @@ function Composer({
       />
       {replyTarget && (
           <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-1.5">
-            <MessageCircleReply className="h-4 w-4 shrink-0 text-[#002fa7]" />
+            <MessageCircleReply className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold text-[#002fa7]">{t("回复 {name}", { name: replyTarget.author_name })}</div>
+              <div className="text-[10px] font-bold text-primary">{t("回复 {name}", { name: replyTarget.author_name })}</div>
               <div className="truncate text-xs text-slate-600">{replyTarget.body || t("附件消息")}</div>
             </div>
-            <button
+            <Button variant="unstyled"
               type="button"
               onClick={onClearReply}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white hover:text-slate-700"
               aria-label={t("取消引用")}
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </div>
       )}
       {files.length > 0 && (
@@ -1310,16 +1313,16 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-blue-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50">
+      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary">
         <label
           className={cn(
-            "flex shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-[#002fa7]",
+            "flex shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-primary",
             variant === "mobile" ? "size-11" : "size-9",
           )}
           title={t("添加附件")}
         >
           <Paperclip className="h-4 w-4" />
-          <input
+          <Input
             type="file"
             multiple
             disabled={sending}
@@ -1331,7 +1334,7 @@ function Composer({
             }}
           />
         </label>
-        <textarea
+        <Textarea
           ref={inputRef}
           value={text}
           rows={1}
@@ -1356,23 +1359,23 @@ function Composer({
             }
           }}
           className={cn(
-            "max-h-28 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 leading-5 text-slate-800 outline-none placeholder:text-slate-400",
+            "max-h-28 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 leading-5 text-slate-800 outline-none placeholder:text-muted-foreground",
             variant === "mobile" ? "min-h-11 text-base" : "min-h-9 text-sm",
           )}
         />
-        <button
+        <Button variant="unstyled"
           type="button"
           onClick={() => void submit()}
           disabled={(!text.trim() && files.length === 0) || sending}
           className={cn(
-            "rd-conversation-composer__send flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#002fa7] text-white shadow-[0_6px_16px_rgba(0,47,167,0.24)] transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none",
+            "rd-conversation-composer__send flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-white shadow-[0_6px_16px_rgba(var(--primary-rgb),0.24)] transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none",
             variant === "mobile" ? "size-11" : "size-9",
           )}
           aria-label={sending ? t("正在发送消息") : t("发送消息")}
           aria-busy={sending}
         >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </button>
+        </Button>
       </div>
       {submitError ? (
         <p className="mx-2 mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-pretty text-[11px] text-rose-700" role="alert">
@@ -1429,17 +1432,17 @@ function AnchorPreview({
 
   return (
     <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-      <div className="flex items-center gap-2 text-[10px] font-bold text-[#002fa7]">
+      <div className="flex items-center gap-2 text-[10px] font-bold text-primary">
         {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
         {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
       </div>
-      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-[#002fa7]/55 bg-white px-2.5 py-2 shadow-sm">
+      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-[var(--primary)]/55 bg-white px-2.5 py-2 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-1.5">
             <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
             <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
           </div>
-          <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
+          <div className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
             {/* 留痕引用卡：精确到秒 */}
             {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
               month: "numeric",
@@ -1481,21 +1484,21 @@ function ThreadInvitationBanner({
 }) {
   return (
     <div className={cn("rd-thread-invitation border-b border-blue-100 bg-blue-50/70", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
-      <div className="rd-thread-invitation__content rounded-lg border border-blue-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(0,47,167,0.06)]">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-[#002fa7]">
+      <div className="rd-thread-invitation__content rounded-lg border border-blue-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(var(--primary-rgb),0.06)]">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
           <Sparkles className="h-3.5 w-3.5" />
           <span>{t("{name} 邀请你参与这条讨论", { name: inviterName || t("任务成员") })}</span>
-          <span className="ml-auto shrink-0 rounded-full bg-[#002fa7] px-2 py-0.5 text-[9px] text-white">{t("受邀参与")}</span>
+          <span className="ml-auto shrink-0 rounded-full bg-primary px-2 py-0.5 text-[9px] text-white">{t("受邀参与")}</span>
         </div>
         <p className="mt-1 text-[10px] leading-4 text-slate-600">
           {t("你可以查看原始留痕并在本线程回复，不会加入整个任务。")}
         </p>
         <div className="mt-1.5 flex flex-wrap gap-1">
-          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-[#002fa7]">
+          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-primary">
             <Eye className="h-3 w-3" />
             {t("可查看本线程")}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-[#002fa7]">
+          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-primary">
             <Paperclip className="h-3 w-3" />
             {t("可回复 / 上传附件")}
           </span>
@@ -2222,13 +2225,13 @@ export function RDTaskConversation({
             </span>
             <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">{t("任务讨论暂不可用")}</h5>
             <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{mainError}</p>
-            <button
+            <Button
               type="button"
               onClick={() => void loadMain()}
-              className="mt-4 min-h-10 cursor-pointer rounded-xl bg-[#002fa7] px-4 text-xs font-bold text-white transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2"
+              className="mt-4 min-h-10 cursor-pointer rounded-xl px-4 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
             >
               {t("重新加载讨论")}
-            </button>
+            </Button>
           </div>
         ) : mode === "progress" && notesError ? (
           <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center" role="alert">
@@ -2238,18 +2241,18 @@ export function RDTaskConversation({
             <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">{t("进度留痕加载失败")}</h5>
             <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{notesError}</p>
             {onRetryNotes && (
-              <button
+              <Button
                 type="button"
                 onClick={onRetryNotes}
-                className="mt-4 min-h-10 cursor-pointer rounded-xl bg-[#002fa7] px-4 text-xs font-bold text-white transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2"
+                className="mt-4 min-h-10 cursor-pointer rounded-xl px-4 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
               >
                 {t("重新加载进度留痕")}
-              </button>
+              </Button>
             )}
           </div>
         ) : feedItems.length === 0 && relatedProgressThreads.length === 0 ? (
           <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-[#002fa7]">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-primary">
               {mode === "progress" ? <Sparkles className="h-6 w-6" /> : <MessageCircleMore className="h-6 w-6" />}
             </span>
             <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">
@@ -2268,13 +2271,13 @@ export function RDTaskConversation({
               <LoadEarlierButton loading={mainEarlierLoading} onClick={() => void loadEarlierMain()} />
             )}
             {mode === "task" && relatedProgressThreads.length > 0 && (
-              <section className="rd-related-progress-threads mt-2 rounded-xl border border-blue-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(0,47,167,0.05)]">
+              <section className="rd-related-progress-threads mt-2 rounded-xl border border-blue-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(var(--primary-rgb),0.05)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h5 className="text-xs font-bold text-slate-800">{t("相关进度讨论")}</h5>
                     <p className="mt-0.5 text-[10px] text-slate-500">{t("仅显示已经产生回复的进度记录")}</p>
                   </div>
-                  <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-[#002fa7]">
+                  <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-primary">
                     {relatedProgressThreads.length}
                   </span>
                 </div>
@@ -2290,11 +2293,11 @@ export function RDTaskConversation({
                       note,
                     };
                     return (
-                      <button
+                      <Button variant="unstyled"
                         key={note.id}
                         type="button"
                         onClick={() => void openThread(anchor)}
-                        className="rd-related-progress-threads__item group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-blue-200 hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
+                        className="rd-related-progress-threads__item group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-primary/25 hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
                         <span className="min-w-0 flex-1">
@@ -2304,7 +2307,7 @@ export function RDTaskConversation({
                             <span className="ml-auto shrink-0 tabular-nums">{formatCompactDateTime(note.created_at)}</span>
                           </span>
                           <span className="mt-0.5 block truncate text-xs text-slate-600">{note.text || t("附件进度记录")}</span>
-                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-bold text-[#002fa7]">
+                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-bold text-primary">
                             {t("{n} 条讨论", { n: summary.message_count })}
                             {summary.unread_count > 0 && (
                               <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] text-white">
@@ -2313,7 +2316,7 @@ export function RDTaskConversation({
                             )}
                           </span>
                         </span>
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -2438,7 +2441,7 @@ export function RDTaskConversation({
       {activeAnchor && (
           <>
             {variant === "desktop" && threadLayout === "responsive" && (
-              <button
+              <Button variant="unstyled"
                 type="button"
                 tabIndex={-1}
                 onClick={closeThread}
@@ -2463,15 +2466,15 @@ export function RDTaskConversation({
               )}
             >
               <header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5">
-                <button
+                <Button variant="unstyled"
                   ref={threadBackButtonRef}
                   type="button"
                   onClick={closeThread}
-                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   aria-label={mode === "progress" ? t("返回进度留痕") : t("返回任务讨论")}
                 >
                   <ArrowLeft className="h-4.5 w-4.5" />
-                </button>
+                </Button>
                 <div className="min-w-0 flex-1">
                   <h5 className="truncate text-balance text-sm font-bold text-slate-900">
                     {activeAnchor.type === "progress_note" ? t("关于这条进度的讨论") : t("消息讨论")}
@@ -2480,14 +2483,14 @@ export function RDTaskConversation({
                     {threadLoading ? t("读取中…") : t("{n} 条回复", { n: thread?.messages.length ?? 0 })}
                   </p>
                 </div>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={closeThread}
-                  className="hidden h-8 w-8 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 sm:flex"
+                  className="hidden h-8 w-8 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-700 sm:flex"
                   aria-label={t("关闭")}
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </Button>
               </header>
               {thread?.access_scope === "thread_invitee" && (
                 <ThreadInvitationBanner
@@ -2520,13 +2523,13 @@ export function RDTaskConversation({
                     <RefreshCw className="size-7 text-amber-500" aria-hidden="true" />
                     <h6 className="mt-3 text-balance text-sm font-semibold text-slate-800">{t("讨论线程加载失败")}</h6>
                     <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{threadError}</p>
-                    <button type="button" onClick={() => void loadThread(activeAnchor, true)} className="mt-3 rounded-lg bg-[#002fa7] px-3 py-2 text-xs font-semibold text-white hover:bg-[#002581]">
+                    <Button type="button" onClick={() => void loadThread(activeAnchor, true)} className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold">
                       {t("重新加载线程")}
-                    </button>
+                    </Button>
                   </div>
                 ) : (thread?.messages.length ?? 0) === 0 ? (
                   <div className="flex h-full min-h-48 flex-col items-center justify-center px-8 text-center">
-                    <MessageCircleReply className="h-7 w-7 text-[#002fa7]/35" />
+                    <MessageCircleReply className="h-7 w-7 text-primary/35" />
                     <div className="mt-3 text-balance text-sm font-semibold text-slate-700">{t("还没有相关讨论")}</div>
                     <div className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">
                       {activeAnchor.type === "progress_note"
@@ -2633,12 +2636,12 @@ function ProgressTimeline({
               )}
             >
               <span className={cn("block", date.secondary && "font-bold text-slate-700")}>{date.primary}</span>
-              {date.secondary ? <span className="mt-0.5 block text-[10px] font-medium text-slate-400">{date.secondary}</span> : null}
+              {date.secondary ? <span className="mt-0.5 block text-[10px] font-medium text-muted-foreground">{date.secondary}</span> : null}
             </time>
             <div className="relative flex justify-center" aria-hidden="true">
               {index > 0 ? <span className="rd-progress-timeline__line absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
               {index < items.length - 1 ? <span className="rd-progress-timeline__line absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
-              <span className="rd-progress-timeline__dot relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#002fa7] shadow-[0_0_0_3px_rgba(0,47,167,0.13)]" />
+              <span className="rd-progress-timeline__dot relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-primary shadow-[0_0_0_3px_rgba(var(--primary-rgb),0.13)]" />
             </div>
             <div className={cn("min-w-0", index < items.length - 1 ? "pb-4" : "pb-1")}>
               <ProgressAnchorCard

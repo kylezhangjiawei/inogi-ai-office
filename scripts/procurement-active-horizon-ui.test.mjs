@@ -53,7 +53,7 @@ test("采购弹窗和键盘交互继续使用项目可访问原语", () => {
   assert.doesNotMatch(moveTask, /role="button"/);
 
   assert.match(quoteImport, /<Dialog open/);
-  assert.match(quoteImport, /<button[\s\S]*?onDragOver=/);
+  assert.match(quoteImport, /<(?:Button|UiButton)[\s\S]*?onDragOver=/);
   assert.doesNotMatch(quoteImport, /role="button"/);
 
   assert.match(quoteForm, /<Sheet open/);

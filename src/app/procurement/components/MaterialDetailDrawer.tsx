@@ -241,7 +241,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               </div>
               <div className="proc-horizon-material-summary-layout grid min-w-0 grid-cols-1 gap-4" data-has-image={Boolean(material.imageUrl)}>
                 {material.imageUrl ? (
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => setImageOpen(true)}
                     aria-label={t("预览{name}的商品图片", { name: material.name })}
@@ -249,7 +249,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                   >
                     <img src={material.imageUrl} alt={t("{name}商品图片", { name: material.name })} loading="lazy" className="size-full object-cover" />
                     <span className="absolute inset-x-0 bottom-0 bg-slate-900/75 px-2 py-1 text-center text-[10px] font-medium text-white">{t("点击预览")}</span>
-                  </button>
+                  </Button>
                 ) : null}
                 <dl className="proc-horizon-material-facts grid min-w-0 grid-cols-1 gap-x-5">
                   {material.spec ? <Info label="规格型号" value={<AutoTranslatedText text={material.spec} />} fullWidth /> : null}
@@ -276,9 +276,9 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                   <h3 id="material-inventory-title" className="text-balance text-sm font-semibold text-slate-900">{t("库存与供应")}</h3>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button type="button" aria-label={t("查看库存口径说明")} className="rounded-md text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                      <Button variant="unstyled" type="button" aria-label={t("查看库存口径说明")} className="rounded-md text-muted-foreground hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                         <HelpCircle aria-hidden="true" className="size-3.5" />
-                      </button>
+                      </Button>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-64">{t("现存量、可用量和安全库存来自最近一次 T+ 同步；采购在途与关联任务由系统任务实时汇总。")}</TooltipContent>
                   </Tooltip>
@@ -356,7 +356,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                   <p className="text-pretty text-[11px] text-slate-600">{t("查看跨供应商报价与价格趋势")}</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded-md px-2 py-1.5 text-xs font-semibold text-primary hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("打开对比")}</button>
+              <Button variant="unstyled" type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded-md px-2 py-1.5 text-xs font-semibold text-primary hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("打开对比")}</Button>
             </section>
 
             <section aria-labelledby="material-related-title" className="rounded-xl border border-slate-200 p-4">
@@ -370,7 +370,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                 <ul className="space-y-2">
                   {related.map((task) => (
                     <li key={task.id}>
-                      <button type="button" onClick={() => onOpenTask(task.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left hover:border-[var(--primary-soft-border)] hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                      <Button variant="unstyled" type="button" onClick={() => onOpenTask(task.id)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left hover:border-[var(--primary-soft-border)] hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                         <span className="min-w-0 flex-1 basis-48">
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="min-w-0 break-all font-semibold tabular-nums text-slate-800">{task.code}</span>
@@ -381,7 +381,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                           </span>
                         </span>
                         <StatusPill status={task.status} />
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

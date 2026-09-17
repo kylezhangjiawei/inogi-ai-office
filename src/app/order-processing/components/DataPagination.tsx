@@ -76,12 +76,12 @@ export function DataPagination({
               onClick={() => onPageChange(token)}
               className={cn(
                 'size-8 rounded-full text-xs tabular-nums',
-                token === page ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-600',
+                token === page ? 'bg-primary text-white hover:bg-primary-hover' : 'text-slate-600',
               )}>
               {token}
             </Button>
           ) : (
-            <span key={token} className="flex size-8 items-center justify-center text-slate-400" aria-hidden>
+            <span key={token} className="flex size-8 items-center justify-center text-muted-foreground" aria-hidden>
               …
             </span>
           ),

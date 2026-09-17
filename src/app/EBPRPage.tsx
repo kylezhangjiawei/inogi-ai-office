@@ -276,7 +276,7 @@ export function EBPRPage() {
             {batches.map((batch) => {
               const selectedNow = selectedBatchId === batch.id;
               return (
-                <button
+                <Button variant="unstyled"
                   key={batch.id}
                   type="button"
                   aria-current={selectedNow ? "true" : undefined}
@@ -284,7 +284,7 @@ export function EBPRPage() {
                   onClick={() => { setSelectedBatchId(batch.id); setExpandedStep(batch.steps.find((step) => step.status === "进行中")?.id ?? null); }}
                   className={cn(
                     "relative min-w-[205px] rounded-xl border border-transparent px-3 py-3 text-left transition-colors xl:w-full xl:min-w-0",
-                    selectedNow ? "border-[#cfdafe] bg-[#eef3ff] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-[#002fa7]" : "bg-slate-50/70 hover:bg-slate-100",
+                    selectedNow ? "border-[#cfdafe] bg-accent before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "bg-slate-50/70 hover:bg-slate-100",
                   )}
                 >
                   <div className="truncate text-sm font-semibold text-[#1b2559] tabular-nums">{batch.id}</div>
@@ -293,7 +293,7 @@ export function EBPRPage() {
                     <span className="text-[11px] text-slate-500 tabular-nums">{batch.productionDate}</span>
                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", batchStatusColor[batch.status])}>{batch.status}</span>
                   </div>
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -312,7 +312,7 @@ export function EBPRPage() {
               <span className="text-slate-500 tabular-nums">{completedSteps} / {selectedBatch.steps.length}</span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-label={`已完成 ${completedSteps} / ${selectedBatch.steps.length} 道工序`}>
-              <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${(completedSteps / selectedBatch.steps.length) * 100}%` }} />
+              <div className="h-full rounded-full bg-primary" style={{ width: `${(completedSteps / selectedBatch.steps.length) * 100}%` }} />
             </div>
           </div>
 
@@ -322,8 +322,8 @@ export function EBPRPage() {
                 const expanded = expandedStep === step.id;
                 const panelId = `ebpr-step-${selectedBatch.id}-${step.id}`;
                 return (
-                  <div key={step.id} className={cn("relative border-b border-[#e9edf7] last:border-b-0", step.status === "进行中" && "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#002fa7]")}>
-                    <button
+                  <div key={step.id} className={cn("relative border-b border-[#e9edf7] last:border-b-0", step.status === "进行中" && "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary")}>
+                    <Button variant="unstyled"
                       id={`${panelId}-trigger`}
                       type="button"
                       aria-expanded={expanded}
@@ -333,7 +333,7 @@ export function EBPRPage() {
                     >
                       <span className={cn(
                         "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                        step.status === "已完成" ? "bg-emerald-50 text-emerald-700" : step.status === "进行中" ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-500",
+                        step.status === "已完成" ? "bg-emerald-50 text-emerald-700" : step.status === "进行中" ? "bg-accent text-primary" : "bg-slate-100 text-slate-500",
                       )}>
                         {step.status === "已完成" ? <CheckCircle2 className="size-4" /> : index + 1}
                       </span>
@@ -342,14 +342,14 @@ export function EBPRPage() {
                           <span className="text-sm font-semibold text-[#1b2559]">{step.name}</span>
                           <span className={cn(
                             "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                            step.status === "已完成" ? "bg-emerald-50 text-emerald-700" : step.status === "进行中" ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-500",
+                            step.status === "已完成" ? "bg-emerald-50 text-emerald-700" : step.status === "进行中" ? "bg-accent text-primary" : "bg-slate-100 text-slate-500",
                           )}>{step.status === "进行中" ? "当前工序" : step.status}</span>
                           {step.locked ? <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Lock className="size-3" />已锁定</span> : null}
                         </span>
                         <span className="mt-0.5 block text-xs text-slate-500 tabular-nums">{step.operator ? `${step.operator} · ${step.date}` : "等待录入"}</span>
                       </span>
                       {expanded ? <ChevronUp className="size-4 text-slate-500" /> : <ChevronDown className="size-4 text-slate-500" />}
-                    </button>
+                    </Button>
 
                     {expanded ? (
                       <div id={panelId} role="region" aria-labelledby={`${panelId}-trigger`} className="border-t border-[#e9edf7] bg-slate-50/55 px-4 py-4 sm:px-5">
@@ -411,14 +411,14 @@ export function EBPRPage() {
         </section>
 
         <aside className="hz-surface flex min-w-0 flex-col overflow-hidden" aria-label="审计轨迹">
-          <HorizonSectionHeader Icon={ShieldCheck} title="审计轨迹" description={`${selectedBatch.audit.length} 条修改记录`} trailing={<span className="rounded-full bg-[#eef3ff] px-2 py-1 text-[11px] font-semibold text-[#002fa7]">参考 21 CFR Part 11</span>} />
+          <HorizonSectionHeader Icon={ShieldCheck} title="审计轨迹" description={`${selectedBatch.audit.length} 条修改记录`} trailing={<span className="rounded-full bg-accent px-2 py-1 text-[11px] font-semibold text-primary">参考 21 CFR Part 11</span>} />
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {selectedBatch.audit.length === 0 ? (
               <HorizonEmptyState Icon={History} title="暂无修改记录" description="锁定记录发生修改后，操作人与修改原因将显示在此。" />
             ) : (
               <ol className="space-y-4 border-l border-[#dce4f8] pl-4">
                 {selectedBatch.audit.map((entry) => (
-                  <li key={entry.id} className="relative text-xs before:absolute before:-left-[1.18rem] before:top-1 before:size-2 before:rounded-full before:bg-[#002fa7]">
+                  <li key={entry.id} className="relative text-xs before:absolute before:-left-[1.18rem] before:top-1 before:size-2 before:rounded-full before:bg-primary">
                     <div className="flex flex-wrap items-center justify-between gap-2 font-semibold text-[#1b2559]"><span>{entry.modifier}</span><time className="font-normal text-slate-500 tabular-nums">{entry.time}</time></div>
                     <div className="mt-1 text-slate-600">{entry.stepName ? `${entry.stepName} · ` : ""}{entry.field}</div>
                     <dl className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2.5">

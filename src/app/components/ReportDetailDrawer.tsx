@@ -8,6 +8,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "./ui/sheet";
+import { Button } from "./ui/button";
 
 /** 抽屉默认（同时也是最小）宽度 */
 const DRAWER_MIN_WIDTH = 640;
@@ -91,18 +92,18 @@ export function ReportDetailDrawer({
                 </span>
               )}
             </div>
-            <SheetDescription className="mt-0.5 text-xs tabular-nums text-slate-400">{dateLabel}</SheetDescription>
+            <SheetDescription className="mt-0.5 text-xs tabular-nums text-muted-foreground">{dateLabel}</SheetDescription>
           </div>
           {headerExtra}
           <SheetClose asChild>
-            <button
+            <Button variant="unstyled"
               type="button"
               aria-label="关闭报告详情"
-              className="flex size-8 shrink-0 items-center justify-center rounded-[4px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
+              className="flex size-8 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
               title="关闭报告详情"
             >
               <X className="size-4" aria-hidden="true" />
-            </button>
+            </Button>
           </SheetClose>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>

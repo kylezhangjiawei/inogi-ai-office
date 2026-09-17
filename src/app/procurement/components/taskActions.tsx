@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/button";
 // 采购任务「下一步」动作的统一执行器。
 //
 // 卡片和详情抽屉共用同一套动作语义，避免两处各写一遍流转规则：
@@ -372,7 +373,7 @@ function ConfirmActionDialog({
             <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", confirm.tone === "danger" ? "bg-rose-50 text-rose-700" : "bg-accent text-primary")}><AlertTriangle className="size-5" /></span>
             <div className="min-w-0">
               <AlertDialogTitle className="text-balance">{t(confirm.title)}</AlertDialogTitle>
-              <p className="mt-1 truncate text-xs tabular-nums text-slate-400" title={`${task.code} · ${task.materialName}`}>{task.code} · {task.materialName}</p>
+              <p className="mt-1 truncate text-xs tabular-nums text-muted-foreground" title={`${task.code} · ${task.materialName}`}>{task.code} · {task.materialName}</p>
             </div>
           </div>
           <AlertDialogDescription className="pt-2 text-pretty leading-relaxed">{t(confirm.desc)}</AlertDialogDescription>
@@ -781,12 +782,12 @@ function ActionModal({
               ? t(confirm?.title ?? "请确认")
               : t(kind === "order" && isSampleOrder ? "登记出样单" : kind === "order" && isFreeSampleOnly ? "登记免费样品来货" : TITLES[kind])}
           </DialogTitle>
-          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{task.code} · {task.materialName}</DialogDescription>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-muted-foreground">{task.code} · {task.materialName}</DialogDescription>
         </DialogHeader>
 
         {actionSteps.length > 0 && (
           <div className={cn("grid border-b border-slate-100 bg-slate-50/70 px-5 py-2.5", actionSteps.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
-            {actionSteps.map((step, index) => <div key={step} className={cn("flex items-center gap-2 text-xs", index === actionStep ? "font-semibold text-primary" : index < actionStep ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === actionStep ? "border-primary bg-primary text-white" : index < actionStep ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{step}</span></div>)}
+            {actionSteps.map((step, index) => <div key={step} className={cn("flex items-center gap-2 text-xs", index === actionStep ? "font-semibold text-primary" : index < actionStep ? "text-emerald-700" : "text-muted-foreground")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === actionStep ? "border-primary bg-primary text-white" : index < actionStep ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{step}</span></div>)}
           </div>
         )}
 
@@ -820,7 +821,7 @@ function ActionModal({
 
               <div className="flex items-center gap-2">
                 <div className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={quoteSearch}
                     onChange={(event) => setQuoteSearch(event.target.value)}
@@ -828,13 +829,13 @@ function ActionModal({
                     placeholder={t("搜索物料、供应商或厂家型号")}
                   />
                 </div>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={goToQuoteBook}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary"
                 >
                   <Store className="h-4 w-4" />{t("维护报价库")}<ExternalLink className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
 
               {!quoteBookLoading && !quoteBookError && visibleQuoteBookOptions.length > 0 && (
@@ -859,7 +860,7 @@ function ActionModal({
               )}
 
               {quoteBookLoading ? (
-                <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-slate-400">
+                <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />{t("正在读取供应商报价库…")}
                 </div>
               ) : quoteBookError ? (
@@ -870,13 +871,13 @@ function ActionModal({
                 <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 text-center">
                   <span className="flex size-10 items-center justify-center rounded-full bg-white text-primary shadow-sm"><Store className="size-5" /></span>
                   <b className="mt-3 text-sm text-slate-700">{t(quoteBookScope === "all" ? "报价库中暂无有效报价" : "报价库中暂无该物料的有效报价")}</b>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-400">{t("请先到供应商报价库新增或更新报价，维护完成后再返回任务选择。")}</p>
-                  <button type="button" onClick={goToQuoteBook} className="material-button-primary mt-3 inline-flex items-center gap-1.5 px-4 py-2 text-sm">
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("请先到供应商报价库新增或更新报价，维护完成后再返回任务选择。")}</p>
+                  <Button variant="unstyled" type="button" onClick={goToQuoteBook} className="material-button-primary mt-3 inline-flex items-center gap-1.5 px-4 py-2 text-sm">
                     {t("去供应商报价库维护")}<ExternalLink className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </div>
               ) : visibleQuoteBookOptions.length === 0 ? (
-                <div className="py-10 text-center text-sm text-slate-400">{t("未找到匹配的物料、供应商或型号")}</div>
+                <div className="py-10 text-center text-sm text-muted-foreground">{t("未找到匹配的物料、供应商或型号")}</div>
               ) : (
                 <ScrollArea className="h-[320px] pr-3">
                 <div className="space-y-2">
@@ -900,29 +901,29 @@ function ActionModal({
                           onCheckedChange={() => toggleQuote(quote.id)}
                           className="size-[18px] rounded"
                         />
-                        <button type="button" onClick={() => toggleQuote(quote.id)} className="min-w-0 text-left">
+                        <Button variant="unstyled" type="button" onClick={() => toggleQuote(quote.id)} className="min-w-0 text-left">
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <b className="truncate text-sm text-slate-800">{quote.materialName}</b>
-                            {quote.materialSpec && <span className="text-xs text-slate-400">{quote.materialSpec}</span>}
+                            {quote.materialSpec && <span className="text-xs text-muted-foreground">{quote.materialSpec}</span>}
                           </span>
                           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="text-xs font-medium text-slate-600">{quote.supplierName}</span>
-                            {quote.supplierModel && <span className="text-xs text-slate-400">{quote.supplierModel}</span>}
+                            {quote.supplierModel && <span className="text-xs text-muted-foreground">{quote.supplierModel}</span>}
                             <span className={cn(
                               "rounded-full border px-1.5 py-0.5 text-[10px]",
                               quote.taxIncluded ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700",
                             )}>{t(quote.taxIncluded ? "含税" : "未税")}</span>
                           </span>
-                          <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                          <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                             <span>{t("匹配阶梯")} ≥ {matchedTier.minQty.toLocaleString()}</span>
                             <span>{t("交期 {count} 天", { count: quote.leadTimeDays })}</span>
                             <span>{quote.validUntil ? t("有效期至 {date}", { date: quote.validUntil }) : t("长期有效")}</span>
                             {belowMinOrder && <span className="font-medium text-amber-600">{t("低于起订量")}</span>}
                           </span>
-                        </button>
+                        </Button>
                         <span className="text-right">
                           <b className="block text-base tabular-nums text-slate-900">{formatQuoteAmount(matchedTier.unitPrice, quote.currency)}</b>
-                          <small className="text-[10px] text-slate-400">{t("当前数量匹配单价")}</small>
+                          <small className="text-[10px] text-muted-foreground">{t("当前数量匹配单价")}</small>
                         </span>
                         {selected && line && (
                           <div className="col-span-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-lg border border-[var(--primary-soft-border)] bg-white px-3 py-2">
@@ -939,7 +940,7 @@ function ActionModal({
                                   aria-label={t("{material}采购数量", { material: quote.materialName })}
                                   className="h-8 w-32 rounded-lg border-slate-200 text-sm tabular-nums"
                                 />
-                                <span className="text-slate-400">{t(task.unit) || t("件")}</span>
+                                <span className="text-muted-foreground">{t(task.unit) || t("件")}</span>
                               </span>
                             </label>
                             <div className="text-right text-xs text-slate-500">
@@ -993,7 +994,7 @@ function ActionModal({
               )}
 
               {quoteBookOptions.length > 0 && (
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-muted-foreground">
                   {t("已选择 {count} 条报价；单价来自报价库，采购数量和折扣将在确认后保存。", { count: selectedQuoteIds.length })}
                 </div>
               )}
@@ -1002,7 +1003,7 @@ function ActionModal({
 
           {kind === "select" && (
             quotes.length === 0 ? (
-              <div className="py-6 text-center text-sm text-slate-400">{t("该任务还没有报价，请先从供应商报价库选择")}</div>
+              <div className="py-6 text-center text-sm text-muted-foreground">{t("该任务还没有报价，请先从供应商报价库选择")}</div>
             ) : confirmedQuotes.length > 0 ? (
               // 报价已在「待询价」一次性确认过，这一步只需决定去向，不再重新选一遍供应商
               <div className="space-y-3">
@@ -1022,22 +1023,22 @@ function ActionModal({
                     ? t("完成询价后进入「已定价」，可标记已下单。")
                     : t("该任务需要打样，完成询价后进入「待到样」，实际收到样品后再确认「样品已到」。")}
                 </p>
-                <button
+                <Button
                   type="button"
                   disabled={busy}
                   onClick={() => void onSubmit(() => completeInquiry(task.id), t("已完成询价"))}
-                  className="h-9 w-full rounded-lg bg-[#002fa7] text-sm font-medium text-white hover:bg-[#002581] disabled:opacity-50"
+                  className="h-9 w-full rounded-lg text-sm font-medium disabled:opacity-50"
                 >
                   {busy ? t("处理中…") : t("完成询价")}
-                </button>
-                <p className="text-center text-xs text-slate-400">
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
                   {t("报价有误？关闭本框后用「重新维护报价」退回「待询价」。")}
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
                 {quotes.map((q) => (
-                  <button
+                  <Button variant="unstyled"
                     key={q.id}
                     type="button"
                     disabled={busy}
@@ -1047,11 +1048,11 @@ function ActionModal({
                     <span className="text-slate-700">{q.supplierName}</span>
                     <span className="flex items-center gap-3">
                       <b className="tabular-nums text-slate-900">{formatQuoteAmount(q.unitPrice, q.currency)}</b>
-                      <span className="text-xs text-slate-400">{t("交期 {n} 天", { n: q.leadTimeDays })}</span>
+                      <span className="text-xs text-muted-foreground">{t("交期 {n} 天", { n: q.leadTimeDays })}</span>
                     </span>
-                  </button>
+                  </Button>
                 ))}
-                <p className="pt-1 text-xs text-slate-400">
+                <p className="pt-1 text-xs text-muted-foreground">
                   {!task.needSample
                     ? t("选定后直接进入「已定价」")
                     : t("选定后进入「待到样」，实际收到样品后再确认「样品已到」。")}
@@ -1078,13 +1079,13 @@ function ActionModal({
                 </div>
               )}
               {purchaseOrdersLoading ? (
-                <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-slate-400">
+                <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />{t("正在读取已确认报价…")}
                 </div>
               ) : purchaseOrdersError ? (
                 <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                   <p className="text-pretty">{purchaseOrdersError}</p>
-                  <button type="button" onClick={() => setPurchaseOrderLoadVersion((version) => version + 1)} className="mt-2 rounded px-2 py-1 font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t("重新读取报价")}</button>
+                  <Button variant="unstyled" type="button" onClick={() => setPurchaseOrderLoadVersion((version) => version + 1)} className="mt-2 rounded px-2 py-1 font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t("重新读取报价")}</Button>
                 </div>
               ) : (
                 <ScrollArea className="h-[380px] pr-3">
@@ -1136,7 +1137,7 @@ function ActionModal({
                           id={`purchase-order-${index}-number`}
                           value={item.tpOrderNo}
                           onChange={(event) => updatePurchaseOrder(item.key, { tpOrderNo: event.target.value })}
-                          className={cn(field, item.freeSample && "bg-slate-100 text-slate-400")}
+                          className={cn(field, item.freeSample && "bg-slate-100 text-muted-foreground")}
                           disabled={item.freeSample}
                           placeholder={item.freeSample ? t("免费样品来货，不登记采购单号") : `CGDD-2026-${String(index + 1).padStart(4, "0")}`}
                         />
@@ -1182,7 +1183,7 @@ function ActionModal({
                   })}
                 </div>
               )}
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 {t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}
                 {t("免费样品来货 T+ 里没有采购单，勾选后只登记供应商与预计到货，不参与采购单同步。")}
               </p>
@@ -1206,13 +1207,13 @@ function ActionModal({
         {kind !== "select" && kind !== "sample-test" && (
           <div className={cn("flex gap-2 border-t border-slate-100 px-5 py-3", kind === "quote" ? "items-center justify-between" : "justify-end")}>
             {kind === "quote" && (
-              <button type="button" onClick={goToQuoteBook} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+              <Button variant="unstyled" type="button" onClick={goToQuoteBook} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 {t("没有合适报价？去报价库维护")}<ExternalLink className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
             <div className="flex gap-2">
-              <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
-              <button
+              <Button variant="unstyled" type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</Button>
+              <Button variant="unstyled"
                 type="button"
                 disabled={
                   busy
@@ -1233,7 +1234,7 @@ function ActionModal({
                     : kind === "quote"
                       ? t("确认报价（{count}）", { count: selectedQuoteIds.length })
                       : t("确定")}
-              </button>
+              </Button>
             </div>
           </div>
         )}

@@ -306,7 +306,7 @@ test("部门管理保留目录 API、权限、分页、表单校验与安全删�
 
   const guardedToggle = findJsxOpening(
     statusGuardOpening.parent,
-    "button",
+    "Button",
     (opening) => jsxAttribute(opening, "onClick")?.getText(departmentsAst).includes("handleToggleStatus(department)"),
   );
   assert.ok(guardedToggle, "状态切换按钮必须实际嵌套在权限守卫内");

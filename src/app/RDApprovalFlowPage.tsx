@@ -65,7 +65,7 @@ type NodeErrors = Partial<Record<NodeField, string>>;
 
 const MODE_BADGE: Record<ApprovalMode, { label: string; className: string }> = {
   single: { label: "单人", className: "border-slate-200 bg-slate-100 text-slate-700" },
-  any: { label: "或签", className: "border-blue-200 bg-blue-50 text-[#002fa7]" },
+  any: { label: "或签", className: "border-blue-200 bg-blue-50 text-primary" },
   all: { label: "会签", className: "border-slate-300 bg-white text-slate-800" },
 };
 
@@ -116,7 +116,7 @@ function MiniAvatar({ name }: { name: string }) {
   const initial = name.trim().slice(0, 1) || "?";
   return (
     <span
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-[#002fa7] text-[10px] font-semibold text-white ring-2 ring-white"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-white ring-2 ring-white"
       title={name}
       aria-hidden="true"
     >
@@ -139,7 +139,7 @@ function PoolMemberChip({ member, manual, onRemove, removeTitle }: {
       <MiniAvatar name={member.name} />
       <span className="max-w-28 truncate font-medium">{member.name}</span>
       {member.position ? <span className="hidden max-w-32 truncate text-[10px] text-slate-500 sm:inline">{t(member.position)}</span> : null}
-      {manual ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("手动")}</span> : null}
+      {manual ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{t("手动")}</span> : null}
       {onRemove ? (
         <Button
           type="button"
@@ -316,7 +316,7 @@ function ApprovalNodeCard({
             <legend className="mb-1.5 text-xs font-semibold text-slate-700">{t("审核模式")}</legend>
             <div className="grid grid-cols-3 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1" role="group" aria-label={t("审核模式")}>
               {APPROVAL_MODE_OPTIONS.map((option) => (
-                <button
+                <Button variant="unstyled"
                   ref={option.value === "all" ? (element) => registerField("mode", element) : undefined}
                   key={option.value}
                   type="button"
@@ -326,12 +326,12 @@ function ApprovalNodeCard({
                   aria-invalid={option.value === "all" && Boolean(errors?.mode)}
                   title={t(option.helper)}
                   className={cn(
-                    "rounded-md px-2 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60",
-                    node.mode === option.value ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900",
+                    "rounded-md px-2 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60",
+                    node.mode === option.value ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900",
                   )}
                 >
                   {t(option.label)}
-                </button>
+                </Button>
               ))}
             </div>
             <p className="mt-1 text-pretty text-xs text-slate-500">{t(APPROVAL_MODE_OPTIONS.find((option) => option.value === node.mode)?.helper ?? "")}</p>
@@ -363,14 +363,14 @@ function ApprovalNodeCard({
               <Label htmlFor={escalateId} className="text-xs font-semibold text-slate-700">{t("超时升级")}</Label>
               <p className="mt-1 text-pretty text-xs text-slate-500">{node.escalate_on_timeout ? t("SLA 到期后标记为待升级。") : t("SLA 到期后保持当前节点。")}</p>
             </div>
-            <Switch id={escalateId} checked={Boolean(node.escalate_on_timeout)} onCheckedChange={(checked) => onChange({ escalate_on_timeout: checked })} disabled={readOnly} aria-label={t("切换节点 {name} 的超时升级", { name: node.label || node.level })} className="data-[state=checked]:bg-[#002fa7]" />
+            <Switch id={escalateId} checked={Boolean(node.escalate_on_timeout)} onCheckedChange={(checked) => onChange({ escalate_on_timeout: checked })} disabled={readOnly} aria-label={t("切换节点 {name} 的超时升级", { name: node.label || node.level })} className="data-[state=checked]:bg-primary" />
           </div>
         </div>
 
         <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3" aria-label={t("当前审核池")}>
           <div>
             <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-              <Users className="size-3.5 text-[#002fa7]" aria-hidden="true" />
+              <Users className="size-3.5 text-primary" aria-hidden="true" />
               {t("当前审核池")}
               <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold tabular-nums">{pool.length}</span>
             </h4>
@@ -400,7 +400,7 @@ function ApprovalNodeCard({
                 {removedMembers.map((member) => (
                   <li key={member.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-500">
                     <span className="line-through">{member.name}</span>
-                    {!readOnly ? <button type="button" onClick={() => restoreMember(member.id)} className="font-semibold text-[#002fa7] hover:underline">{t("恢复")}</button> : null}
+                    {!readOnly ? <Button variant="unstyled" type="button" onClick={() => restoreMember(member.id)} className="font-semibold text-primary hover:underline">{t("恢复")}</Button> : null}
                   </li>
                 ))}
               </ul>
@@ -440,11 +440,11 @@ function ApprovalNodeCard({
                     <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto" aria-label={t("审核人候选名单")}>
                       {addableCandidates.slice(0, 20).map((candidate) => (
                         <li key={candidate.id}>
-                          <button type="button" onClick={() => addExtra(candidate)} className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-slate-700 outline-none hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-500">
+                          <Button variant="unstyled" type="button" onClick={() => addExtra(candidate)} className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-slate-700 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary">
                             <MiniAvatar name={candidate.name} />
                             <span className="min-w-0 flex-1 truncate font-medium">{candidate.name}</span>
                             <span className="max-w-40 truncate text-slate-500">{t(candidate.position)}</span>
-                          </button>
+                          </Button>
                         </li>
                       ))}
                     </ul>
@@ -862,7 +862,7 @@ export function RDApprovalFlowPage() {
                     <p className="mt-1 text-pretty text-xs text-slate-500">{t("所有流程会作为一个配置集合统一保存。")}</p>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-pretty text-xs text-[#002fa7]"><Info className="mb-2 size-4" aria-hidden="true" />{t("审核池按角色权限自动派生；手动调整只影响当前节点，并随流程配置一并保存。")}</div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-pretty text-xs text-primary"><Info className="mb-2 size-4" aria-hidden="true" />{t("审核池按角色权限自动派生；手动调整只影响当前节点，并随流程配置一并保存。")}</div>
                 )}
               </div>
               {poolError ? <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-pretty text-xs text-amber-800" role="alert">{t("审核池成员读取失败：")}{poolError} {t("节点配置仍可编辑，但成员统计暂不完整。")}</div> : null}
@@ -884,7 +884,7 @@ export function RDApprovalFlowPage() {
                     {activeFlow.nodes.map((node, index) => (
                       <li key={node.id} className="min-w-0">
                         <div className="mb-1 flex justify-end">
-                          <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", index === 0 ? "border-blue-200 bg-blue-50 text-[#002fa7]" : "border-slate-200 bg-slate-50 text-slate-500")}>{index === 0 ? t("当前生效") : t("后续预留")}</span>
+                          <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", index === 0 ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-slate-50 text-slate-500")}>{index === 0 ? t("当前生效") : t("后续预留")}</span>
                         </div>
                         <ApprovalNodeCard
                           node={node}

@@ -8,6 +8,11 @@ import { cn } from "./components/ui/utils";
 import { uploadResourceFile } from "./lib/resourceUpload";
 import { videoGenerationApi, type VideoGateEvaluation } from "./lib/videoGenerationApi";
 import { extractVideoKeyframes, readImageAsDataUrl } from "./lib/videoFrames";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { NativeSelect } from "./components/ui/native-select";
+import { Checkbox } from "./components/ui/checkbox";
+import { Slider } from "./components/ui/slider";
 
 type Mode = "t2v" | "i2v" | "r2v";
 
@@ -200,7 +205,7 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
               <TabsTrigger
                 key={item.value}
                 value={item.value}
-                className="h-auto min-h-16 flex-col items-start rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left whitespace-normal data-[state=active]:border-[#002fa7] data-[state=active]:bg-[#eef3ff] data-[state=active]:text-[#002fa7]"
+                className="h-auto min-h-16 flex-col items-start rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left whitespace-normal data-[state=active]:border-primary data-[state=active]:bg-accent data-[state=active]:text-primary"
               >
                 <span className="text-sm font-semibold">{item.label}</span>
                 <span className="text-pretty text-xs font-normal text-slate-500">{item.hint}</span>
@@ -229,29 +234,29 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
                       失败
                     </div>
                   )}
-                  <button
+                  <Button variant="unstyled"
                     type="button"
                     onClick={() => removeImage(im.localId)}
                     aria-label={`移除参考图 ${im.name}`}
                     className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-slate-950/70 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     <X className="size-3" />
-                  </button>
+                  </Button>
                 </div>
               ))}
               {images.length < maxImages && (
-                <button
+                <Button variant="unstyled"
                   type="button"
                   onClick={() => fileRef.current?.click()}
                   aria-label={mode === "i2v" ? "上传首帧图" : "上传参考图"}
-                  className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-500 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-500 transition-colors hover:border-primary hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <ImagePlus className="size-5" />
                   <span className="text-[10px]">上传</span>
-                </button>
+                </Button>
               )}
             </div>
-            <input
+            <Input
               ref={fileRef}
               type="file"
               accept="image/*"
@@ -283,7 +288,7 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
               {reversing ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Wand2 className="size-3.5" />}
               {reversing ? "反推中..." : "图片/视频反推提示词"}
             </Button>
-            <input
+            <Input
               ref={reverseRef}
               type="file"
               accept="image/*,video/*"
@@ -296,7 +301,7 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
               }}
             />
           </div>
-          <textarea
+          <Textarea
             id="video-generation-prompt"
             rows={4}
             className="material-input w-full resize-none text-sm leading-6"
@@ -314,39 +319,38 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="video-resolution" className="mb-2 block text-xs font-semibold text-slate-700">分辨率</label>
-            <select id="video-resolution" value={resolution} onChange={(event) => setResolution(event.target.value)} className="material-input h-11 w-full rounded-xl px-3 text-sm text-slate-700">
+            <NativeSelect id="video-resolution" value={resolution} onChange={(event) => setResolution(event.target.value)} className="material-input h-11 w-full rounded-xl px-3 text-sm text-slate-700">
               {RESOLUTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </NativeSelect>
           </div>
           {mode !== "i2v" && (
             <div>
               <label htmlFor="video-ratio" className="mb-2 block text-xs font-semibold text-slate-700">画面比例</label>
-              <select id="video-ratio" value={ratio} onChange={(event) => setRatio(event.target.value)} className="material-input h-11 w-full rounded-xl px-3 text-sm text-slate-700">
+              <NativeSelect id="video-ratio" value={ratio} onChange={(event) => setRatio(event.target.value)} className="material-input h-11 w-full rounded-xl px-3 text-sm text-slate-700">
                 {RATIOS.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
+              </NativeSelect>
             </div>
           )}
           <div className="sm:col-span-2">
             <label htmlFor="video-duration" className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-700">
               <span>时长</span>
-              <span className="tabular-nums text-[#002fa7]">{duration} 秒</span>
+              <span className="tabular-nums text-primary">{duration} 秒</span>
             </label>
-            <input
+            <Slider aria-label="视频时长"
               id="video-duration"
-              type="range"
               min={3}
               max={15}
               step={1}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
+              value={[duration]}
+              onValueChange={([nextValue]) => setDuration(nextValue)}
               aria-valuetext={`${duration} 秒`}
-              className="w-full accent-[#002fa7]"
+              className="w-full accent-primary"
             />
           </div>
         </div>
 
         <label htmlFor="video-watermark" className="flex items-center gap-2 text-sm text-slate-600">
-          <input id="video-watermark" type="checkbox" checked={watermark} onChange={(e) => setWatermark(e.target.checked)} className="size-4 accent-[#002fa7]" />
+          <Checkbox id="video-watermark"  checked={watermark} onCheckedChange={(checkedValue) => setWatermark((checkedValue === true))} className="size-4 accent-primary" />
           添加水印
         </label>
       </div>
@@ -354,7 +358,7 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
       {/* 右：预估 + 提交 */}
       <aside className="min-w-0 space-y-4">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><CircleDollarSign className="size-4 text-[#002fa7]" />本次生成</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><CircleDollarSign className="size-4 text-primary" />本次生成</div>
           <dl className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
               <dt className="text-slate-500">模式</dt>
@@ -366,7 +370,7 @@ export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) 
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-500">预计消耗</dt>
-              <dd className="font-semibold tabular-nums text-[#002fa7]">
+              <dd className="font-semibold tabular-nums text-primary">
                 {gate ? `¥${gate.estimate_yuan}` : "—"}
               </dd>
             </div>

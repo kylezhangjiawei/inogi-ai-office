@@ -228,7 +228,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
     <article className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <header className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#002fa7]" aria-hidden="true">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-primary" aria-hidden="true">
             <SlotIcon className="size-5" />
           </span>
           <div className="min-w-0">
@@ -272,7 +272,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                     </li>
                   ))}
                 </ul>
-              ) : <div className="flex min-h-24 items-center justify-center text-xs text-slate-400">暂无预览条目</div>}
+              ) : <div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">暂无预览条目</div>}
             </div>
           ) : (
             <div className="flex aspect-video items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
@@ -281,7 +281,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
               ) : previewText ? (
                 <span className="text-sm font-medium leading-6 text-slate-700">“{previewText}”</span>
               ) : (
-                <span className="flex flex-col items-center gap-2 text-xs text-slate-400">
+                <span className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
                   <Type className="size-7" aria-hidden="true" />点击“预览今日文案”查看效果
                 </span>
               )}
@@ -311,8 +311,8 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                   className={cn(
                     "h-10 min-w-0 rounded-xl px-3",
                     mode === candidate
-                      ? "border-[#002fa7] bg-[#002fa7] text-white hover:bg-[#002581] hover:text-white"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]",
+                      ? "border-primary bg-primary text-white hover:bg-primary-hover hover:text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-primary/25 hover:bg-accent hover:text-primary",
                   )}
                 >
                   {modeLabel(slot, candidate)}
@@ -491,14 +491,14 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                     aria-controls={fileInputId}
                     onClick={() => fileRef.current?.click()}
                     disabled={busy}
-                    className="h-24 w-32 flex-col rounded-xl border-dashed border-slate-300 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-[#002fa7]"
+                    className="h-24 w-32 flex-col rounded-xl border-dashed border-slate-300 bg-white text-slate-500 hover:border-primary/25 hover:bg-accent hover:text-primary"
                   >
                     {busy ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <Upload className="size-5" aria-hidden="true" />}
                     <span className="text-xs">添加图片</span>
                   </Button>
                 ) : null}
               </div>
-              <input
+              <Input
                 ref={fileRef}
                 id={fileInputId}
                 type="file"
@@ -526,7 +526,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
               onClick={() => void handleSave()}
               disabled={saving || !dirty}
               aria-busy={saving}
-              className="bg-[#002fa7] hover:bg-[#002581]"
+              className="bg-primary hover:bg-primary-hover"
             >
               {saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
               保存配置
@@ -693,7 +693,7 @@ function GenBudgetCard() {
                   aria-valuemax={cap}
                   aria-valuenow={Math.min(used, cap)}
                 >
-                  <div className={cn("h-full rounded-full", over ? "bg-rose-500" : "bg-[#002fa7]")} style={{ width: usagePercent + "%" }} />
+                  <div className={cn("h-full rounded-full", over ? "bg-rose-500" : "bg-primary")} style={{ width: usagePercent + "%" }} />
                 </div>
                 <p id={budgetHelpId} className={cn("mt-2 text-xs", over ? "text-rose-600" : "text-slate-500")}>
                   {over ? "自动生成已暂停，手动重生成也会被拒绝。" : "已使用 " + usagePercent + "%，剩余 " + Math.max(0, cap - used) + " 张。"}

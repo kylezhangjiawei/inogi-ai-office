@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ColorPicker } from "@univerjs/preset-sheets-core";
 import type { IColorPickerProps } from "@univerjs/preset-sheets-core";
 import "./RDSheetRecentColorPicker.css";
+import { Button } from "./components/ui/button";
 
 const RECENT_COLOR_LIMIT = 9;
 const RECENT_COLORS_CHANGED_EVENT = "inogi:rd-sheet-recent-colors-changed";
@@ -98,7 +99,7 @@ export function RDSheetRecentColorPicker({ storageKey, value, onChange, ...props
           {recentColors.map((color) => {
             const selected = color === selectedColor;
             return (
-              <button
+              <Button variant="unstyled"
                 key={color}
                 type="button"
                 className="rd-sheet-recent-colors__swatch"

@@ -1,5 +1,5 @@
-.inspection-action-form, .inspection-action-confirm, .inspection-action-select { --primary:#002fa7; --primary-foreground:#fff; --ring:#002fa7; }
-.inspection-action-select { --accent:#eef3ff; --accent-foreground:#002fa7; }
+.inspection-action-form, .inspection-action-confirm, .inspection-action-select {  --primary-foreground:#fff; --ring:var(--primary); }
+.inspection-action-select { --accent-foreground:var(--primary); }
 .inspection-action-form [data-slot='select-value'] { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inspection-action-form [data-slot='select-trigger'] > svg { flex-shrink:0; }
 .inspection-action-form input, .inspection-action-form textarea { max-width:100%; }

@@ -28,6 +28,7 @@ import {
 } from "../lib/issue/types";
 import { Mono, SolutionTypeBadge, SourceTag } from "./badges";
 import { t, useI18n } from "../lib/i18n";
+import { Textarea } from "../components/ui/textarea";
 
 type DraftAttachment = NonNullable<NewIssueInput["attachments"]>[number];
 
@@ -353,7 +354,7 @@ function FormStep({
       </Field>
 
       <Field label={t("描述")}>
-        <textarea
+        <Textarea
           value={form.description}
           onChange={(e) => set("description", e.target.value)}
           rows={4}
@@ -378,20 +379,20 @@ function FormStep({
           className={cn(
             "rd-horizon-issue-drawer-dropzone flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-5 text-center transition-colors",
             dragOver
-              ? "border-[#002fa7] bg-[#eef3ff]"
+              ? "border-primary bg-accent"
               : "border-slate-300",
           )}
         >
           {uploading ? (
-            <Loader2 className="size-5 animate-spin text-[#002fa7]" />
+            <Loader2 className="size-5 animate-spin text-primary" />
           ) : (
-            <Paperclip className="size-5 text-slate-400" />
+            <Paperclip className="size-5 text-muted-foreground" />
           )}
           <p className="text-xs text-slate-500">
             {t("拖拽文件到此，或")}{" "}
-            <label className="rd-horizon-issue-file-picker ml-1 cursor-pointer font-medium text-[#002fa7] hover:underline">
+            <label className="rd-horizon-issue-file-picker ml-1 cursor-pointer font-medium text-primary hover:underline">
               {t("点击选择")}
-              <input
+              <Input
                 type="file"
                 multiple
                 disabled={uploading}
@@ -403,7 +404,7 @@ function FormStep({
               />
             </label>
           </p>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-muted-foreground">
             {uploading ? t("正在上传…") : t("支持图片与文档，上传后 AI 首版分析即可结合附件内容")}
           </p>
         </div>
@@ -417,16 +418,16 @@ function FormStep({
                 <span className="truncate text-slate-600">
                   {a.fileName}
                 </span>
-                <button
+                <Button variant="unstyled"
                   type="button"
                   aria-label={t("移除附件")}
                   onClick={() =>
                     setAttachments((cur) => cur.filter((_, idx) => idx !== i))
                   }
-                  className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/60"
+                  className="rounded-sm p-0.5 text-muted-foreground hover:bg-slate-200 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                 >
                   <X className="size-3.5" />
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -465,11 +466,11 @@ function ScoreRing({ score }: { score: number }) {
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={offset}
-          className="stroke-[#002fa7]"
+          className="stroke-primary"
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center">
-        <Mono className="text-xs font-semibold text-[#002fa7]">
+        <Mono className="text-xs font-semibold text-primary">
           {pct}
         </Mono>
       </span>
@@ -491,11 +492,11 @@ function SimilarStep({
   if (matches.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 py-10 text-center">
-        <Sparkles className="size-7 text-slate-300" />
+        <Sparkles className="size-7 text-muted-foreground" />
         <p className="text-sm text-slate-500">
           {t("未找到相似的历史问题")}
         </p>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted-foreground">
           {t("可直接让 AI 做完整根因分析（见下方按钮）")}
         </p>
       </div>
@@ -504,7 +505,7 @@ function SimilarStep({
 
   return (
     <div className="rd-horizon-issue-similar-list space-y-3">
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-muted-foreground">
         {t("命中")} <Mono>{matches.length}</Mono> {t("条历史问题，可直接复用其方案：")}
       </p>
       {matches.map((m) => {
@@ -518,7 +519,7 @@ function SimilarStep({
               <ScoreRing score={m.score} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <Mono className="text-[11px] text-slate-400">{m.issue.id}</Mono>
+                  <Mono className="text-[11px] text-muted-foreground">{m.issue.id}</Mono>
                   <SourceTag value={m.issue.source} />
                 </div>
                 <div className="mt-0.5 line-clamp-2 text-sm font-medium text-slate-800">
@@ -528,9 +529,9 @@ function SimilarStep({
             </div>
 
             {m.adoptedSolution ? (
-              <div className="rd-horizon-issue-similar-solution mt-2 rounded-lg border border-[#dce6ff] bg-[#eef3ff] p-2.5">
+              <div className="rd-horizon-issue-similar-solution mt-2 rounded-lg border border-[#dce6ff] bg-accent p-2.5">
                 <div className="mb-1 flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-[#002fa7]">
+                  <span className="text-xs font-medium text-primary">
                     {t("采纳方案")}
                   </span>
                   <SolutionTypeBadge value={m.adoptedSolution.type} />
@@ -543,7 +544,7 @@ function SimilarStep({
                 </p>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">{t("该历史问题暂无采纳方案。")}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{t("该历史问题暂无采纳方案。")}</p>
             )}
 
             <div className="mt-2.5 flex items-center gap-2">

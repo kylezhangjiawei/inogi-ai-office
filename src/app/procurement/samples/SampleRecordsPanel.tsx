@@ -4,6 +4,9 @@ import { useI18n } from '../../lib/i18n';
 import { updateProcSampleRecords, type ProcSampleTestDetail, type UpdateProcSampleRecordsInput } from '../../lib/procurementApi';
 import { sampleDraftTimingError, sampleInputTimestamp, sampleRecordsDraft } from './sampleRecordsModel';
 import { SAMPLE_LEAD_START_LABELS, SAMPLE_TAX_LABELS, SampleConditionsView } from './SampleRoundHistory';
+import { Input } from "../../components/ui/input";
+import { NativeSelect } from "../../components/ui/native-select";
+import { Textarea } from "../../components/ui/textarea";
 
 export function SampleRecordsPanel({ detail, disabled, unavailable, identity = '', onSaved, onReload, onInteractionStateChange }: {
   detail: ProcSampleTestDetail; disabled?: boolean; unavailable?: boolean; identity?: string;
@@ -79,7 +82,7 @@ export function SampleRecordsPanel({ detail, disabled, unavailable, identity = '
       <p className="text-xs leading-5 text-muted-foreground">{t('采购登记到样及采购条件，指定测试人登记开测和结束。按实际发生时间填写；修改会保留登记历史。')}</p>
       <div className="grid gap-3 lg:grid-cols-3">{(['arrivedAt', 'startedAt', 'finishedAt'] as const).map((key) => <label key={key} className="min-w-0 text-sm">
         {t({ arrivedAt: '实际到样时间', startedAt: '实际开测时间', finishedAt: '实际结束时间' }[key])}
-        <input type="datetime-local" step="1" aria-label={t({ arrivedAt: '实际到样时间', startedAt: '实际开测时间', finishedAt: '实际结束时间' }[key])} value={snapshot.draft[key]}
+        <Input type="datetime-local" step="1" aria-label={t({ arrivedAt: '实际到样时间', startedAt: '实际开测时间', finishedAt: '实际结束时间' }[key])} value={snapshot.draft[key]}
           disabled={blocked || (key === 'arrivedAt' ? !detail.canRecordArrival : !detail.canRecordTesting)} className={inputClass}
           onChange={(event) => edit((draft) => ({ ...draft, [key]: event.target.value }))} />
       </label>)}</div>
@@ -87,12 +90,12 @@ export function SampleRecordsPanel({ detail, disabled, unavailable, identity = '
         <summary className="cursor-pointer text-sm font-medium">{t('本轮任务级采购条件')}</summary>
         <p className="my-3 text-xs leading-5 text-muted-foreground">{t('此处独立登记本轮约定；不自动套用某个供应商报价，也不据此推算到货日期。供应商及价格仍以采购报价记录为准。')}</p>
         {detail.canRecordArrival ? <fieldset disabled={blocked} className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">{t('报价计价单位')}<input aria-label={t('报价计价单位')} maxLength={80} value={commercial.priceUnit} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, priceUnit: event.target.value } }))} /></label>
-          <label className="text-sm">{t('含税口径')}<select aria-label={t('含税口径')} value={commercial.taxBasis} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, taxBasis: event.target.value as typeof commercial.taxBasis } }))}>{Object.entries(SAMPLE_TAX_LABELS).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></label>
-          <label className="text-sm">{t('税率（%，未约定留空）')}<input aria-label={t('税率')} type="number" min="0" max="100" step="any" value={commercial.taxRate ?? ''} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, taxRate: event.target.value === '' ? null : Number(event.target.value) } }))} /></label>
-          <label className="text-sm">{t('交期起算')}<select aria-label={t('交期起算')} value={commercial.leadTimeStart} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, leadTimeStart: event.target.value as typeof commercial.leadTimeStart, leadTimeStartDate: null } }))}>{Object.entries(SAMPLE_LEAD_START_LABELS).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></label>
-          {commercial.leadTimeStart === 'agreed_date' && <label className="text-sm">{t('约定起算日期')}<input aria-label={t('约定起算日期')} type="date" required value={commercial.leadTimeStartDate ?? ''} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, leadTimeStartDate: event.target.value || null } }))} /></label>}
-          {(['paymentTerms', 'freightTerms', 'note'] as const).map((key) => <label key={key} className="text-sm">{t({ paymentTerms: '付款条件', freightTerms: '运费承担与交付条件', note: '条件备注' }[key])}<textarea aria-label={t({ paymentTerms: '付款条件', freightTerms: '运费承担与交付条件', note: '条件备注' }[key])} value={commercial[key]} rows={2} maxLength={500} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, [key]: event.target.value } }))} /></label>)}
+          <label className="text-sm">{t('报价计价单位')}<Input aria-label={t('报价计价单位')} maxLength={80} value={commercial.priceUnit} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, priceUnit: event.target.value } }))} /></label>
+          <label className="text-sm">{t('含税口径')}<NativeSelect aria-label={t('含税口径')} value={commercial.taxBasis} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, taxBasis: event.target.value as typeof commercial.taxBasis } }))}>{Object.entries(SAMPLE_TAX_LABELS).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</NativeSelect></label>
+          <label className="text-sm">{t('税率（%，未约定留空）')}<Input aria-label={t('税率')} type="number" min="0" max="100" step="any" value={commercial.taxRate ?? ''} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, taxRate: event.target.value === '' ? null : Number(event.target.value) } }))} /></label>
+          <label className="text-sm">{t('交期起算')}<NativeSelect aria-label={t('交期起算')} value={commercial.leadTimeStart} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, leadTimeStart: event.target.value as typeof commercial.leadTimeStart, leadTimeStartDate: null } }))}>{Object.entries(SAMPLE_LEAD_START_LABELS).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</NativeSelect></label>
+          {commercial.leadTimeStart === 'agreed_date' && <label className="text-sm">{t('约定起算日期')}<Input aria-label={t('约定起算日期')} type="date" required value={commercial.leadTimeStartDate ?? ''} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, leadTimeStartDate: event.target.value || null } }))} /></label>}
+          {(['paymentTerms', 'freightTerms', 'note'] as const).map((key) => <label key={key} className="text-sm">{t({ paymentTerms: '付款条件', freightTerms: '运费承担与交付条件', note: '条件备注' }[key])}<Textarea aria-label={t({ paymentTerms: '付款条件', freightTerms: '运费承担与交付条件', note: '条件备注' }[key])} value={commercial[key]} rows={2} maxLength={500} className={inputClass} onChange={(event) => edit((draft) => ({ ...draft, commercial: { ...draft.commercial, [key]: event.target.value } }))} /></label>)}
         </fieldset> : <SampleConditionsView conditions={detail.sampleTest?.commercial} />}
       </details>}
       {stale && <p role="alert" className="text-sm text-amber-700">{t('服务端记录已更新，草稿已保留。请核对后重新载入记录，再填写。')}</p>}
