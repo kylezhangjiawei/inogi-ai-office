@@ -9,6 +9,7 @@ import './purchase-delivery.css';
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Checkbox } from "../../components/ui/checkbox";
+import { PurchaseOrderDeliveryImpacts } from './PurchaseOrderDeliveryImpacts';
 
 export interface PurchaseOrderDeliveryPanelProps {
   lineId: string; orderNo: string; onSaved?: () => void;
@@ -28,6 +29,7 @@ function DeliveryPanel({ lineId, orderNo, onSaved, onStateChange }: PurchaseOrde
   const canRead = permissions.includes('*') || ['page:purchase-orders', 'page:purchase-order-detail'].some((permission) => permissions.includes(permission));
   const canWrite = permissions.includes('*') || ['page:purchase-order-detail', 'proc-purchase-order:record-commitment'].every((permission) => permissions.includes(permission));
   const [data, setData] = useState<PurchaseDeliveryDetail | null>(null), [busy, setBusy] = useState<'read' | 'save' | null>(null);
+  const [impactRevision, setImpactRevision] = useState(0);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(blank), [initial, setInitial] = useState(''), [needsReload, setNeedsReload] = useState(false);
   const alive = useRef(true), inFlight = useRef(false), readAbort = useRef<AbortController | null>(null), sequence = useRef(0);
@@ -46,7 +48,7 @@ function DeliveryPanel({ lineId, orderNo, onSaved, onStateChange }: PurchaseOrde
     try {
       const value = await getPurchaseDelivery(lineId, orderNo, supplierPage, erpPage, controller.signal);
       if (!alive.current || current !== sequence.current) return;
-      setData(value); setNeedsReload(false);
+      setData(value); setNeedsReload(false); setImpactRevision(value => value + 1);
       if (editing) setNotice(t('已读取最新记录，草稿保留。请核对日期、原因和最新版本后保存。'));
     } catch (cause) { if (alive.current && !controller.signal.aborted) { setError(cause instanceof Error ? cause.message : t('交期读取失败')); setNeedsReload(true); } }
     finally { if (alive.current && current === sequence.current) setBusy(null); }
@@ -73,7 +75,7 @@ function DeliveryPanel({ lineId, orderNo, onSaved, onStateChange }: PurchaseOrde
     try {
       const value = await recordSupplierCommitment(lineId, input);
       if (!alive.current) return;
-      setData(value); setEditing(false); setInitial(''); requestIdentity.current = null;
+      setData(value); setImpactRevision(value => value + 1); setEditing(false); setInitial(''); requestIdentity.current = null;
       setNotice(t('供应商承诺已保存；ERP 预计到货日期保持其同步来源。'));
       window.dispatchEvent(new Event(PURCHASE_DELIVERY_CHANGED)); onSaved?.();
     } catch (cause) { if (alive.current) { setError(cause instanceof Error ? cause.message : t('承诺保存失败')); if (cause instanceof PurchaseDeliveryError && cause.status === 409) setNeedsReload(true); } }
@@ -102,6 +104,7 @@ function DeliveryPanel({ lineId, orderNo, onSaved, onStateChange }: PurchaseOrde
         <p className="delivery-explanation">{t('首次登记不自动视为最初承诺。保存会记录操作者、凭据、原因与版本。')}</p>
         <Button type="submit" disabled={Boolean(busy) || needsReload}>{t(busy === 'save' ? '保存中…' : '保存承诺记录')}</Button>
       </form> : null}
+      <PurchaseOrderDeliveryImpacts lineId={lineId} orderNo={orderNo} refreshKey={JSON.stringify([data.line.sourceUpdatedAt, data.supplier?.version, impactRevision])} />
       <section><h3>{t('供应商承诺登记历史')}</h3><HistoryPager page={data.supplierHistory} disabled={Boolean(busy)} label={t('供应商历史')} onPage={(page) => void load(page, data.erpHistory.page)} />
         {!data.supplierHistory.items.length ? <p className="delivery-explanation">{t('尚无登记记录，不能据此判断供应商从未改期。')}</p> : <ol className="delivery-history">{data.supplierHistory.items.map((entry) => <li key={entry.version}><strong>{t(entry.kind === 'original' ? '原承诺凭据登记' : entry.kind === 'withdrawal' ? '撤销日期' : '承诺登记/改期')} · v{entry.version}</strong><p className="delivery-history-dates">{entry.before || t('未登记')} → {entry.after || t('撤销')}</p><p>{t('供应商沟通日')}：{entry.communicatedOn}</p><p>{t('凭据')}：{entry.evidence}</p><p>{t('原因')}：{entry.reason}</p><p className="delivery-explanation">{t('登记时来源')}：{entry.source.inventoryName} · {entry.source.supplierName} · {entry.source.orderedQty} {entry.source.unit}</p><p className="delivery-explanation">{entry.actorName} · {time(entry.recordedAt)}</p></li>)}</ol>}
       </section>

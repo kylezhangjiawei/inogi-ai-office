@@ -14,6 +14,7 @@ async function createFixture() {
     mkdir(join(root, "apps", "api", "prisma", "migrations", "001_init"), { recursive: true }),
     mkdir(join(root, "apps", "api", "src"), { recursive: true }),
     mkdir(join(root, "apps", "api", "test"), { recursive: true }),
+    mkdir(join(root, "apps", "api", "scripts"), { recursive: true }),
     mkdir(join(root, "deploy", "git-hooks"), { recursive: true }),
     mkdir(join(root, "deploy", "pm2"), { recursive: true }),
     mkdir(join(root, "scripts"), { recursive: true }),
@@ -33,6 +34,7 @@ async function createFixture() {
     "apps/api/tsconfig.json": "{}\n",
     "apps/api/src/main.ts": "export const api = 1;\n",
     "apps/api/test/api.spec.ts": "export const testValue = 1;\n",
+    "apps/api/scripts/test-chat-workspace-postgres.mjs": "export const runner = 1;\n",
     "apps/api/prisma/schema.prisma": "generator client { provider = \"prisma-client-js\" }\n",
     "apps/api/prisma/migrations/001_init/migration.sql": "SELECT 1;\n",
     "deploy/git-hooks/post-receive": "#!/bin/sh\n",
@@ -107,6 +109,31 @@ test("frontend-only, api-only and migration-only changes stay isolated", async (
     assert.equal(plan.DEPLOY_PLAN_API, "0");
     assert.equal(plan.DEPLOY_PLAN_PRISMA, "0");
     assert.equal(plan.DEPLOY_PLAN_MIGRATIONS, "1");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an isolated database runner change triggers quality checks while unrelated files do not", async () => {
+  const root = await createFixture();
+  try {
+    const state = join(root, "state.json");
+    const baseline = join(root, "baseline.json");
+    runPlanner(root, state, baseline);
+    await cp(baseline, state);
+    const runner = join(root, "apps", "api", "scripts", "test-chat-workspace-postgres.mjs");
+    await writeFile(runner, "export const runner = 2;\n");
+    const changed = runPlanner(root, state, join(root, "runner.json"));
+    assert.equal(changed.DEPLOY_PLAN_QUALITY, "1");
+    for (const scope of ["DEPENDENCIES", "FRONTEND", "API", "PRISMA", "MIGRATIONS"]) {
+      assert.equal(changed[`DEPLOY_PLAN_${scope}`], "0");
+    }
+    await writeFile(runner, "export const runner = 1;\n");
+    await writeFile(join(root, "apps", "api", "test-output.log"), "unrelated test output\n");
+    const unchanged = runPlanner(root, state, join(root, "unrelated.json"));
+    for (const scope of ["DEPENDENCIES", "FRONTEND", "API", "PRISMA", "MIGRATIONS", "QUALITY"]) {
+      assert.equal(unchanged[`DEPLOY_PLAN_${scope}`], "0");
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

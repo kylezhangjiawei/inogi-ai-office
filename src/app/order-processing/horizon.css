@@ -23,204 +23,55 @@
 }
 
 .order-horizon {
+  container: horizon-page / inline-size;
   position: relative;
   min-width: 0;
   background: transparent;
 }
 
-.order-horizon-command {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 1rem;
-  flex: none;
-  border: 1px solid transparent;
-  border-radius: 20px;
-  margin-bottom: 0.75rem;
-  padding: 1.15rem 1.25rem;
-  background: var(--order-surface);
-  box-shadow: var(--order-shadow-focal);
-}
-
-.order-horizon-command-heading {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-
-.order-horizon-command-mark {
-  display: inline-flex;
-  width: 2.5rem;
-  height: 2.5rem;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  color: #fff;
-  background: var(--order-primary);
-  box-shadow: 0 9px 18px -12px rgba(var(--primary-rgb),0.66);
-}
-
-.order-horizon-command-copy {
-  min-width: 0;
-}
-
-.order-horizon-eyebrow {
-  color: var(--order-primary);
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1.25;
-}
-
-.order-horizon-command h1 {
-  margin-top: 0.15rem;
-  color: var(--order-ink);
-  font-size: 1.3rem;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.order-horizon-description,
-.order-horizon-meta {
-  margin-top: 0.2rem;
-  color: var(--order-muted);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
-.order-horizon-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--order-subtle);
-}
-
-.order-horizon-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
-.order-horizon-actions [data-slot="button"],
-.order-horizon-actions > button {
-  min-height: 2.5rem;
-  border-radius: 999px !important;
-  box-shadow: none !important;
-}
-
-.order-horizon-actions .order-horizon-primary-action {
-  border-color: var(--order-primary) !important;
-  color: #fff !important;
-  background: var(--order-primary) !important;
-  box-shadow: var(--shadow-primary) !important;
-}
-
-.order-horizon-actions .order-horizon-primary-action:disabled { box-shadow: none !important; }
-
-.order-horizon-actions .order-horizon-primary-action:hover {
-  border-color: var(--order-primary-hover) !important;
-  background: var(--order-primary-hover) !important;
-}
-
+/* Page headings and metrics use the shared Horizon primitives. */
+.order-horizon-page-header,
 .order-horizon-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-  flex: none;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 18px;
   margin-bottom: 0.75rem;
-  padding: 0.45rem;
-  background: var(--order-surface);
-  box-shadow: var(--order-shadow-card);
 }
 
-.order-horizon-metric {
-  display: flex;
-  min-width: 0;
-  min-height: 4.25rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border-radius: 12px;
-  padding: 0.6rem 0.75rem;
+.order-horizon .hz-actions .order-horizon-primary-action {
+  border-color: var(--order-primary);
+  color: var(--primary-foreground);
+  background: var(--order-primary);
 }
 
-.order-horizon-metric + .order-horizon-metric {
-  border-left: 1px solid var(--order-line);
+.order-horizon .hz-actions .order-horizon-primary-action:hover {
+  background: var(--order-primary-hover);
 }
 
-.order-horizon-metric-copy {
-  min-width: 0;
+/* The desktop shell owns page insets; standalone/mobile shells keep their own. */
+.rd-horizon-main > .order-horizon {
+  max-width: none;
+  padding: 0 !important;
 }
 
-.order-horizon-metric-label {
-  overflow: hidden;
-  color: var(--order-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.order-horizon :where([data-slot="card"] h2:not(.text-xs, .text-sm, .text-base, .text-lg, .text-xl)) {
+  font-size: 1.125rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
-
-.order-horizon-metric-value {
-  margin-top: 0.2rem;
-  color: var(--order-ink);
-  font-size: 1.28rem;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.order-horizon-metric-note {
-  margin-top: 0.15rem;
-  color: var(--order-subtle);
-  font-size: 0.65rem;
-  line-height: 1.35;
-}
-
-.order-horizon-metric-icon {
-  display: inline-flex;
-  width: 1.9rem;
-  height: 1.9rem;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  color: var(--order-primary);
-  background: var(--order-soft-blue);
-  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb),0.08);
-}
-
-.order-horizon-metric[data-tone="success"] .order-horizon-metric-value,
-.order-horizon-metric[data-tone="success"] .order-horizon-metric-icon { color: #018f5b; }
-.order-horizon-metric[data-tone="success"] .order-horizon-metric-icon { background: #e7f9f2; }
-.order-horizon-metric[data-tone="warning"] .order-horizon-metric-value,
-.order-horizon-metric[data-tone="warning"] .order-horizon-metric-icon { color: #a66300; }
-.order-horizon-metric[data-tone="warning"] .order-horizon-metric-icon { background: #fff6da; }
-.order-horizon-metric[data-tone="danger"] .order-horizon-metric-value,
-.order-horizon-metric[data-tone="danger"] .order-horizon-metric-icon { color: #d51b1b; }
-.order-horizon-metric[data-tone="danger"] .order-horizon-metric-icon { background: #feefee; }
 
 .order-horizon-data-surface,
 .order-horizon-detail-surface {
-  border-color: transparent !important;
-  border-radius: 20px !important;
+  border-color: var(--order-line) !important;
+  border-radius: var(--card-radius) !important;
   background: var(--order-surface) !important;
   box-shadow: var(--order-shadow-card) !important;
 }
 
 .order-horizon-toolbar {
   border-bottom-color: var(--order-line) !important;
-  background: rgba(244, 247, 254, 0.72);
+  background: var(--order-surface);
 }
 
 .order-horizon-toolbar :is(input, button, [data-slot="select-trigger"]) {
-  border-radius: 10px !important;
+  border-radius: var(--radius-control) !important;
 }
 
 .order-horizon-table [data-slot="table-header"],
@@ -234,7 +85,7 @@
 }
 
 .order-horizon-table tbody [data-slot="table-row"]:hover {
-  background: rgba(238, 243, 255, 0.55) !important;
+  background: var(--muted) !important;
 }
 
 .order-horizon-table :is(th, td) {
@@ -246,8 +97,8 @@
 }
 
 .order-horizon .order-horizon-row-action,
-.order-horizon .order-horizon-secondary-action {
-  border-radius: 9px !important;
+.order-horizon .order-horizon-secondary-action:where(:not(.hz-actions *)) {
+  border-radius: var(--radius-control) !important;
 }
 
 .order-horizon .order-horizon-row-action {
@@ -266,7 +117,7 @@
 
 .order-horizon-pagination [data-slot="button"],
 .order-horizon-pagination [data-slot="select-trigger"] {
-  border-radius: 9px !important;
+  border-radius: var(--radius-control) !important;
 }
 
 .order-horizon-empty {
@@ -305,7 +156,7 @@
   min-width: 0 !important;
   overflow: hidden;
   border: 1px solid transparent;
-  border-radius: 20px !important;
+  border-radius: var(--card-radius) !important;
   background: var(--order-surface) !important;
   box-shadow: var(--order-shadow-card) !important;
 }
@@ -318,6 +169,8 @@
   scrollbar-gutter: stable;
   background: var(--order-canvas);
 }
+.order-horizon-workbench-layout[data-empty="true"] { grid-template-columns: 17rem minmax(0, 1fr); }
+.order-horizon-selection-state { display: grid; place-items: center; min-height: 16rem; background: var(--card); }
 
 .order-horizon-queue,
 .order-horizon-invoice-rail {
@@ -343,7 +196,7 @@
 
 .order-horizon-workbench .order-horizon-stat-item {
   min-width: 0;
-  border-radius: 10px !important;
+  border-radius: var(--radius-control) !important;
   padding: 0.55rem 0.75rem !important;
   background: transparent !important;
 }
@@ -450,39 +303,10 @@
   .order-horizon-invoice-rail > div { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 1320px) {
-  .order-horizon-command {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .order-horizon-actions {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 1100px) {
-  .order-horizon-metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .order-horizon-metric + .order-horizon-metric {
-    border-left: 0;
-  }
-
-  .order-horizon-metric:nth-child(even) {
-    border-left: 1px solid var(--order-line);
-  }
-}
-
 @media (max-width: 760px) {
   .order-horizon { padding: 0.75rem !important; }
 
-  .order-horizon-command {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 1rem;
-  }
-
-  .order-horizon-actions { justify-content: flex-start; }
+  .order-horizon-page-header { padding: 1rem; }
 
   .order-horizon-workbench-shell {
     min-height: calc(100dvh - 10rem) !important;

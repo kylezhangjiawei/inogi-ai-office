@@ -7,17 +7,22 @@ function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("采购任务原生滚动分页无需 Radix 祖先，离开后旧回调不再追加任务", () => {
+test("采购瀑布流在列表滚动容器内追加，切表格或离开后停止观察", () => {
   const text = source("src/app/procurement/ProcurementCockpitPage.tsx");
   const ast = ts.createSourceFile("cockpit.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let effect;
+  let dependencies;
   function visit(node) {
     if (ts.isCallExpression(node) && node.expression.getText(ast) === "useEffect"
-      && node.arguments[0]?.getText(ast).includes("new IntersectionObserver")) effect = node.arguments[0];
+      && node.arguments[0]?.getText(ast).includes("new IntersectionObserver")) {
+      effect = node.arguments[0];
+      dependencies = node.arguments[1];
+    }
     ts.forEachChild(node, visit);
   }
   visit(ast);
   assert.ok(effect);
+  assert.ok(dependencies?.elements.some((node) => node.getText(ast) === "taskDisplay"), "切换显示模式必须清理旧观察器");
   const code = ts.transpileModule(`return ${effect.getText(ast)};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   let count = 20;
   const created = [];
@@ -26,28 +31,42 @@ test("采购任务原生滚动分页无需 Radix 祖先，离开后旧回调不�
     observe(element) { this.element = element; }
     disconnect() { this.disconnected = true; }
   }
-  const mount = (cockpitTab, view, sentinelElement) => new Function("cockpitTab", "view", "sentinelElement", "visibleCount", "filtered", "WATERFALL_PAGE_SIZE", "setVisibleCount", "IntersectionObserver", code)(
-    cockpitTab, view, sentinelElement, count, Array.from({ length: 45 }), 20, (update) => { count = update(count); }, Observer,
+  const mount = (cockpitTab, view, taskStreamElement, sentinelElement, taskDisplay = "masonry") => new Function("cockpitTab", "view", "taskStreamElement", "sentinelElement", "taskDisplay", "visibleCount", "filtered", "WATERFALL_PAGE_SIZE", "setVisibleCount", "IntersectionObserver", code)(
+    cockpitTab, view, taskStreamElement, sentinelElement, taskDisplay, count, Array.from({ length: 45 }), 20, (update) => { count = update(count); }, Observer,
   )();
+  const firstContainer = {};
   const first = {};
-  const cleanup = mount("tasks", "tasks", first);
+  assert.equal(mount("tasks", "tasks", null, first), undefined);
+  assert.equal(created.length, 0, "滚动容器尚未挂载时不应建立观察器");
+  assert.equal(mount("tasks", "tasks", firstContainer, first, "table"), undefined);
+  assert.equal(created.length, 0, "表格采用页码分页，不创建滚动追加观察器");
+  const cleanup = mount("tasks", "tasks", firstContainer, first);
   assert.equal(created[0].element, first);
-  assert.equal(created[0].options.root ?? null, null, "页面本身滚动，不能依赖已移除的 Radix viewport");
+  assert.equal(created[0].options.root, firstContainer, "分页应观察列表滚动容器的可见区域");
+  assert.equal(created[0].options.rootMargin, "200px");
   created[0].callback([{ isIntersecting: false }]);
   assert.equal(count, 20);
   created[0].callback([{ isIntersecting: true }]);
   assert.equal(count, 40);
   cleanup();
+  assert.equal(mount("tasks", "tasks", firstContainer, first, "table"), undefined);
   created[0].callback([{ isIntersecting: true }]);
   assert.equal(count, 40);
   assert.equal(created[0].disconnected, true);
-  assert.equal(mount("stock-plans", "tasks", first), undefined);
-  assert.equal(mount("tasks", "systems", first), undefined);
+  assert.equal(mount("stock-plans", "tasks", firstContainer, first), undefined);
+  assert.equal(mount("samples", "tasks", firstContainer, first), undefined);
+  assert.equal(mount("tasks", "systems", firstContainer, first), undefined);
+  assert.equal(created.length, 1, "离开采购任务列表不应建立新的观察器");
+  const secondContainer = {};
   const second = {};
-  mount("tasks", "tasks", second);
+  const secondCleanup = mount("tasks", "tasks", secondContainer, second);
   assert.equal(created[1].element, second);
+  assert.equal(created[1].options.root, secondContainer, "返回采购任务后应绑定新挂载的滚动容器");
   created[1].callback([{ isIntersecting: true }]);
   assert.equal(count, 45, "最后一批不能超出筛选后任务数量");
+  secondCleanup();
+  assert.equal(mount("tasks", "tasks", secondContainer, second), undefined);
+  assert.equal(created.length, 2, "全部加载后不应继续建立观察器");
 });
 
 const schema = source("apps/api/prisma/schema.prisma");
@@ -57,7 +76,6 @@ const controller = source("apps/api/src/modules/procurement/procurement.controll
 const api = source("src/app/lib/procurementApi.ts");
 const cockpit = source("src/app/procurement/ProcurementCockpitPage.tsx");
 const card = source("src/app/procurement/components/ProcurementTaskCard.tsx");
-const corePanorama = source("src/app/procurement/components/CoreMaterialsPanorama.tsx");
 const systemTree = source("src/app/procurement/components/ProcurementSystemTree.tsx");
 const taskInventory = source("src/app/procurement/components/TaskCriticalMaterials.tsx");
 const taskDetail = source("src/app/procurement/components/TaskDetailDrawer.tsx");
@@ -134,7 +152,7 @@ test("采购任务详情复用同一份重点库存数据和过滤口径", () =>
   assert.ok(inventoryIndex < attachmentIndex, "重点库存应位于需求附件之前");
 });
 
-test("核心长周期配件按产品从子系统叶子物料配置，不再展示分类库存合计", () => {
+test("历史核心配件配置接口保留数据约束", () => {
   assert.match(dto, /class SetProcCoreMaterialsDto/);
   assert.match(dto, /@ArrayMaxSize\(30\)/);
   assert.match(controller, /task-tree\/core-materials/);
@@ -144,52 +162,20 @@ test("核心长周期配件按产品从子系统叶子物料配置，不再展�
   assert.match(service, /核心配件必须已关联 T\+ 并完成库存同步/);
   assert.match(service, /children: \{ none: \{\} \}/);
   assert.match(api, /interface ProcCoreMaterialConfig/);
-  assert.match(systemTree, /<CoreMaterialsPanorama/);
-  assert.match(systemTree, /核心配件按 T\+ 物料去重，仅展示具体数量，不汇总分类节点库存/);
-  assert.match(corePanorama, /collectLeafMaterialPaths/);
-  assert.match(corePanorama, /node\.children\.length === 0 && node\.materialId/);
-  assert.match(corePanorama, /material\?\.tpInventoryCode\?\.trim\(\) \|\| !material\.inventorySyncedAt/);
-  assert.match(corePanorama, /可用库存/);
-  assert.match(corePanorama, /现存数量/);
-  assert.match(corePanorama, /在途数量/);
-  assert.match(corePanorama, /安全库存/);
-  assert.doesNotMatch(corePanorama, /stockQty\s*\+=/);
 });
 
-test("核心配件未配置时直接用真实候选库存展示建议预览", () => {
-  assert.match(corePanorama, /const suggestions = useMemo/);
-  assert.match(corePanorama, /系统已经找到 \{count\} 个有真实 T\+ 库存的叶子物料/);
-  assert.match(corePanorama, /建议关注项预览/);
-  assert.match(corePanorama, /确认建议项/);
-  assert.match(corePanorama, /<CoreInventoryTable items=\{pagedInventoryItems\} preview \/>/);
-  assert.match(corePanorama, /这不是自动保存结果/);
-});
-
-test("核心配件列表和配置弹窗提供筛选、分页与当前页全选", () => {
-  assert.match(corePanorama, /const INVENTORY_PAGE_SIZE = 8/);
-  assert.match(corePanorama, /const CONFIG_PAGE_SIZE = 10/);
-  assert.match(corePanorama, /function InventoryFilterBar/);
-  assert.match(corePanorama, /库存状态筛选/);
-  assert.match(corePanorama, /全部子系统/);
-  assert.match(corePanorama, /function InventoryPagination/);
-  assert.match(corePanorama, /全选当前页/);
-  assert.match(corePanorama, /toggleCurrentPage/);
-  assert.match(corePanorama, /清空已选/);
-});
-
-test("采购驾驶舱提供核心配件数量和异常摘要入口", () => {
-  assert.match(cockpit, /getProcCoreMaterialConfig/);
-  assert.match(cockpit, /setProcCoreMaterialConfig/);
-  assert.match(cockpit, /const coreInventorySummary = useMemo/);
-  assert.match(cockpit, /next\.set\("core", "1"\)/);
-  assert.match(cockpit, /核心配件/);
-  assert.match(cockpit, /异常/);
+test("核心配件入口直达全部关键物料，旧配置流程不再挂载", () => {
+  assert.match(cockpit, /canViewKeyMaterials && <Button[^\n]*aria-label=\{t\("核心配件"\)\}[^\n]*onClick=\{\(\) => navigate\(routePath\("page:proc-key-materials", "\/proc-key-materials"\)\)\}/);
+  assert.match(cockpit, /if \(params.get\("core"\) === "1"\) return <Navigate replace to=\{routePath\("page:proc-key-materials", "\/proc-key-materials"\)\}/);
+  assert.doesNotMatch(cockpit, /getProcCoreMaterialConfig|setProcCoreMaterialConfig|coreInventorySummary|setCoreMode/);
+  assert.doesNotMatch(systemTree, /CoreMaterialsPanorama|coreMode|配置核心配件/);
+  assert.match(systemTree, /<Tabs value=\{activeProductId\}/);
 });
 
 test("采购驾驶舱保留研发式任务卡，个人工作台使用紧凑任务行与右侧详情", () => {
   assert.match(cockpit, /<ProcurementTaskCard/);
   assert.match(workspace, /<ProcWorkspaceTaskList/);
-  assert.match(workspace, /<ProcWorkspaceTaskPanel/);
+  assert.match(workspace, /<TaskDetailDrawer[^\n]*presentation="workspace"/);
   assert.match(cockpit, /materials=\{materials\}/);
   assert.match(workspace, /materials=\{materials\}/);
   assert.doesNotMatch(card, /role="button"/);
@@ -206,32 +192,40 @@ test("采购驾驶舱保留研发式任务卡，个人工作台使用紧凑任�
 
 test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛选", () => {
   assert.match(cockpit, /useBuyerDirectory\(\{ departmentOnly: true \}\)/);
-  assert.match(cockpit, /task\.buyerUserId === buyerUserId/);
-  assert.match(cockpit, /countsByUserId/);
-  assert.match(cockpit, /采购负责人/);
-  assert.doesNotMatch(cockpit, /t\.buyer === person \|\| t\.rdContact === person/);
-  assert.doesNotMatch(cockpit, /研发对接人 \+ 需求提出人/);
+  const exports = {};
+  const code = ts.transpileModule(source("src/app/procurement/procurementLogic.ts"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  new Function("exports", code)(exports);
+  const roster = exports.uniqueRosterUserIdsByName([{ id: "u1", name: "张工" }, { id: "u2", name: "张工" }, { id: "u3", name: "李工" }]);
+  const tasks = [
+    { id: "account-1", buyerUserId: "u1", buyer: "张工" },
+    { id: "account-2", buyerUserId: "u2", buyer: "张工" },
+    { id: "ambiguous-history", buyer: "张工" },
+    { id: "unique-history", buyer: "李工" },
+    { id: "unrelated-role", buyerUserId: "elsewhere", buyer: "李工", rdContact: "张工", requesterName: "张工" },
+  ];
+  assert.deepEqual(exports.procurementTasksForBuyer(tasks, "u1", roster).map(row => row.id), ["account-1"]);
+  assert.deepEqual(exports.procurementTasksForBuyer(tasks, "u2", roster).map(row => row.id), ["account-2"]);
+  assert.deepEqual(exports.procurementTasksForBuyer(tasks, "u3", roster).map(row => row.id), ["unique-history"]);
+  assert.deepEqual(exports.procurementTasksForBuyer(tasks, null, roster), tasks, "全部范围保留同名待核对与离册任务");
+  assert.equal(tasks.length, 5, "筛选不删除原始任务");
 });
 
 test("采购模块的高频键盘交互统一使用项目 Radix 封装", () => {
-  assert.match(cockpit, /components\/ui\/tabs/);
-  assert.match(cockpit, /<Tabs value=\{cockpitTab\}/);
+  assert.doesNotMatch(cockpit, /<Tabs(?:List|Trigger)?\b/);
   assert.match(cockpit, /components\/ui\/toggle-group/);
   assert.match(cockpit, /<ToggleGroup\s+type="single"\s+value=\{line\}[\s\S]*?aria-label=\{t\("按采购业务线筛选"\)\}/);
   assert.match(cockpit, /aria-label=\{t\("按采购负责人筛选"\)\}/);
   assert.doesNotMatch(cockpit, /role="tablist"|role="tab"/);
 
   assert.match(systemTree, /components\/ui\/tabs/);
-  assert.match(systemTree, /<Tabs value=\{coreMode \? "core" : "panorama"\}/);
+  assert.match(systemTree, /<Tabs value=\{activeProductId\}/);
   assert.doesNotMatch(systemTree, /role="tablist"|role="tab"/);
 
-  assert.match(corePanorama, /components\/ui\/select/);
-  assert.doesNotMatch(corePanorama, /components\/ui\/native-select/);
-  assert.match(corePanorama, /components\/ui\/toggle-group/);
   assert.match(priceHistory, /components\/ui\/toggle-group/);
   assert.match(priceHistory, /components\/ui\/toggle/);
   assert.match(taskDetail, /components\/ui\/collapsible/);
-  assert.match(peopleManagement, /components\/ui\/collapsible/);
+  assert.match(peopleManagement, /components\/ui\/table/);
+  assert.match(peopleManagement, /components\/ui\/checkbox/);
   assert.match(quoteBook, /components\/ui\/pagination/);
   assert.match(materialTable, /components\/ui\/pagination/);
 });
@@ -399,4 +393,24 @@ test("登记供应商必须从T+目录选择，报价读取失败可原位恢复
   assert.match(actions, /请从畅捷通供应商目录中选择每一行的供应商/);
   assert.match(actions, /purchaseOrdersError/);
   assert.match(actions, /重新读取报价/);
+});
+
+test('步骤模型覆盖直购部分到货，免样阶段不冒充已完成，需样阶段仍逐步显示', () => {
+  const text = source('src/app/procurement/components/common.tsx');
+  const ast = ts.createSourceFile('common.tsx', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const fn = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'procurementStepsOf');
+  const inquiry = JSON.parse(text.match(/INQUIRY_FLOW: ProcStatus\[\] = (\[[^;]+\]);/)[1]);
+  const direct = JSON.parse(text.match(/DIRECT_FLOW: ProcStatus\[\] = (\[[^;]+\]);/)[1]);
+  const js = ts.transpileModule(fn.getText(ast).replace(/^export\s+/, '') + '\nreturn procurementStepsOf;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const stepsOf = new Function('INQUIRY_FLOW', 'DIRECT_FLOW', js)(inquiry, direct);
+  const partial = stepsOf({ method: 'direct', status: 'partial_arrival', needSample: false });
+  assert.equal(partial.filter(step => step.current).length, 1);
+  assert.equal(partial.find(step => step.current).status, 'partial_arrival');
+  const exempt = stepsOf({ method: 'inquiry', status: 'priced', needSample: false });
+  assert.deepEqual(exempt.filter(step => step.skipped).map(step => step.status), ['pending_sample', 'testing']);
+  assert.ok(exempt.filter(step => step.skipped).every(step => !step.completed));
+  const sample = stepsOf({ method: 'inquiry', status: 'testing', needSample: true });
+  assert.ok(sample.every(step => !step.skipped));
+  assert.equal(sample.find(step => step.current).status, 'testing');
+  assert.equal(sample.find(step => step.status === 'priced').completed, false);
 });

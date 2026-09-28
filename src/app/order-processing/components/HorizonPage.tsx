@@ -2,6 +2,7 @@ import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '../../components/ui/utils';
+import { HorizonPageHeader, HorizonMetricGrid, HorizonMetric } from '../../components/horizon/HorizonPage';
 
 export type OrderMetricTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -22,22 +23,8 @@ export function OrderPageHeader({
   actions?: React.ReactNode;
   className?: string;
 }) {
-  return (
-    <header className={cn('order-horizon-command', className)}>
-      <div className="order-horizon-command-heading">
-        <span className="order-horizon-command-mark" aria-hidden="true">
-          <Icon className="size-5" />
-        </span>
-        <div className="order-horizon-command-copy">
-          <div className="order-horizon-eyebrow">{eyebrow}</div>
-          <h1 className="text-balance">{title}</h1>
-          {description ? <div className="order-horizon-description text-pretty">{description}</div> : null}
-          {meta ? <div className="order-horizon-meta">{meta}</div> : null}
-        </div>
-      </div>
-      {actions ? <div className="order-horizon-actions">{actions}</div> : null}
-    </header>
-  );
+  return <HorizonPageHeader Icon={Icon} eyebrow={eyebrow} title={title} description={description}
+    meta={meta} actions={actions} className={cn('horizon-theme order-horizon-page-header', className)} />;
 }
 
 export function OrderMetricGrid({
@@ -47,7 +34,7 @@ export function OrderMetricGrid({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <section className={cn('order-horizon-metric-grid', className)}>{children}</section>;
+  return <HorizonMetricGrid className={cn('horizon-theme order-horizon-metric-grid', className)}>{children}</HorizonMetricGrid>;
 }
 
 export function OrderMetric({
@@ -63,18 +50,8 @@ export function OrderMetric({
   note?: React.ReactNode;
   tone?: OrderMetricTone;
 }) {
-  return (
-    <div className="order-horizon-metric" data-tone={tone}>
-      <div className="order-horizon-metric-copy">
-        <div className="order-horizon-metric-label">{label}</div>
-        <div className="order-horizon-metric-value tabular-nums">{value}</div>
-        {note ? <div className="order-horizon-metric-note text-pretty">{note}</div> : null}
-      </div>
-      <span className="order-horizon-metric-icon" aria-hidden="true">
-        <Icon className="size-4" />
-      </span>
-    </div>
-  );
+  return <HorizonMetric Icon={Icon} label={label} value={value} note={note}
+    tone={tone === 'primary' ? 'brand' : tone} />;
 }
 
 export function OrderEmptyState({

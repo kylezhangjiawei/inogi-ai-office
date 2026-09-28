@@ -145,6 +145,8 @@ function SnapshotRecord({ snapshot, label, compact, onPreview }: {
           <dt className="text-muted-foreground">{t("需求数量")}</dt>
           <dd className="mt-1 break-words font-semibold tabular-nums text-foreground">{Number.isFinite(requirement.quantity) ? requirement.quantity : t("未记录数量")} {requirement.unit || t("单位未填写")}</dd>
         </div>
+        {requirement.needDateNotApplicableReason && <div className="col-span-2 min-w-0"><dt className="text-muted-foreground">{t("需求日期不适用原因")}</dt><dd className="mt-1 whitespace-pre-wrap break-words">{requirement.needDateNotApplicableReason}</dd></div>}
+        {requirement.specNotApplicableReason && <div className="col-span-2 min-w-0"><dt className="text-muted-foreground">{t("规格 / 图纸不适用原因")}</dt><dd className="mt-1 whitespace-pre-wrap break-words">{requirement.specNotApplicableReason}</dd></div>}
         {requirement.needDate ? <div className="min-w-0"><dt className="text-muted-foreground">{t("需求日期")}</dt><dd className="mt-1 break-words tabular-nums text-foreground">{requirement.needDate}</dd></div> : null}
         {requirement.deadline ? <div className="min-w-0"><dt className="text-muted-foreground">{t("采购截止日期")}</dt><dd className="mt-1 break-words tabular-nums text-foreground">{requirement.deadline}</dd></div> : null}
         {requirement.note ? <div className="col-span-2 min-w-0"><dt className="text-muted-foreground">{t("交付备注")}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-pretty text-foreground">{requirement.note}</dd></div> : null}

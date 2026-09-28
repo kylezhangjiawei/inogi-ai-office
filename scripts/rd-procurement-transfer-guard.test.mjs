@@ -302,7 +302,7 @@ test('提交失败保留字段与附件并解锁，可继续填写或重新提�
 
 test('上传失败也保留手选文件并解锁，不生成采购任务，可明确放弃', async (t) => {
   const f = fixture(t, { upload: async () => { throw new Error('图纸上传失败'); } });
-  await f.flush(); f.add(); f.button('确认生成采购任务').props.onClick(); await f.flush();
+  await f.flush(); f.add(); f.change('规格', '测试采购规格'); f.button('确认生成采购任务').props.onClick(); await f.flush();
   assert.equal(f.calls.transfer.length, 0); assert.equal(f.calls.close, 0); assert.match(text(f.render()), /图纸上传失败/);
   assert.ok(f.button('移除附件：手选图纸.pdf')); assert.equal(f.fileInput().props.disabled, false);
   f.button('取消').props.onClick(); f.discard(); assert.equal(f.calls.close, 1);
@@ -311,7 +311,7 @@ test('上传失败也保留手选文件并解锁，不生成采购任务，可�
 test('上传等待中卸载后即使上传完成，也不继续生成采购任务或通知父页面', async (t) => {
   const gate = deferred(), file = manual();
   const f = fixture(t, { upload: () => gate.promise });
-  await f.flush(); f.add(file); f.button('确认生成采购任务').props.onClick();
+  await f.flush(); f.add(file); f.change('规格', '测试采购规格'); f.button('确认生成采购任务').props.onClick();
   assert.equal(f.calls.upload.length, 1); assert.equal(f.calls.transfer.length, 0);
   f.unmount();
   gate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
@@ -324,7 +324,7 @@ test('上传等待中卸载后即使上传完成，也不继续生成采购任�
 test('采购请求已发出后卸载，成功或失败响应都不再关闭、回调或显示通知', async (t) => {
   for (const outcome of ['success', 'failure']) {
     const gate = deferred(); const f = fixture(t, { transfer: () => gate.promise });
-    await f.flush(); f.choose(); f.button('确认生成采购任务').props.onClick(); await f.flush();
+    await f.flush(); f.choose(); f.change('规格', '测试采购规格'); f.button('确认生成采购任务').props.onClick(); await f.flush();
     assert.equal(f.calls.transfer.length, 1); f.unmount();
     if (outcome === 'success') gate.resolve(success); else gate.reject(new Error('卸载后的采购失败'));
     await new Promise(setImmediate);
@@ -369,7 +369,7 @@ const scopeChanges = [
 test('上传期间切换任务、账号或工作区，旧上传返回不在新范围继续生成采购', async (t) => {
   for (const [label, changeScope] of scopeChanges) for (const outcome of ['success', 'failure']) {
     const gate = deferred(), file = manual(); const f = fixture(t, { upload: () => gate.promise });
-    await f.flush(); f.add(file); f.button('确认生成采购任务').props.onClick(); assert.equal(f.calls.upload.length, 1);
+    await f.flush(); f.add(file); f.change('规格', '测试采购规格'); f.button('确认生成采购任务').props.onClick(); assert.equal(f.calls.upload.length, 1);
     changeScope(f);
     if (outcome === 'success') gate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
     else gate.reject(new Error(`旧${label}上传失败`));
@@ -386,7 +386,7 @@ test('上传期间切换任务、账号或工作区，旧上传返回不在新�
 test('采购请求发出后切换任务、账号或工作区，旧结果不能回调、关闭或通知新范围', async (t) => {
   for (const [label, changeScope] of scopeChanges) for (const outcome of ['success', 'failure']) {
     const gate = deferred(); const f = fixture(t, { transfer: () => gate.promise });
-    await f.flush(); f.choose(); f.button('确认生成采购任务').props.onClick(); await f.flush();
+    await f.flush(); f.choose(); f.change('规格', '测试采购规格'); f.button('确认生成采购任务').props.onClick(); await f.flush();
     assert.equal(f.calls.transfer.length, 1); changeScope(f);
     if (outcome === 'success') gate.resolve(success); else gate.reject(new Error(`旧${label}采购失败`));
     await f.flush(); const context = `${label}/${outcome}`;
@@ -493,4 +493,17 @@ test('公开弹窗按账号、任务和工作区重挂，旧字段与附件不�
     f.change('规格', '仅属于原范围'); f.add(); changeScope(f);
     assert.notEqual(f.scopeKey(), before);
   }
+});
+
+
+test('正式提交要求日期和规格或受控版本，草稿保存不受该门槛限制', async (t) => {
+  const f = fixture(t); await f.flush(); f.choose(); f.change('需求日期', '');
+  f.button('确认生成采购任务').props.onClick(); await f.flush();
+  assert.equal(f.calls.transfer.length, 0); assert.match(text(f.render()), /填写需求日期/);
+  const draft = f.find(node => node.type === 'TransferDraftSupport');
+  assert.equal(draft.props.snapshot.form.needDate, ''); assert.equal(draft.props.snapshot.form.spec, ''); assert.equal(draft.props.busy, false);
+  f.change('需求日期不适用原因', '内部探索按现货安排'); f.change('规格 / 图纸不适用原因', '低值耗材按附件型号采购');
+  f.button('确认生成采购任务').props.onClick(); await f.flush();
+  assert.equal(f.calls.transfer.length, 1); assert.equal(f.calls.transfer[0].needDateNotApplicableReason, '内部探索按现货安排');
+  assert.equal(f.calls.transfer[0].specNotApplicableReason, '低值耗材按附件型号采购');
 });

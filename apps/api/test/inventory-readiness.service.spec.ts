@@ -4,11 +4,12 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { Prisma } from '@prisma/client';
+import { buildBomSnapshot } from '../src/modules/procurement/bom-revisions.model';
 import { ValidationPipe } from '@nestjs/common';
 
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
 import { ProcurementController } from '../src/modules/procurement/procurement.controller';
-import { CreateInventoryBomLineDto, UpdateInventoryBomLineDto } from '../src/modules/procurement/dto/procurement.dto';
+import { CreateInventoryBomLineDto, UpdateInventoryBomLineDto, SaveBomNodeDto } from '../src/modules/procurement/dto/procurement.dto';
 
 import {
   calculateInventoryReadiness,
@@ -75,7 +76,7 @@ test('inventory readiness surfaces incomplete BOM and unmatched ERP rows as prov
   assert.equal(result.dataQuality.invalidBomLines, 2);
   assert.equal(result.dataQuality.inventoryMatchedLines, 0);
   assert.equal(result.dataQuality.provisional, true);
-  assert.equal(result.summary.currentBuildableSets, 0);
+  assert.equal(result.summary.currentBuildableSets, null);
   assert.deepEqual(result.items.map((item) => item.status).sort(), ['data_missing', 'data_missing', 'unmatched'].sort());
 });
 
@@ -101,13 +102,17 @@ function commonBomHarness() {
     && (!where.children || nodes.every((item) => item.parentId !== row.id));
   const locks: string[] = [];
   const db: any = {
+    procBomRevision: { findFirst: async () => null },
     $queryRaw: async (strings: TemplateStringsArray) => { locks.push(strings.join('?')); return []; },
     $transaction: async (work: (client: any) => Promise<unknown>, options: any) => {
-      assert.equal(options.isolationLevel, 'Serializable');
+      assert.ok(['Serializable', 'RepeatableRead'].includes(options.isolationLevel));
       return work(db);
     },
     procBomNode: {
       findMany: async () => nodes.map(enriched),
+      findFirst: async ({ where }: any) => enriched(nodes.find((row) => typeof where.productLine === 'string'
+        ? row.productLine === where.productLine
+        : row.productLine.toLowerCase() === where.productLine.equals.toLowerCase())),
       findUnique: async ({ where }: any) => enriched(nodes.find((row) => row.id === where.id)),
       findUniqueOrThrow: async ({ where }: any) => {
         const row = nodes.find((item) => item.id === where.id);
@@ -129,15 +134,45 @@ function commonBomHarness() {
       },
     },
     procMaterial: {
-      findUnique: async ({ where }: any) => materials.find((item) => item.tpInventoryCode === where.tpInventoryCode) ?? null,
+      findUnique: async ({ where }: any) => materials.find((item) => where.id ? item.id === where.id : item.tpInventoryCode === where.tpInventoryCode) ?? null,
       findMany: async ({ where }: any) => materials.filter((item) => where.tpInventoryCode.in.includes(item.tpInventoryCode)),
     },
-    procInventoryBalance: { findMany: async () => [{ tpInventoryCode: 'A', warehouse: '量产仓', stockQty: 30, availableQty: 30, inTransitQty: 0, syncedAt: null, material: { safeStock: 0 } }] },
+    runtimeState: { findMany: async () => [] },
+    procInventoryBalance: { findMany: async () => [{ tpInventoryCode: 'A', warehouse: '量产仓', unit: '件', stockQty: 30, availableQty: 30, inTransitQty: 0, syncedAt: new Date('2026-09-01'), material: { safeStock: 0 } }] },
   };
   const forbidden = new Proxy({}, { get: () => { throw new Error('unexpected external dependency'); } });
   const service = new ProcurementService(db, forbidden as any, forbidden as any, forbidden as any);
   return { service, nodes, materials, add, locks, db };
 }
+
+test('已发布设备不能删除或通过全量导入替换', async () => {
+  const h = commonBomHarness();
+  const device = h.add({ id: 'published-device', code: null, qtyPer: null, materialId: null });
+  h.db.procBomRevision.findFirst = async () => ({ id: 'published' });
+  await assert.rejects(h.service.deleteBomNode(device.id, device.updatedAt.toISOString()), /发布/);
+  await assert.rejects(h.service.importBom({ replace: true, roots: [] }), /发布/);
+  assert.equal(h.nodes[0].id, device.id);
+});
+
+test('已发布根节点即使清空工作稿子项也不能改成分类移入另一节点', async () => {
+  const h = commonBomHarness();
+  const device = h.add({ id: 'published-device', code: null, qtyPer: null, materialId: null });
+  const parent = h.add({ id: 'other-root', code: null, qtyPer: null, materialId: null });
+  h.db.procBomRevision.findFirst = async () => ({ id: 'published' });
+  await assert.rejects(h.service.saveBomNode({ kind: 'group', productLine: device.productLine, name: device.name, parentId: parent.id, baseUpdatedAt: device.updatedAt.toISOString() }, device.id), /设备根/);
+  assert.equal(device.parentId, null);
+});
+
+test('指定发布版本齐套只使用冻结用量，工作稿变化不改变历史依据', async () => {
+  const h = commonBomHarness();
+  const device = h.add({ id: 'd', name: 'Q8', productLine: 'Q8', code: null, qtyPer: null, materialId: null });
+  h.add({ id: 'leaf', parentId: device.id, productLine: 'Q8', qtyPer: new Prisma.Decimal(9) });
+  const snapshot = buildBomSnapshot({ deviceId: 'd', productRootId: 'root', structure: [{ id: 'd', parentId: null, name: 'Q8' }, { id: 'leaf', parentId: 'd', name: '物料' }], leaves: [{ nodeId: 'leaf', parentId: 'd', deviceId: 'd', materialId: 'material-a', code: 'A', name: '原始名称', unit: '件', qtyPer: 2 }] });
+  h.db.procBomRevision.findUnique = async () => ({ id: 'r', deviceId: 'd', snapshot, fingerprint: snapshot.fingerprint, publishedAt: new Date(), version: 1, device });
+  const result = await h.service.getInventoryReadiness({ productLine: 'Q8', revisionId: 'r', targetSets: 20 });
+  assert.equal(result.items[0].qtyPer, 2); assert.equal(result.items[0].name, '原始名称');
+  assert.equal(result.bomBasis.kind, 'published');
+});
 
 test('默认按 Q5 原材料清单核算整板和组件，不展开或混入通用 PCB 元器件', async () => {
   const h = commonBomHarness();
@@ -155,8 +190,8 @@ test('默认按 Q5 原材料清单核算整板和组件，不展开或混入通�
   h.db.procInventoryBalance.findMany = async ({ where }: any) => {
     inventoryCodes = where.tpInventoryCode.in;
     return [
-      { tpInventoryCode: 'A01-011', warehouse: '【活】量产仓', stockQty: 70, availableQty: 60, inTransitQty: 50, syncedAt: null, material: { safeStock: 0 } },
-      { tpInventoryCode: 'A03-023', warehouse: '量产仓', stockQty: 300, availableQty: 250, inTransitQty: 0, syncedAt: null, material: { safeStock: 0 } },
+      { tpInventoryCode: 'A01-011', unit: '块', warehouse: '【活】量产仓', stockQty: 70, availableQty: 60, inTransitQty: 50, syncedAt: new Date('2026-09-01'), material: { safeStock: 0 } },
+      { tpInventoryCode: 'A03-023', unit: '根', warehouse: '量产仓', stockQty: 300, availableQty: 250, inTransitQty: 0, syncedAt: new Date('2026-09-01'), material: { safeStock: 0 } },
     ];
   };
 
@@ -185,7 +220,7 @@ test('Q5 清单缺失或指定型号不存在时保留所选型号的空态，�
     assert.equal(result.productLine, expectedLine);
     assert.equal(result.items.length, 0);
     assert.equal(result.dataQuality.totalBomLines, 0);
-    assert.equal(result.models.find((model) => model.id === expectedLine)?.bomLines, 0);
+    assert.equal(result.models.some((model) => model.id === expectedLine), false, '下拉框只列出已建立 BOM 的设备');
   }
   const common = await h.service.getInventoryReadiness({ productLine: '通用' });
   assert.equal(common.productLine, '通用');
@@ -259,7 +294,7 @@ test('空分类保留可选且不冒充物料，通用全部为空后仍可新�
   h.nodes.splice(0);
   result = await h.service.getInventoryReadiness({ productLine: '通用' });
   assert.equal(result.productLine, '通用');
-  assert.equal(result.models.find((model) => model.id === '通用')?.bomLines, 0);
+  assert.deepEqual(result.models, []);
 });
 
 test('拒绝修改删除其他型号、结构分类及过期版本，不产生级联删除', async () => {
@@ -295,15 +330,82 @@ test('拒绝跨型号、物料、自身和不存在的父节点以及非法用�
   await assert.rejects(() => h.service.createInventoryBomLine({ ...draft, code: '  ' }), /编码/);
 });
 
-test('改为未匹配编码清除旧关联且不影响库存镜像', async () => {
+test('旧 BOM 编辑入口也拒绝物料库不存在的编码并保留原始关联', async () => {
   const h = commonBomHarness();
   const leaf = h.add({});
-  await h.service.updateInventoryBomLine(leaf.id, { name: leaf.name, code: 'UNMATCHED', qtyPer: 2, baseUpdatedAt: leaf.updatedAt.toISOString() });
-  assert.equal(leaf.materialId, null);
+  await assert.rejects(() => h.service.updateInventoryBomLine(leaf.id, { name: leaf.name, code: 'UNMATCHED', qtyPer: 2, baseUpdatedAt: leaf.updatedAt.toISOString() }), /物料库/);
+  assert.equal(leaf.materialId, 'material-a');
   const result = await h.service.getInventoryReadiness({ productLine: '通用', targetSets: 10 });
-  assert.equal(result.items[0].status, 'unmatched');
-  assert.equal(result.items[0].gapAfterTransit, 20);
+  assert.equal(result.items[0].status, 'ready');
+  assert.equal(result.items[0].gapAfterTransit, 0);
   assert.equal(result.items[0].sourceLines?.[0].unit, '件');
+});
+
+test('新设备自动进入型号列表，空设备和空分类不参与物料核算', async () => {
+  const h = commonBomHarness();
+  const device = await h.service.saveBomNode({ kind: 'device', productLine: 'Q8', name: '便携设备' });
+  await h.service.saveBomNode({ kind: 'group', productLine: 'Q8', name: '主机组件', parentId: device.id });
+  const result = await h.service.getInventoryReadiness({ productLine: 'Q8', targetSets: 10 });
+  assert.deepEqual(result.models, [{ id: 'Q8', label: 'Q8 · 便携设备', bomLines: 0 }]);
+  assert.equal(result.dataQuality.totalBomLines, 0);
+  assert.equal(result.summary.currentBuildableSets, null);
+  assert.equal(result.items.length, 0);
+  await assert.rejects(() => h.service.saveBomNode({ kind: 'device', productLine: 'q8', name: '重复设备' }), /已存在/);
+});
+
+test('BOM 页面和齐套中心均按当前编码读取物料库，过时关联不显示错误名称', async () => {
+  const h = commonBomHarness();
+  h.add({ code: 'B', materialId: 'material-a' });
+  const tree = await h.service.getBomTree();
+  assert.equal(tree.roots[0].material?.id, 'material-b');
+  assert.equal(tree.roots[0].material?.name, 'ERP 名称 B');
+  assert.equal(tree.roots[0].material?.unit, 'kg');
+  assert.equal(h.nodes[0].materialId, 'material-a', '读取不能隐式修改历史数据');
+});
+
+test('不同设备独立配置，同料多处用量累加，修改 BOM 立即改变齐套结果', async () => {
+  const h = commonBomHarness();
+  const deviceA = await h.service.saveBomNode({ kind: 'device', productLine: 'Q8', name: '设备 A' });
+  const deviceB = await h.service.saveBomNode({ kind: 'device', productLine: 'Q9', name: '设备 B' });
+  const line = await h.service.saveBomNode({ kind: 'material', productLine: 'Q8', materialId: 'material-a', qtyPer: 2, parentId: deviceA.id });
+  await h.service.saveBomNode({ kind: 'material', productLine: 'Q8', materialId: 'material-a', qtyPer: 1, parentId: deviceA.id });
+  await h.service.saveBomNode({ kind: 'material', productLine: 'Q9', materialId: 'material-a', qtyPer: 5, parentId: deviceB.id });
+  let result = await h.service.getInventoryReadiness({ productLine: 'Q8', targetSets: 12 });
+  assert.equal(result.items[0].qtyPer, 3);
+  assert.equal(result.items[0].targetDemand, 36);
+  assert.equal(result.summary.currentBuildableSets, 10);
+  await h.service.saveBomNode({ kind: 'material', productLine: 'Q8', materialId: 'material-a', qtyPer: 4, parentId: deviceA.id, baseUpdatedAt: line.updatedAt.toISOString() }, line.id);
+  result = await h.service.getInventoryReadiness({ productLine: 'Q8', targetSets: 12 });
+  assert.equal(result.summary.currentBuildableSets, 6);
+  assert.equal((await h.service.getInventoryReadiness({ productLine: 'Q9', targetSets: 12 })).items[0].qtyPer, 5);
+  assert.equal(line.name, 'ERP 名称 A');
+  assert.equal(line.code, 'A');
+});
+
+test('BOM 配置拒绝不存在的物料、跨设备位置、无效用量和过期修改', async () => {
+  const h = commonBomHarness();
+  const device = await h.service.saveBomNode({ kind: 'device', productLine: 'Q8', name: '设备 A' });
+  const other = await h.service.saveBomNode({ kind: 'device', productLine: 'Q9', name: '设备 B' });
+  const draft = { kind: 'material' as const, productLine: 'Q8', parentId: device.id, materialId: 'material-a', qtyPer: 1 };
+  await assert.rejects(() => h.service.saveBomNode({ ...draft, materialId: 'missing' }), /物料库/);
+  await assert.rejects(() => h.service.saveBomNode({ ...draft, parentId: other.id }), /当前设备/);
+  for (const qtyPer of [0, -1, NaN, 0.00001]) await assert.rejects(() => h.service.saveBomNode({ ...draft, qtyPer }), /单机用量/);
+  const leaf = await h.service.saveBomNode(draft);
+  await assert.rejects(() => h.service.saveBomNode({ ...draft, baseUpdatedAt: '2020-01-01' }, leaf.id), /刷新/);
+  await assert.rejects(() => h.service.saveBomNode({ ...draft, parentId: leaf.id }), /组件分类/);
+  await assert.rejects(() => h.service.deleteBomNode(device.id, device.updatedAt.toISOString()), /子项/);
+  await assert.rejects(() => h.service.deleteBomNode(leaf.id, '2020-01-01'), /刷新/);
+  await h.service.deleteBomNode(leaf.id, leaf.updatedAt.toISOString());
+  assert.equal(h.nodes.length, 2);
+  assert.equal(h.materials.length, 2);
+});
+
+test('导入物料库不存在的 BOM 物料时，替换前拒绝并保留原清单', async () => {
+  const h = commonBomHarness();
+  const original = h.add({});
+  await assert.rejects(() => h.service.importBom({ replace: true, roots: [{ name: '设备', productLine: 'Q8', children: [{ name: '未知料', code: 'NOT-IN-LIBRARY', qtyPer: 1 }] }] }), /物料库/);
+  assert.equal(h.nodes.length, 1);
+  assert.equal(h.nodes[0].id, original.id);
 });
 
 test('无效用量的同编码来源不会混入正常聚合编辑数据', async () => {
@@ -317,13 +419,15 @@ test('无效用量的同编码来源不会混入正常聚合编辑数据', async
 });
 
 test('维护接口使用既有 BOM 写权限且入参验证版本与小数精度', () => {
-  for (const method of ['createInventoryBomLine', 'updateInventoryBomLine', 'deleteInventoryBomLine'] as const) {
+  for (const method of ['createInventoryBomLine', 'updateInventoryBomLine', 'deleteInventoryBomLine', 'createBomNode', 'updateBomNode', 'deleteBomNode'] as const) {
     assert.deepEqual(Reflect.getMetadata('permissions', ProcurementController.prototype[method]), ['material:import']);
   }
   const draft = { name: '物料 A', code: 'A', qtyPer: 0.125, parentId: null };
   assert.equal(validateSync(plainToInstance(CreateInventoryBomLineDto, draft)).length, 0);
   assert.ok(validateSync(plainToInstance(CreateInventoryBomLineDto, { ...draft, qtyPer: 0.00001 })).length > 0);
   assert.ok(validateSync(plainToInstance(UpdateInventoryBomLineDto, draft)).some((error) => error.property === 'baseUpdatedAt'));
+  assert.equal(validateSync(plainToInstance(SaveBomNodeDto, { kind: 'device', productLine: 'Q8', name: '设备 A' })).length, 0);
+  assert.ok(validateSync(plainToInstance(SaveBomNodeDto, { kind: 'invalid', productLine: 'Q8' })).some((error) => error.property === 'kind'));
 });
 
 test('分类来自当前编码对应的物料库，BOM 关联缺失或过时不影响分类和单位', async () => {
@@ -386,9 +490,9 @@ test('编辑物料编码后分类随物料库切换，BOM 所属位置保持独�
   assert.equal(result.items[0].category, '结构件');
   assert.equal(result.items[0].bomPosition, position.name);
   assert.equal(result.items[0].unit, 'kg');
-  await h.service.updateInventoryBomLine(leaf.id, { ...draft, code: 'MISSING', baseUpdatedAt: leaf.updatedAt.toISOString() });
+  await assert.rejects(() => h.service.updateInventoryBomLine(leaf.id, { ...draft, code: 'MISSING', baseUpdatedAt: leaf.updatedAt.toISOString() }), /物料库/);
   result = await h.service.getInventoryReadiness({ productLine: '通用' });
-  assert.equal(result.items[0].category, '未分类');
+  assert.equal(result.items[0].category, '结构件');
   assert.equal(result.items[0].bomPosition, position.name);
 });
 
@@ -425,13 +529,13 @@ test('库存诊断区分主档缺失、无任何仓库记录与仅其他仓记�
   const expected = { reason: 'other_warehouses_only', otherWarehouses: ['样品仓', '【活】研发量产仓'].sort((a, b) => a.localeCompare(b, 'zh-CN')) };
   for (const item of result.items.filter((row) => row.code === 'B')) {
     assert.deepEqual((item as any).inventoryDiagnostic, expected);
-    assert.equal(item.available, 0);
+    assert.equal(item.available, null);
     assert.equal(item.inTransit, 0);
   }
   assert.equal(result.items.find((item) => item.id === 'missing-qty')?.issue, 'missing_qty');
   assert.equal('inventoryDiagnostic' in result.items.find((item) => item.id === 'missing-code')!, false);
-  assert.equal(result.summary.currentBuildableSets, 0);
-  assert.equal(result.summary.withTransitBuildableSets, 0);
+  assert.equal(result.summary.currentBuildableSets, null);
+  assert.equal(result.summary.withTransitBuildableSets, null);
   assert.equal(result.dataQuality.inventoryMatchedLines, 0);
   assert.deepEqual(result.warehouse.matchedNames, []);
 });
@@ -440,8 +544,8 @@ test('量产仓有零库存记录时仍为缺货，其他仓数量不混入且�
   const h = commonBomHarness();
   h.add({ code: 'A', qtyPer: new Prisma.Decimal(2) });
   h.db.procInventoryBalance.findMany = async () => [
-    { tpInventoryCode: 'A', warehouse: '【活】量产仓', stockQty: 0, availableQty: 0, inTransitQty: 0, syncedAt: null, material: { safeStock: 0 } },
-    { tpInventoryCode: 'A', warehouse: '研发量产仓', stockQty: 900, availableQty: 900, inTransitQty: 900, syncedAt: null, material: { safeStock: 0 } },
+    { tpInventoryCode: 'A', unit: '件', warehouse: '【活】量产仓', stockQty: 0, availableQty: 0, inTransitQty: 0, syncedAt: new Date('2026-09-01'), material: { safeStock: 0 } },
+    { tpInventoryCode: 'A', unit: '件', warehouse: '研发量产仓', stockQty: 900, availableQty: 900, inTransitQty: 900, syncedAt: null, material: { safeStock: 0 } },
   ];
   const result = await h.service.getInventoryReadiness({ productLine: '通用', targetSets: 10 });
   assert.equal(result.items[0].status, 'shortage');
@@ -470,7 +574,7 @@ test('Q5五条缺项提供原始来源，原位补齐编码与用量后重新核
     { id: 'sieve-material', tpInventoryCode: 'A08-072', name: 'ERP分子筛原料', spec: '', unit: 'kg', category: 'ERP原材料分类' },
   );
   const balances = h.materials.slice(2).map((material) => ({
-    tpInventoryCode: material.tpInventoryCode, warehouse: '量产仓',
+    tpInventoryCode: material.tpInventoryCode, unit: material.unit, warehouse: '量产仓',
     stockQty: material.unit === 'kg' ? 10 : 100, availableQty: material.unit === 'kg' ? 10 : 100,
     inTransitQty: material.unit === 'kg' ? 2.5 : 0, syncedAt: new Date('2026-09-08T00:00:00Z'), material: { safeStock: 0 },
   }));

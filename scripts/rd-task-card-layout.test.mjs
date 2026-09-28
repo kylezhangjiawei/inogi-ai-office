@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const source = readFileSync(new URL('../src/app/RDTaskManagementPage.tsx', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../src/app/rd/PersonTaskCockpit.tsx', import.meta.url), 'utf8');
 const card = source.slice(source.indexOf('const renderTaskCard = ('), source.indexOf('// ── Gallery Lightbox'));
 
 test('研发首页卡片先显示任务和真实状态，再显示类别；协同和生产维持旧分支', () => {
@@ -12,16 +12,20 @@ test('研发首页卡片先显示任务和真实状态，再显示类别；协�
   const status = card.indexOf('STATUS_CONFIG[task.status]');
   const taxonomy = card.indexOf('hierarchySegments.map');
   assert.ok(heading > 0 && status > heading && taxonomy > status);
-  assert.match(card, /researchCard \? \([\s\S]*?<dl[\s\S]*?\) : \(\s*<h3/);
+  assert.match(card, /!researchCard && \(\s*<h3/);
+  assert.ok(card.indexOf('task.latest_progress_summary.actor_name') < heading, '真实更新人位于任务之前');
 });
 
 test('主责人与更新人分开显示，期限使用真实完整日期，无版本猜测或逐卡资料请求', () => {
   const facts = card.match(/<dl[\s\S]*?<\/dl>/)?.[0];
   assert.ok(facts);
-  assert.match(facts, /name=\{task\.primary_owner\} userId=\{task\.primary_owner_user_id\}/);
+  assert.match(facts, /displayPersonName\(task\.primary_owner\)/);
+  assert.doesNotMatch(facts, /OwnerAvatar/, '负责人文字保留，但不重复头像');
   assert.match(facts, /task\.due_date \|\| t\("未设置"\)/);
   assert.doesNotMatch(facts, /latest_progress_summary|\.slice\(5\)/);
-  assert.match(card, /name=\{task\.latest_progress_summary\?\.actor_name \|\| task\.primary_owner\}/);
+  assert.match(card, /userId=\{task\.latest_progress_summary\.actor_user_id\}/);
+  assert.match(card, /暂无进展记录/);
+  assert.match(card, /dateTime=\{task\.latest_progress_summary\.created_at\}/);
   assert.doesNotMatch(card, /fetchRdTechnicalDocuments|useProcurementTaskLink|当前版本|V1\.0/);
 });
 

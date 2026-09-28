@@ -26,7 +26,7 @@ export function HorizonPageHeader({
 }) {
   const TitleTag = titleLevel === 2 ? 'h2' : 'h1';
   return (
-    <header className={cn('hz-command', className)}>
+    <header data-page-heading={titleLevel === 1 ? 'true' : undefined} className={cn('hz-command', className)}>
       <div className="hz-command-heading">
         <span className="hz-command-mark" aria-hidden="true"><Icon className="size-5" /></span>
         <div className="min-w-0">
@@ -83,12 +83,12 @@ export function HorizonSectionHeader({
 }) {
   return (
     <div className="hz-section-header">
-      <div className="min-w-0">
+      <div className="hz-section-heading min-w-0">
         <h2 className="flex items-center gap-2 text-balance">
           {Icon ? <Icon className="size-4 text-primary" aria-hidden="true" /> : null}
           {title}
         </h2>
-        {description ? <p className="mt-1 text-pretty">{description}</p> : null}
+        {description ? <p className="text-pretty">{description}</p> : null}
       </div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </div>

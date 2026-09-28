@@ -116,6 +116,11 @@ export class QualityVerificationService {
           return { status: record.status, updatedAt: record.updatedAt.toISOString(), closed: saved.closed };
         }
         if (record.updatedAt.toISOString() !== sourceVersion) throw new ConflictException('处置记录已更新，请保留填写内容并重新核对');
+        if (kind === 'verification') {
+          const source = await db.runtimeState.findUnique({ where: { key: `procurement:execution:v1:quality:${id}` } });
+          const linked = source ? JSON.parse(source.value) : null;
+          if (linked?.fieldIssueId && !linked.inspectionId) throw new ConflictException('现场异常须先由质检关联原记录完成检验，再办理复验');
+        }
         const collaboration = kind === 'verification' ? await db.runtimeState.findUnique({ where: { key: `procurement:execution:v1:collaboration:${id}` } }) : null;
         if (collaboration && JSON.parse(collaboration.value).phase === 'waiting_reply') throw new ConflictException('协同处理人尚未回复，请先收回处理结果再验证');
         const result = await validate(record, db), now = new Date();

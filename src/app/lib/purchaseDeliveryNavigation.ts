@@ -1,6 +1,6 @@
 import { routePath } from './routePaths';
 const KEYS = new Set(['month','period','product','supplier','status','q','focus','sort','source','task','page','arrivals','arrivalPage','arrivalFocus','arrivalView','arrivalMonth','arrivalDay',
-  'deliveryOpen','deliveryMonth','deliveryBucket','deliveryDay','deliveryQ','deliverySupplier','deliveryPage','deliveryView','deliveryFocus']);
+  'deliveryBasis','deliveryOpen','deliveryMonth','deliveryBucket','deliveryDay','deliveryQ','deliverySupplier','deliveryPage','deliveryView','deliveryFocus']);
 const unsafe = /[\\\u0000-\u001f\u007f]/;
 export function purchaseDeliveryReturnPath(state: unknown): string | null {
   if (!state || typeof state !== 'object') return null;

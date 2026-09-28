@@ -691,6 +691,18 @@ lock_hash() {
 NEW_HASH="$(lock_hash)"
 OLD_HASH="$(cat "$CACHE_DIR/lock.sha" 2>/dev/null || echo none)"
 
+# 原生依赖的 postinstall 早于 argon2 补救步骤执行，安装前就要避开旧版系统 Python。
+# 保留操作者显式指定的解释器；这里只选择已有的兼容版本，不安装软件。
+if [ -z "${PYTHON:-}" ]; then
+  for native_python in python3.11 python3.9 python3.8 python3; do
+    if command -v "$native_python" >/dev/null 2>&1 \
+      && "$native_python" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+      export PYTHON="$(command -v "$native_python")"
+      break
+    fi
+  done
+fi
+
 install_deps() {
   # --prod=false 确保装上构建工具；失败只重试相同命令，不放宽锁文件校验。
   retry pnpm install --frozen-lockfile --prod=false --prefer-offline
@@ -709,7 +721,7 @@ ensure_native_argon2() {
     return 0
   fi
   log "argon2 预编译与本机不兼容，改为从源码编译 ..."
-  py="$(command -v python3.11 || command -v python3.9 || command -v python3.8 || command -v python3 || true)"
+  py="${PYTHON:-}"
   [ -n "$py" ] || die "未找到 Python（node-gyp 需 ≥3.8）；请先 dnf install -y python3.11。"
   command -v node-gyp >/dev/null 2>&1 || npm install -g node-gyp --registry="$NPM_REGISTRY" >/dev/null 2>&1 || true
   ( cd "$dir" && rm -rf prebuilds build && node-gyp rebuild --python "$py" ) \
@@ -770,8 +782,8 @@ else
 fi
 
 # --------------- 5.5 质量闸门（迁移与重启前的最后一道）---------------
-# 位置很关键：此刻两端都已构建成功，但数据库还没备份/迁移、pm2 也还没重启，
-# 所以在这里失败的回滚代价为零 —— 直接退出即可，线上仍跑着旧版本。
+# 位置很关键：此刻两端都已构建成功，后台备份可能已开始，但正式迁移和 pm2 重启尚未执行。
+# 在这里失败直接退出，线上仍跑着旧版本；已启动的备份由现有退出处理收口。
 # 放在构建之后是因为测试用 ts-node 直接跑 TS，需要第 4 步生成的 Prisma Client。
 # 不重试：测试失败是代码问题，重跑三次只会拖长部署时间。
 # 紧急情况跳过：DEPLOY_RUN_TESTS=0（不推荐，写法与 DEPLOY_DB_BACKUP 一致）。
@@ -808,7 +820,7 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
     skip_stage typecheck || true
   fi
 
-  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ] || [ "$DEPLOY_PLAN_PRISMA" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
     start_stage tests || true
     log "运行受影响的测试 ..."
     if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
@@ -819,16 +831,20 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
       # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离。
       if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
         npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
-        log "质量闸门通过（API 全量测试）。"
+        log "质量闸门通过（API 常规 TS/MTS 套件；隔离数据库套件另行检查）。"
       else
         npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
         log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行。"
         log "质量闸门通过（API ts-node 套件）。"
       fi
     fi
+    if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ] || [ "$DEPLOY_PLAN_PRISMA" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
+      bash scripts/test-postgres-release.sh || die "隔离 PostgreSQL 验收未通过，已中止正式迁移与重启（线上仍是旧版本）。"
+      log "质量闸门通过（应聘登记、审计/收货、聊天工作区、采购回退、研发资料五组隔离 PostgreSQL 验收）。"
+    fi
     finish_stage success || true
   else
-    log "前端、API 与测试输入均未变化，跳过测试。"
+    log "前端、API、数据库与测试输入均未变化，跳过测试。"
     skip_stage tests || true
   fi
 else

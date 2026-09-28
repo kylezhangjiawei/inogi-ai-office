@@ -119,7 +119,20 @@
 
 .proc-horizon-cockpit-shell {
   container: proc-cockpit / inline-size;
+  overflow: hidden;
   padding: 0 !important;
+}
+
+
+/* These tabs own their scroll regions within the application's available height. */
+.rd-horizon-main:has(> .proc-horizon-cockpit-shell) {
+  overflow: hidden;
+}
+
+.proc-horizon-cockpit-shell .proc-horizon-layout > section,
+.proc-horizon-cockpit-shell .proc-horizon-people-nav,
+.proc-horizon-cockpit-shell .proc-horizon-filter-bar {
+  flex-shrink: 0;
 }
 
 .proc-horizon .proc-horizon-page-tabs {
@@ -180,7 +193,7 @@
   padding: 0.1rem 0.35rem;
   color: var(--proc-subtle);
   background: var(--proc-canvas);
-  font-size: 0.625rem;
+  font-size: var(--font-size-caption);
   line-height: 1.2;
 }
 
@@ -261,9 +274,10 @@
 
 .proc-horizon .proc-horizon-actions button,
 .proc-horizon .proc-horizon-actions [data-slot="button"] {
-  min-height: 2.25rem;
+  min-height: 2.5rem;
+  font-size: 0.875rem;
   border: 1px solid var(--proc-line) !important;
-  border-radius: 999px !important;
+  border-radius: var(--button-radius) !important;
   padding: 0.45rem 0.75rem !important;
   color: var(--proc-body) !important;
   background: var(--proc-surface) !important;
@@ -312,23 +326,30 @@
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-  border-top: 1px solid var(--proc-line);
-  padding-top: 1rem;
+  gap: 0;
+  border: 1px solid var(--proc-line);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  padding: 0;
 }
+
+.proc-horizon .proc-horizon-command.proc-horizon-command-cockpit { border: 0 !important; border-radius: 0 !important; padding: 0 !important; background: transparent !important; box-shadow: none !important; }
 
 .proc-horizon .proc-horizon-cockpit-kpis .proc-horizon-kpi {
   width: 100%;
   min-width: 0;
   min-height: 5rem;
   justify-content: space-between !important;
-  border-color: var(--proc-line) !important;
+  border: 0 !important;
+  border-right: 1px solid var(--proc-line) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   padding: 0.75rem 1rem !important;
   background: var(--proc-surface) !important;
 }
 
 .proc-horizon .proc-horizon-cockpit-kpis .proc-horizon-kpi[data-active="true"] {
-  border-color: var(--proc-primary) !important;
+  box-shadow: inset 0 -3px var(--proc-primary) !important;
   background: var(--proc-soft-blue) !important;
 }
 
@@ -339,8 +360,8 @@
 
 .proc-horizon .proc-horizon-cockpit-kpis .proc-horizon-kpi-icon {
   order: 0;
-  width: 2.25rem !important;
-  height: 2.25rem !important;
+  width: 1.75rem !important;
+  height: 1.75rem !important;
 }
 
 .proc-horizon .proc-horizon-cockpit-kpis .proc-horizon-kpi-value {
@@ -365,6 +386,27 @@
 
 .proc-stock-plan-panel {
   container: proc-stock / inline-size;
+}
+
+.proc-stock-plan-scroll {
+  border: 1px solid var(--proc-line);
+  border-radius: 12px 12px 0 0;
+  scrollbar-gutter: stable;
+}
+
+@container proc-stock (max-width: 48rem) {
+  .proc-stock-plan-filter-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    margin-left: 0;
+  }
+  .proc-stock-plan-filter-field {
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .proc-stock-plan-filter-field > button { width: 100%; }
 }
 
 .proc-stock-plan-row {
@@ -519,14 +561,14 @@
 
 .proc-horizon .proc-horizon-kpi-label {
   color: var(--proc-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 650 !important;
 }
 
 .proc-horizon .proc-horizon-task-stream {
-  min-height: 24rem;
+  min-height: 0;
   gap: 0.625rem;
-  overflow: visible;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -588,7 +630,7 @@
   color: var(--proc-muted) !important;
   background: transparent !important;
   box-shadow: none !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 600 !important;
   transition: color 180ms ease, background-color 180ms ease !important;
 }
@@ -606,7 +648,7 @@
 
 .proc-horizon .proc-horizon-line-filter-count {
   color: var(--proc-subtle);
-  font-size: 0.625rem;
+  font-size: var(--font-size-caption);
   font-weight: 650;
 }
 
@@ -720,7 +762,7 @@
   padding-inline: 0.3rem;
   color: var(--proc-ink);
   background: var(--proc-surface);
-  font-size: 0.6875rem;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -791,8 +833,103 @@
 }
 
 .proc-horizon .proc-horizon-task-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 0.75rem 0.125rem 1rem;
   background: transparent;
+}
+
+.proc-horizon .proc-horizon-display-toggle {
+  flex: none;
+  gap: 0.125rem;
+  border: 1px solid var(--proc-line);
+  border-radius: 10px;
+  padding: 0.1875rem;
+  background: var(--proc-surface);
+}
+
+.proc-horizon-display-toggle [data-slot="toggle-group-item"] {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--proc-muted);
+}
+
+.proc-horizon-display-toggle [data-state="on"] {
+  color: var(--proc-primary);
+  background: var(--proc-soft-blue);
+}
+
+.proc-horizon .proc-horizon-task-scroll[data-display="table"] {
+  overflow: auto;
+  padding: 0;
+  border: 1px solid var(--proc-line);
+  border-radius: 12px 12px 0 0;
+  background: var(--proc-surface);
+}
+
+.proc-horizon-task-table-wrap {
+  min-width: 80rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--proc-surface);
+}
+
+.proc-horizon-task-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+}
+
+.proc-horizon-task-table [data-slot="table-header"] {
+  background: var(--proc-surface);
+}
+
+.proc-horizon-task-table th {
+  height: 2.75rem;
+  padding-inline: 0.875rem;
+  background: var(--proc-surface);
+  box-shadow: 0 1px 0 var(--proc-line);
+}
+
+.proc-horizon-task-table td {
+  border-bottom: 1px solid var(--proc-line);
+  padding: 0.5rem 0.875rem;
+  font-size: var(--font-size-body);
+  vertical-align: middle;
+}
+.proc-horizon-task-table tr:last-child td { border-bottom: 0; }
+.proc-horizon-task-table .proc-horizon-task-col-task { width: 20%; min-width: 15rem; max-width: 24rem; white-space: normal; position:sticky; left:0; z-index:1; background:var(--proc-surface); border-right:1px solid var(--proc-line); }
+.proc-horizon-task-table .proc-horizon-task-col-attachments { min-width: 8rem; }
+.proc-horizon-task-table .proc-horizon-task-col-context { min-width: 6rem; }
+.proc-horizon-task-table .proc-horizon-task-col-status { min-width: 7rem; }
+.proc-horizon-task-table .proc-horizon-task-col-buyer { min-width: 7rem; }
+.proc-horizon-task-table .proc-horizon-task-col-arrival { min-width: 8rem; }
+.proc-horizon-task-table .proc-horizon-task-col-payment { min-width: 6rem; }
+.proc-horizon-task-table .proc-horizon-task-col-date { min-width: 8rem; }
+.proc-horizon-task-table .proc-horizon-task-col-priority { min-width: 5rem; }
+.proc-horizon-task-table .proc-horizon-task-col-actions { min-width: 11rem; }
+.proc-horizon-task-table .text-xs { font-size:0.8125rem; line-height:1.5; }
+.proc-horizon-task-table th { color:var(--foreground); font-weight:600; background:var(--proc-canvas); }
+.proc-horizon-task-table tr:hover > td { background:var(--proc-canvas); }
+.proc-horizon-task-table tr[data-state="selected"] > td { background:var(--proc-soft-blue); }
+.proc-horizon-task-table tr[data-state="selected"] > td:first-child { box-shadow:inset 3px 0 var(--primary); }
+
+.proc-horizon-task-pagination {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--proc-line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--proc-surface);
 }
 
 .proc-horizon .proc-horizon-task-masonry {
@@ -858,7 +995,7 @@
 }
 
 .proc-horizon-cockpit-shell .proc-horizon-task-attachments button > p {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-caption);
 }
 
 .proc-horizon-cockpit-shell :is(.proc-horizon-line-filter-label, .proc-horizon-people-label, .proc-horizon-person-name, .proc-horizon-filter-bar) {
@@ -967,13 +1104,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.6875rem;
+  font-size: var(--font-size-caption);
   line-height: 1rem;
 }
 
 .proc-horizon .proc-horizon-task-meta {
   color: var(--proc-muted);
-  font-size: 0.6875rem;
+  font-size: var(--font-size-caption);
 }
 
 .proc-horizon .proc-horizon-payment-status {
@@ -1398,7 +1535,7 @@
 
 }
 
-@container proc-command (min-width: 64rem) {
+@container proc-command (min-width: 56rem) {
   .proc-horizon .proc-horizon-cockpit-kpis {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
@@ -1576,6 +1713,36 @@
 
   .proc-horizon .proc-horizon-search {
     max-width: none;
+  }
+}
+
+/* Keep controls reachable when a narrow or short viewport cannot fit them
+   above a useful list area. The scroll stays inside the cockpit shell. */
+@media (max-width: 767px), (max-height: 640px) {
+  .proc-horizon-cockpit-shell .proc-horizon-layout {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .proc-horizon-cockpit-shell .proc-horizon-page-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--proc-canvas);
+  }
+
+  .proc-horizon-cockpit-shell .proc-horizon-task-body {
+    flex: 0 0 max(24rem, 60dvh);
+  }
+
+  .proc-horizon-cockpit-shell .proc-stock-plan-panel {
+    flex-shrink: 0;
+    flex-basis: auto;
+    overflow: visible;
+  }
+
+  .proc-horizon-cockpit-shell .proc-stock-plan-panel .proc-horizon-task-feed {
+    flex: 0 0 max(18rem, 50dvh);
   }
 }
 

@@ -5,8 +5,10 @@ const TPLUS_VIEWS_BASE = "/api/procurement/tplus/views";
 
 export type OrderSource = "wecom_mail" | "gmail" | "upload";
 export type OrderStatusType = "warning" | "error" | "success";
-export type ProductCheckStatus = "通过" | "价格差异" | "库存不足";
-export type InventoryStatus = "正常" | "偏低" | "缺货";
+export type ProductCheckStatus = "通过" | "价格差异" | "库存不足" | "库存待核对";
+export type OrderStockCheck = { lineId: string; materialId: string | null; mappingState: 'exact' | 'confirmed' | 'unmatched' | 'stale'; stockState: 'known' | 'unknown'; availableQty: number | null; sufficient: boolean | null; issues: string[]; checkedAt: string; scope: { kind: string; warehouses?: string[] }; sourceFingerprint: string; updatedAt: string; warehouses?: { warehouse: string; available: number | null; syncedAt: string | null }[] };
+export type OrderMaterialOption = { id: string; name: string; spec: string; unit: string; tpInventoryCode: string };
+export type InventoryStatus = "正常" | "偏低" | "缺货" | "待核对";
 export type PurchaseOrderStatus = "待确认" | "已下单" | "部分到货" | "已完成" | "异常";
 
 export type PageResult<T> = {
@@ -30,6 +32,7 @@ export type OrderSummary = {
 };
 
 export type OrderProduct = {
+  stockCheck?: OrderStockCheck;
   id: string;
   lineId?: string;
   name: string;
@@ -129,18 +132,20 @@ export type InventoryItem = {
   name: string;
   category: string;
   spec: string;
-  stock: number;
+  stock: number | null;
   safe: number;
   in: number;
-  out: number;
+  out: number | null;
   status: InventoryStatus;
   unit?: string;
-  available?: number;
-  warehouses?: Array<{ name: string; stock: number; available: number; inTransit: number }>;
+  available?: number | null;
+  erpAvailable?: number; ledgerIssues?: string[];
+  warehouses?: Array<{ name: string; stock: number; available: number | null; inTransit: number; erpAvailable?: number; issuedPending?: number; frozen?: number; scrappedPending?: number; countReduction?: number; qualifiedPending?: number; defectivePending?: number; inspectionPending?: number; syncedAt?: string | null }>;
   syncedAt?: string | null;
 };
 
 export type StockMovement = {
+  unit?: string; state?: string; action?: string; stockBatchNo?: string | null; batchPendingQty?: number; recordId?: string; issueId?: string; qualifiedQty?: number; defectiveQty?: number; pendingQty?: number;
   id: string;
   itemId: string;
   itemName: string;
@@ -377,7 +382,10 @@ function downloadFile(payload: DownloadPayload) {
 }
 
 export const orderProcessingApi = {
+  materialOptions(q = "") { return requestJson<{ materials: OrderMaterialOption[]; warehouses: string[] }>(`/material-options${buildQuery({ q })}`); },
+  confirmMaterial(orderId: string, lineId: string, payload: { materialId: string; expectedUpdatedAt: string; expectedSourceFingerprint: string; requestId: string; reason: string }) { return requestJson<{ saved: boolean }>(`/orders/${encodeURIComponent(orderId)}/lines/${encodeURIComponent(lineId)}/material-mapping`, { method: "POST", body: JSON.stringify(payload) }); },
   getWorkbench(params: {
+    warehouses?: string;
     q?: string;
     source?: OrderSource;
     mailboxId?: string;
@@ -455,28 +463,7 @@ export const orderProcessingApi = {
     return requestTplusView<InventoryDetailResponse>(`/inventory/${encodeURIComponent(itemId)}`);
   },
 
-  recognizeStockIn(files: File[] = []) {
-    const form = new FormData();
-    files.forEach((file) => form.append("files", file));
-    return requestJson<StockInRecognitionResponse>("/inventory/ai-recognize", { method: "POST", body: form });
-  },
 
-  createStockIn(payload: {
-    type: string;
-    supplier?: string;
-    poNumber?: string;
-    handler?: string;
-    documentNo?: string;
-    businessDate?: string;
-    warehouse?: string;
-    remark?: string;
-    items: StockInItem[];
-  }) {
-    return requestJson<{ message: string; summary: InventoryResponse["summary"]; inventory: InventoryItem[] }>("/inventory/stock-in", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
 
   async exportInventory(params: { q?: string; category?: string; status?: string; timeFilter?: string; startDate?: string; endDate?: string }) {
     const payload = await requestTplusView<DownloadPayload>(`/inventory/export${buildQuery(params)}`, { method: "POST" });
@@ -522,17 +509,5 @@ export const orderProcessingApi = {
     return requestJson<{ created: PurchaseOrder[]; message: string }>("/purchase-orders/import", { method: "POST", body: form });
   },
 
-  createStockOut(itemId: string, payload: { qty: number; operator?: string; note?: string }) {
-    return requestJson<InventoryDetailResponse>(`/inventory/${encodeURIComponent(itemId)}/stock-out`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
 
-  adjustInventory(itemId: string, payload: { stock: number; operator?: string; note?: string }) {
-    return requestJson<InventoryDetailResponse>(`/inventory/${encodeURIComponent(itemId)}/adjust`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-  },
 };

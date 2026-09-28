@@ -1,8 +1,11 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { deliveryDatePage, purchaseTiming } from './purchase-timing';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ProcActor } from './procurement.types';
 import type { RecordSupplierCommitmentDto } from './dto/purchase-delivery.dto';
+import { ProductionReadinessService } from './production-readiness.service';
+import { purchaseDeliveryImpacts } from './purchase-delivery-impact';
 import { DELIVERY_PREFIX, DELIVERY_READ_PERMISSIONS, DELIVERY_WRITE_PERMISSION, deliveryDay, deliveryHash, deliveryHistoryKey, deliveryHistoryPrefix,
   deliveryKey, deliverySource, deliverySourceIdentity, parseDeliveryState, validateDeliveryDay,
   type SupplierDeliveryEntry, type SupplierDeliveryState, type ErpDeliveryEntry, type ErpDeliveryState } from './purchase-delivery-store';
@@ -22,7 +25,7 @@ const pageNumber = (value: unknown, fallback = 1, max = 1000000) => {
 
 @Injectable()
 export class PurchaseDeliveryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly readiness?: ProductionReadinessService) {}
   private permission(actor: ProcActor, write = false) {
     if (!actor.id || (!actor.permissions.includes('*') && (write
       ? !['page:purchase-order-detail', DELIVERY_WRITE_PERMISSION].every((permission) => actor.permissions.includes(permission))
@@ -59,6 +62,13 @@ export class PurchaseDeliveryService {
     const supplierPage = pageNumber(query.supplierPage), erpPage = pageNumber(query.erpPage);
     return this.prisma.$transaction(async (db) => this.detail(db, await this.line(db, lineId, orderNo), actor, supplierPage, erpPage), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
+  async impacts(lineId: string, query: Query, actor: ProcActor) {
+    this.permission(actor);
+    if (!actor.permissions.includes('*') && (!actor.permissions.includes('page:production-execution') || !actor.permissions.some(permission => ['production:plan', 'production:view-all', 'production:inspect'].includes(permission)))) throw new ForbiddenException('查看影响计划需要原生产齐套读取权限');
+    const orderNo = text(query.orderNo, '订单号', 256), page = pageNumber(query.page);
+    if (!this.readiness) throw new ConflictException('齐套服务暂不可用，请稍后重新读取');
+    return this.prisma.$transaction(async db => purchaseDeliveryImpacts(db, this.readiness!, await this.line(db, lineId, orderNo), page), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
   async record(lineId: string, input: RecordSupplierCommitmentDto, actor: ProcActor) {
     this.permission(actor, true);
     if (!input || typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId)) throw new BadRequestException('提交标识无效');
@@ -90,7 +100,10 @@ export class PurchaseDeliveryService {
       const entry: SupplierDeliveryEntry = { version, kind: input.declareOriginal ? 'original' : promisedDate ? 'revision' : 'withdrawal',
         before: before?.currentDate ?? null, after: promisedDate, communicatedOn, evidence, reason, actorId: actor.id, actorName: actor.name,
         recordedAt: new Date().toISOString(), sourceIdentity, source: deliverySource(line) };
-      const state: SupplierDeliveryState = { version, originalDate: before?.originalDate ?? (input.declareOriginal ? promisedDate : null), currentDate: promisedDate, sourceIdentity, lastEntry: entry };
+      // Earlier original promises remain in immutable history. They cannot become the
+      // original promise of a changed supplier/material/quantity after reconfirmation.
+      const originalDate = before ? before.sourceIdentity === sourceIdentity ? before.originalDate : null : input.declareOriginal ? promisedDate : null;
+      const state: SupplierDeliveryState = { version, originalDate, currentDate: promisedDate, sourceIdentity, lastEntry: entry };
       await db.runtimeState.create({ data: { key: deliveryHistoryKey('supplier', line.id, version), value: JSON.stringify(entry) } });
       await db.runtimeState.upsert({ where: { key }, create: { key, value: JSON.stringify(state) }, update: { value: JSON.stringify(state) } });
       await db.runtimeState.create({ data: { key: requestKey, value: JSON.stringify({ actorId: actor.id, fingerprint, version }) } });
@@ -108,6 +121,8 @@ export class PurchaseDeliveryService {
     const month = typeof query.month === 'string' ? query.month : '';
     if (!/^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestException('请选择有效月份');
     const start = new Date(`${month}-01T00:00:00.000Z`), end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1);
+    const dateBasis = query.dateBasis ?? 'erp';
+    if (!['erp', 'latest', 'available'].includes(String(dateBasis))) throw new BadRequestException('日期口径无效');
     const bucket = query.bucket ?? 'month';
     if (!['month', 'all', 'undated', 'outside'].includes(String(bucket))) throw new BadRequestException('日期范围无效');
     const date = query.date ? validateDeliveryDay(query.date, '所选日期') : null;
@@ -118,6 +133,27 @@ export class PurchaseDeliveryService {
     const where: Prisma.ProcPurchaseOrderMirrorWhereInput = { ...(supplier ? { supplierName: supplier } : {}),
       ...(keyword ? { OR: ['tpOrderNo', 'inventoryCode', 'inventoryName', 'spec', 'supplierName'].map((field) => ({ [field]: { contains: keyword, mode: 'insensitive' } })) } : {}) };
     return this.prisma.$transaction(async (db) => {
+      if (dateBasis !== 'erp') {
+        const all = await db.procPurchaseOrderMirror.findMany({ where, include: { availability: true }, orderBy: { id: 'asc' } });
+        const promises = all.length ? await db.runtimeState.findMany({ where: { key: { in: all.map(row => deliveryKey('supplier', row.id)) } } }) : [];
+        const byKey = new Map(promises.map(row => [row.key, parseDeliveryState<SupplierDeliveryState>(row.value)]));
+        const snapshot = deliveryHash([actor.id, [...actor.permissions].sort(), month, keyword, supplier, dateBasis, all, promises]);
+        if (query.snapshot && query.snapshot !== snapshot) throw new ConflictException('订单、承诺或可用日已更新，请刷新日期视图后继续翻页');
+        const rows = all.map(row => {
+          const timing = purchaseTiming(row, row.availability, byKey.get(deliveryKey('supplier', row.id)));
+          return { lineId: row.id, orderNo: row.tpOrderNo, lineNo: row.tpLineNo, inventoryCode: row.inventoryCode, inventoryName: row.inventoryName,
+            spec: row.spec, supplierName: row.supplierName, unit: row.unit, orderedQty: Number(row.orderedQty), receivedQty: Number(row.receivedQty),
+            orderDate: deliveryDay(row.orderDate), erpExpectedDate: timing.erpDate, sourceUpdatedAt: row.updatedAt.toISOString(),
+            supplierPromisedDate: timing.promisedDate, supplierSourceChanged: timing.supplierSourceChanged,
+            calendarDate: dateBasis === 'available' ? timing.confirmedAvailableDate : timing.latestDate,
+            availableDate: timing.availableDate, dateNeedsReconfirmation: timing.needsReconfirmation, timingNote: timing.note, latestSource: timing.latestSource,
+            status: row.status, approvalStatus: row.approvalStatus };
+        });
+        return { scope: 'permission-visible-erp-mirror' as const, source: 'tplus' as const, snapshot, month, dateBasis,
+          syncedAt: all.map(row => row.syncedAt?.toISOString()).filter(Boolean).sort().at(-1) ?? null,
+          oldestOrderDate: all.map(row => deliveryDay(row.orderDate)).filter(Boolean).sort()[0] ?? null,
+          ...deliveryDatePage(rows, month, String(bucket), date, requested, pageSize) };
+      }
       const [source, promiseVersion] = await Promise.all([
         db.procPurchaseOrderMirror.aggregate({ where, _count: { _all: true }, _max: { updatedAt: true, syncedAt: true }, _min: { orderDate: true } }),
         db.runtimeState.aggregate({ where: { key: { startsWith: `${DELIVERY_PREFIX}supplier:current:` } }, _max: { updatedAt: true } }),

@@ -13,6 +13,8 @@ export class PurchaseDeliveryController {
   schedule(@Query() query: Record<string, unknown>, @Request() req: AuthedRequest) { return this.service.schedule(query, this.actor(req)); }
   @Get('lines/:lineId') @Permissions('page:purchase-orders', 'page:purchase-order-detail')
   get(@Param('lineId') id: string, @Query() query: Record<string, unknown>, @Request() req: AuthedRequest) { return this.service.get(id, query, this.actor(req)); }
+  @Get('lines/:lineId/impacts') @Permissions('page:purchase-orders', 'page:purchase-order-detail')
+  impacts(@Param('lineId') id: string, @Query() query: Record<string, unknown>, @Request() req: AuthedRequest) { return this.service.impacts(id, query, this.actor(req)); }
   @Post('lines/:lineId/commitments') @Permissions('proc-purchase-order:record-commitment')
   record(@Param('lineId') id: string, @Body() input: RecordSupplierCommitmentDto, @Request() req: AuthedRequest) { return this.service.record(id, input, this.actor(req)); }
 }

@@ -122,6 +122,10 @@ test('可按逐条数量计算多条报价，扣减折扣后一次确认并保�
   const prisma = {
     procTask: {
       findUnique: async () => task,
+      updateMany: async ({ where }: { where: { id: string; status: string } }) => {
+        assert.equal(where.id, task.id);
+        return { count: task.status === where.status ? 1 : 0 };
+      },
       update: async (args: Record<string, unknown>) => {
         taskUpdates.push(args);
         return task;
@@ -224,4 +228,59 @@ test('可按逐条数量计算多条报价，扣减折扣后一次确认并保�
   assert.equal(Number(taskData.quotationTotal), 750);
   assert.equal(taskData.quotationCurrency, 'CNY');
   assert.deepEqual(result, { id: task.id, status: 'inquiring' });
+});
+
+function quoteStateHarness() {
+  let row = { id: 'task-1', status: 'pending_inquiry', updatedAt: new Date('2026-09-17T00:00:00Z'), materialId: null, materialName: '隔离物料', quantity: 10 };
+  let beforeSelection: (() => void) | undefined;
+  const snapshots: Array<Record<string, unknown>> = [];
+  const tx = {
+    procTask: {
+      updateMany: async ({ where, data }: { where: { status: string; updatedAt: Date }; data: { status: string } }) => {
+        if (row.status !== where.status || row.updatedAt.getTime() !== where.updatedAt.getTime()) return { count: 0 };
+        row = { ...row, ...data };
+        return { count: 1 };
+      },
+      update: async () => row,
+    },
+    procMaterial: { updateMany: async () => ({ count: 1 }) },
+    procQuotation: { create: async ({ data }: { data: Record<string, unknown> }) => {
+      const quote = { id: String(snapshots.length), ...data };
+      snapshots.push(quote); return quote;
+    } },
+  };
+  const service = Object.create(ProcurementService.prototype) as ProcurementService;
+  Object.assign(service, {
+    prisma: { $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx) },
+    requireTask: async () => ({ ...row }),
+    getTask: async () => ({ ...row }),
+    listTaskQuoteBookOptions: async () => {
+      beforeSelection?.(); beforeSelection = undefined;
+      return { quotes: [{ id: 'q1', materialId: 'm1', materialName: '隔离物料', supplierName: '隔离供应商',
+        currency: 'CNY', tiers: [{ minQty: 0, unitPrice: 10 }], leadTimeDays: 1 }] };
+    },
+  });
+  const save = () => service.confirmQuotationsFromQuoteBook(row.id,
+    { selections: [{ quoteId: 'q1', quantity: 10 }], discountAmount: 0 },
+    { id: 'buyer', name: '采购员', permissions: ['proc-task:inquiry'] });
+  return { save, snapshots, row: () => row, interleave(status: string) { beforeSelection = () => { row = { ...row, status, updatedAt: new Date(row.updatedAt.getTime() + 1) }; }; } };
+}
+
+test('过期报价不能恢复已取消、回退或同状态已更新的任务，不生成任何报价', async () => {
+  for (const status of ['cancelled', 'pending_confirm', 'pending_sample', 'completed', 'pending_inquiry']) {
+    const h = quoteStateHarness(); h.interleave(status);
+    await assert.rejects(h.save(), (error: any) => error.getStatus() === 409);
+    assert.equal(h.row().status, status);
+    assert.equal(h.snapshots.length, 0);
+  }
+});
+
+test('同一待询价任务并发保存只能成功一次，另一笔冲突且不重复创建报价', async () => {
+  const h = quoteStateHarness();
+  const results = await Promise.allSettled([h.save(), h.save()]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const failed = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+  assert.equal(failed.reason.getStatus(), 409);
+  assert.equal(h.snapshots.length, 1);
+  assert.equal(h.row().status, 'inquiring');
 });

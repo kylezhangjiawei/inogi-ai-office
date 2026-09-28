@@ -122,7 +122,17 @@ test("审计查询、预设、筛选、分页和详情契约保持完整", () =>
 });
 
 test("审计表格语义、状态反馈与窄容器滚动边界完整", () => {
-  assert.match(page, /rd-horizon-audit-table-scroll[^\n]+overflow-x-auto/);
+  const scrollRegion = element("div", (node) => attribute(node, "className")?.text?.includes("rd-horizon-audit-table-scroll"));
+  assert.equal(evaluate(expression(scrollRegion, "tabIndex")), 0, "内部滚动区域可通过键盘聚焦");
+  assert.match(expression(scrollRegion, "aria-label"), /审计结果表格/);
+  const scrollRules = css.match(/\.rd-horizon-audit \.rd-horizon-audit-table-scroll\s*\{([^}]+)\}/)?.[1];
+  assert.ok(scrollRules);
+  assert.match(scrollRules, /overflow:\s*auto/, "桌面表格可在区域内横向与纵向滚动");
+  assert.match(scrollRules, /max-height:[^;]+100dvh/, "表格高度随视口限制，分页保留在表格之外");
+  const headerRules = css.match(/\.rd-horizon-audit \.rd-horizon-audit-table thead\s*\{([^}]+)\}/)?.[1];
+  assert.match(headerRules, /position:\s*sticky/);
+  assert.match(headerRules, /top:\s*0/);
+  assert.ok(!scrollRegion.parent.getText(ast).includes("rd-horizon-audit-list-footer"), "分页不能随表格行滚出内部视区");
   assert.match(page, /<table[^>]+aria-busy=\{loading\}/);
   assert.equal((page.match(/scope="col"/g) ?? []).length, 6);
   assert.deepEqual([...page.matchAll(/data-cell="([^"]+)"/g)].map((match) => match[1]),
@@ -140,7 +150,7 @@ test("审计表格语义、状态反馈与窄容器滚动边界完整", () => {
   assert.ok((page.match(/aria-label=\{t\("(?:模块|动作类型|对象|来源|操作人|开始|结束|每页显示数量)"\)\}/g) ?? []).length >= 8);
 });
 
-test("列表按内容自然增长，旧三栏和固定高度裁切不再占用结果空间", () => {
+test("审计页面保留自然高度，仅表格内部滚动且手机记录不裁切", () => {
   assert.doesNotMatch(page, /rd-horizon-audit-grid/);
   assert.doesNotMatch(css, /\.rd-horizon-audit-grid\b/, "旧断点规则不得残留并与新布局竞争");
   const surfaces = findNodes((node) => (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node))
@@ -151,11 +161,15 @@ test("列表按内容自然增长，旧三栏和固定高度裁切不再占用�
   assert.ok(surfaces.length >= 4);
   for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!selector.split(",").some((part) => /\.rd-horizon-audit(?:-shell|-list|-table-scroll)?\s*$/.test(part.trim()))) continue;
-    assert.doesNotMatch(body, /(?:^|;)\s*(?:height|max-height)\s*:\s*(?!auto\b|none\b|initial\b|unset\b)[^;]+/,
-      `审计主区域不应被固定高度限制：${selector.trim()}`);
+    if (!selector.includes(".rd-horizon-audit-table-scroll")) {
+      assert.doesNotMatch(body, /(?:^|;)\s*(?:height|max-height)\s*:\s*(?!auto\b|none\b|initial\b|unset\b)[^;]+/,
+        `审计页面及外壳不应被固定高度限制：${selector.trim()}`);
+    }
     assert.doesNotMatch(body, /(?:^|;)\s*overflow(?:-y)?\s*:\s*(?:hidden|clip)\b/,
       `审计主区域不应裁切纵向记录：${selector.trim()}`);
   }
+  const scrollRules = [...css.matchAll(/\.rd-horizon-audit \.rd-horizon-audit-table-scroll\s*\{([^}]+)\}/g)].map(match => match[1]);
+  assert.ok(scrollRules.some(rule => /max-height:\s*none/.test(rule) && /overflow:\s*visible/.test(rule)), "手机重排后的记录保留全部内容可达");
 });
 
 test("常用筛选和更多筛选入口始终可达，高级筛选折叠不隐藏关键字或日期", () => {

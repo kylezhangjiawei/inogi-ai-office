@@ -82,6 +82,7 @@ type InventoryQuery = {
 
 function statusClass(status: InventoryItem['status']) {
   if (status === '缺货') return 'border-rose-100 bg-rose-50 text-rose-700';
+  if (status === '待核对') return 'border-amber-100 bg-amber-50 text-amber-700';
   if (status === '偏低') return 'border-amber-100 bg-amber-50 text-amber-700';
   return 'border-emerald-100 bg-emerald-50 text-emerald-700';
 }
@@ -101,8 +102,8 @@ function purchaseOrderStatusClass(status: PurchaseOrderStatus) {
   }
 }
 
-function quantity(value: number | undefined) {
-  return new Intl.NumberFormat(i18nLocale(), { maximumFractionDigits: 3 }).format(value ?? 0);
+function quantity(value: number | null | undefined) {
+  return value == null ? "待核对" : new Intl.NumberFormat(i18nLocale(), { maximumFractionDigits: 3 }).format(value);
 }
 
 export function Inventory() {
@@ -378,7 +379,6 @@ export function Inventory() {
         Icon={Warehouse}
         eyebrow={t('订单与库存')}
         title={t('库存管理')}
-        description={t('聚合多仓现存量、可用量与在途量，优先识别缺货和低库存风险。')}
         meta={(
           <>
             <span>{t('数据来源：畅捷通 T+（只读）')}</span>
@@ -524,6 +524,7 @@ export function Inventory() {
                 <SelectItem value="all">{t('所有状态')}</SelectItem>
                 <SelectItem value="正常">{t('库存正常')}</SelectItem>
                 <SelectItem value="偏低">{t('库存偏低')}</SelectItem>
+                <SelectItem value="待核对">{t('待核对')}</SelectItem>
                 <SelectItem value="缺货">{t('缺货')}</SelectItem>
               </SelectContent>
             </Select>
@@ -567,7 +568,7 @@ export function Inventory() {
                 <TableHead className="px-4">{t('存货编码')}</TableHead>
                 <TableHead>{t('存货名称 / 规格')}</TableHead>
                 <TableHead className="text-right">{t('现存量')}</TableHead>
-                <TableHead className="text-right">{t('可用量')}</TableHead>
+                <TableHead className="text-right">{t('本地可用量')}</TableHead>
                 <TableHead className="text-right">{t('状态')}</TableHead>
                 <TableHead className="text-right">{t('在途量')}</TableHead>
                 <TableHead className="text-right">{t('安全库存')}</TableHead>
@@ -590,7 +591,7 @@ export function Inventory() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{quantity(item.stock)}</TableCell>
-                    <TableCell className="text-right text-slate-700 tabular-nums">{quantity(item.available)}</TableCell>
+                    <TableCell className="text-right text-slate-700 tabular-nums">{item.ledgerIssues?.length ? t('待核对') : quantity(item.available)}</TableCell>
                     <TableCell className="text-right">
                       <Badge variant="secondary" className={cn('rounded-full border px-2.5 py-1 font-medium', statusClass(item.status))}>
                         {t(item.status)}
@@ -757,7 +758,7 @@ export function Inventory() {
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                   {[
                     [t('现存量'), quantity(detail.item.stock)],
-                    [t('可用量'), quantity(detail.item.available)],
+                    [t('可用量'), detail.item.ledgerIssues?.length ? t('待核对') : quantity(detail.item.available)],
                     [t('在途量'), quantity(detail.item.in)],
                     [t('安全库存'), quantity(detail.item.safe)],
                     [t('库存状态'), t(detail.item.status)],

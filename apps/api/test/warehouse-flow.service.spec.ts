@@ -159,3 +159,19 @@ test('库存同步采用查询开始时间，慢查询落库不冒充核对后�
   await service.syncInventory();
   assert.equal(writes.length, 1); assert.ok(writes[0].create.syncedAt.getTime() <= queriedAt); assert.equal(writes[0].update.syncedAt.getTime(), writes[0].create.syncedAt.getTime());
 });
+
+
+test('real issued stock batches persist through partial signing and cannot be replaced with production batch IDs', async () => {
+  const f = fixture();
+  await f.service.command('task-1', { ...issueInput, lines: [{ code: 'V01', quantity: 40, warehouse: '量产仓', batches: [{ batchNo: 'STOCK-202609', quantity: 30 }], batchPendingQty: 10 }] }, warehouse);
+  assert.deepEqual(f.current().lines[0].issuedBatches, [{ batchNo: 'STOCK-202609', quantity: 30 }]);
+  await assert.rejects(f.service.command('task-1', { action: 'sign', requestId: 'sign-real-batch-bad01', version: 2, reason: '实物签收', lines: [{ code: 'V01', quantity: 1, batches: [{ batchNo: 'b1', quantity: 1 }] }] }, worker), /实际库存批号/);
+  await f.service.command('task-1', { action: 'sign', requestId: 'sign-real-batch-good1', version: 2, reason: '实物签收', lines: [{ code: 'V01', quantity: 20, batches: [{ batchNo: 'STOCK-202609', quantity: 20 }] }] }, worker);
+  assert.deepEqual(f.current().lines[0].signedBatches, [{ batchNo: 'STOCK-202609', quantity: 20 }]); assert.equal(f.current().lines[0].signedBatchPendingQty, 0);
+});
+test('warehouse issue rejects local frozen or unposted scrapped stock', async () => {
+  const f = fixture(), recordKey = 'procurement:warehouse-record:v1:record:freeze';
+  f.state.set(recordKey, { key: recordKey, value: JSON.stringify({ id: 'freeze', kind: 'freeze', status: 'confirmed', code: 'V01', warehouse: '量产仓', unit: '件', quantity: 70 }) });
+  await assert.rejects(f.service.command('task-1', issueInput, warehouse), /库存不足/);
+  assert.equal(f.current().lines[0].issuedQty, undefined);
+});

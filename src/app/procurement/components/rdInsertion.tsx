@@ -15,7 +15,6 @@ import { useI18n } from "../../lib/i18n";
 import { TransferDraftSupport } from './TransferDraftSupport';
 import { clearTransferDraft } from '../transferDraftStore';
 import {
-  continueRdProcurementTransfer,
   getProcTaskByRdTask,
   transferProcTask,
   uploadProcurementAttachment,
@@ -98,32 +97,16 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
   const { t } = useI18n();
   const canOpenProcurementCockpit = usePermission("page:proc-cockpit");
   const canTransfer = usePermission("proc-task:transfer");
-  const [continuing, setContinuing] = useState(false);
+  const [reviewTransfer, setReviewTransfer] = useState(false);
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   if (task.status === "pending_rd_review" && canTransfer) {
-    return (
-      <Button variant="unstyled"
-        type="button"
-        disabled={continuing}
-        onClick={async (event) => {
-          event.stopPropagation();
-          setContinuing(true);
-          try {
-            await continueRdProcurementTransfer(task.id);
-            announceProcurementRefresh();
-            toast.success(t("已转采购并分配采购负责人"));
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : t("转采购失败，请稍后重试"));
-          } finally {
-            setContinuing(false);
-          }
-        }}
-        className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-[#dce6ff] disabled:opacity-50"
-      >
-        {continuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShoppingCart className="h-3 w-3" />}
-        {t("继续转采购")}
-      </Button>
-    );
+    return <><Button variant="unstyled" type="button" onClick={(event) => { event.stopPropagation(); setReviewTransfer(true); }}
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10">
+      <ShoppingCart className="h-3 w-3" />{t("继续转采购")}
+    </Button>{reviewTransfer && task.rdTaskId && <TransferToProcurementModal taskId={task.rdTaskId} taskTitle={task.rdTaskTitle || task.materialName}
+      owner={task.rdContact || task.requester || ''} ownerUserId={task.rdContactUserId} resubmitFrom={task}
+      attachments={(task.attachmentList || []).map(file => ({ id: file.id, name: file.fileName, fileUrl: file.fileUrl, mimeType: file.mimeType, size: file.fileSize }))}
+      onClose={() => setReviewTransfer(false)} onTransferred={() => { announceProcurementRefresh(); }} />}</>;
   }
   if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
     return (
@@ -238,7 +221,7 @@ type TransferModalProps = {
   onClose: () => void;
 };
 
-type TransferErrors = Partial<Record<"materialName" | "quantity" | "unit" | "files" | "submit", string>>;
+type TransferErrors = Partial<Record<"materialName" | "quantity" | "unit" | "needDate" | "spec" | "files" | "submit", string>>;
 
 /** 转采购确认弹窗。研发已有附件直接复用 OSS 引用，新增附件先上传再提交。 */
 export function TransferToProcurementModal(props: TransferModalProps) {
@@ -309,6 +292,8 @@ export function ScopedTransferToProcurementModal({
     materialName: resubmitFrom?.materialName
       ?? (taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle),
     spec: resubmitFrom?.spec ?? "",
+    needDateNotApplicableReason: resubmitFrom?.rdTransferSnapshots?.at(-1)?.requirement.needDateNotApplicableReason ?? "",
+    specNotApplicableReason: resubmitFrom?.rdTransferSnapshots?.at(-1)?.requirement.specNotApplicableReason ?? "",
     quantity: resubmitFrom ? String(resubmitFrom.quantity) : "1",
     unit: resubmitFrom?.unit || "件",
     needDate: resubmitFrom?.needDate ?? dueDate,
@@ -381,12 +366,14 @@ export function ScopedTransferToProcurementModal({
       nextErrors.quantity = t("请填写正确的数量");
     }
     if (!form.unit.trim() || form.unit.trim().length > 20) nextErrors.unit = t("请填写 20 字以内的数量单位");
+    if (!form.needDate && !form.needDateNotApplicableReason.trim()) nextErrors.needDate = t("请填写需求日期，或说明不适用原因");
+    if (!form.spec.trim() && !form.specNotApplicableReason.trim() && !files.some((file) => file.technicalDocumentVersionId && ['drawing', 'specification'].includes(file.category || ''))) nextErrors.spec = t("请填写规格、选择受控图纸 / 规格版本，或说明不适用原因");
     if (files.length === 0) {
       nextErrors.files = t("转采购必须携带至少一份图纸附件");
     }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
-      toast.error(nextErrors.materialName ?? nextErrors.quantity ?? nextErrors.unit ?? nextErrors.files ?? t("请检查表单"));
+      toast.error(nextErrors.materialName ?? nextErrors.quantity ?? nextErrors.unit ?? nextErrors.needDate ?? nextErrors.spec ?? nextErrors.files ?? t("请检查表单"));
       return;
     }
 
@@ -445,6 +432,8 @@ export function ScopedTransferToProcurementModal({
         businessLine: "rd",
         priority,
         needDate: form.needDate || undefined,
+        needDateNotApplicableReason: form.needDateNotApplicableReason.trim() || undefined,
+        specNotApplicableReason: form.specNotApplicableReason.trim() || undefined,
         deadline: form.deadline || undefined,
         requesterDept: user?.department ?? undefined,
         consumableNote: form.note.trim() || undefined,
@@ -566,6 +555,12 @@ export function ScopedTransferToProcurementModal({
             {field("unit", "数量单位", "如 件、套、米")}
             {field("needDate", "需求日期", undefined, undefined, "date")}
             {field("deadline", "Deadline", undefined, undefined, "date")}
+            <div className="col-span-2">{(errors.needDate || errors.spec) && <p role="alert" className="mb-2 text-xs text-rose-700">{errors.needDate || errors.spec}</p>}
+              <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-xs font-medium">{t("需求日期 / 规格不适用时说明原因")}</summary>
+                <p className="my-2 text-xs leading-5 text-muted-foreground">{t("正式提交需需求日期及规格或受控图纸。不适用的项目请说明原因，并随本次交付保存；草稿可以暂不填写。")}</p>
+                <div className="grid gap-3 sm:grid-cols-2">{field("needDateNotApplicableReason", "需求日期不适用原因")}{field("specNotApplicableReason", "规格 / 图纸不适用原因")}</div>
+              </details>
+            </div>
             {field("link", "购买链接（选填）", "https://…", "填写后自动转为电商直购")}
             {field("rdContact", "研发对接人")}
             <div className="col-span-2">

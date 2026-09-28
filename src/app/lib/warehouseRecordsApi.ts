@@ -1,6 +1,9 @@
 import { authFetch, readErrorMessage } from './authSession';
 export interface WarehouseRecord {
-  id: string; version: number; kind: 'receipt' | 'return' | 'count'; status: 'pending' | 'confirmed' | 'cancelled';
+  id: string; version: number; kind: 'receipt' | 'return' | 'count' | 'freeze' | 'scrap'; status: 'pending' | 'confirmed' | 'cancelled';
+  review?: { open: boolean; actualQty: number; reason: string; actorName: string; at: string }; receivingLocation?: string;
+  countStage?: 'counting' | 'review'; countedBy?: string; countedByName?: string; countedAt?: string; inventoryVersion?: string;
+  stockBatchNo?: string; releasedAt?: string; qualityId?: string;
   code: string; name: string; unit: string; warehouse: string; batch: string; date: string; quantity: number; qualifiedQty: number; defectiveQty: number; pendingQty: number;
   actorId: string; actorName: string; sourceId: string; taskId?: string; planId?: string; countedQty?: number; bookQty?: number; origin?: string;
   events: { action: string; actorName: string; at: string; reason: string }[]; reconciliation?: { voucher: string; line: string; actorName: string; at: string; evidence: string };

@@ -28,6 +28,7 @@ export interface RdTransferSnapshot {
   rdTaskTitle: string;
   requirement: {
     productId: string; materialName: string; spec: string; unit: string; quantity: number;
+    needDateNotApplicableReason?: string | null; specNotApplicableReason?: string | null;
     purchaseLink: string | null; needDate: string | null; deadline: string | null; note: string | null;
   };
   attachments: RdTransferSnapshotAttachment[];
@@ -48,6 +49,7 @@ export function appendRdTransferSnapshot(
     rdTaskId: dto.rdTaskId.trim(), rdTaskTitle: taskTitle,
     requirement: {
       productId: dto.productId || 'prod-portable-o2', materialName: dto.materialName,
+      needDateNotApplicableReason: dto.needDateNotApplicableReason?.trim() || null, specNotApplicableReason: dto.specNotApplicableReason?.trim() || null,
       spec: dto.spec ?? '', unit: dto.unit ?? '', quantity: dto.quantity,
       purchaseLink: dto.purchaseLink ?? null, needDate: dto.needDate ?? null,
       deadline: dto.deadline ?? null, note: dto.consumableNote ?? null,

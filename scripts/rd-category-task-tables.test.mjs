@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { createServer } from "vite";
 
 const workspacePage = await readFile(new URL("../src/app/RDMyWorkspacePage.tsx", import.meta.url), "utf8");
-const cockpitPage = await readFile(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const cockpitPage = (await Promise.all(["RDTaskManagementPage.tsx", "rd/PersonTaskCockpit.tsx"]
+  .map((file) => readFile(new URL(`../src/app/${file}`, import.meta.url), "utf8")))).join("\n");
 const apiClient = await readFile(new URL("../src/app/lib/rdApi.ts", import.meta.url), "utf8");
 const controller = await readFile(
   new URL("../apps/api/src/modules/research-development/research-development.controller.ts", import.meta.url),
@@ -76,11 +77,18 @@ function exportTask(overrides) {
 
 async function loadExportModule(context) {
   const server = await createServer({
+    // SSR-only tests must not invalidate dependencies owned by the live dev server.
+    configFile: false,
+    envFile: false,
+    optimizeDeps: { noDiscovery: true, include: [] },
     appType: "custom",
     logLevel: "silent",
     server: { middlewareMode: true },
   });
   context.after(() => server.close());
+  assert.equal(server.config.configFile, undefined, "export tests must not load the running application's Vite config/cache");
+  assert.equal(server.config.optimizeDeps.noDiscovery, true, "SSR export tests must not run the client dependency optimizer");
+  assert.deepEqual(server.config.optimizeDeps.include, []);
   return server.ssrLoadModule("/src/app/lib/rdTaskExport.ts");
 }
 

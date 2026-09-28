@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-const cockpit = await readFile(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const classificationDialog = await readFile(new URL("../src/app/rd/ProjectClassificationDialog.tsx", import.meta.url), "utf8");
+const cockpit = await readFile(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8") + "\n" + classificationDialog;
 const apiClient = await readFile(new URL("../src/app/lib/rdApi.ts", import.meta.url), "utf8");
 const aiController = await readFile(
   new URL("../apps/api/src/modules/research-development/rd-ai.controller.ts", import.meta.url),
@@ -15,10 +16,6 @@ const aiService = await readFile(
 const rdService = await readFile(
   new URL("../apps/api/src/modules/research-development/research-development.service.ts", import.meta.url),
   "utf8",
-);
-const classificationDialog = cockpit.slice(
-  cockpit.indexOf("function ProjectClassificationDialog"),
-  cockpit.indexOf("// ─── Main Page"),
 );
 
 test("cockpit keeps the full-task AI workflow but hides its entry behind the release switch", () => {

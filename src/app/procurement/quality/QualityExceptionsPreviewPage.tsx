@@ -141,14 +141,13 @@ export function QualityExceptionsPreviewPage() {
   function detail(item: QualityIssue) {
     const qty = (value: number) => `${number(value)} ${item.unit}`;
     const records = state.records.filter((record) => record.issueId === item.id);
-    const step = stages.indexOf(item.status);
     return <>
       <div className="qep-detail-heading"><Button variant="ghost" onClick={() => selectIssue(null)} disabled={busy}><ArrowLeft className="size-4" aria-hidden="true" />{t('返回异常列表')}</Button><span className="qep-muted">{t('来源记录、处置与复检集中查看')}</span></div>
       <section className="qep-card qep-identity">
         <div className="qep-identity-title"><div><p className="qep-muted tabular-nums">{item.code}</p><h2 className="text-balance">{item.materialName} · {item.phenomenon}</h2></div>{showStatus(item)}</div>
         <dl className="qep-identity-grid">{[[t('来源 / 发现日期'), `${t(qualitySourceLabels[item.source])} · ${item.discoveredDate}`], [t('物料 / 规格'), `${item.materialCode} · ${item.spec || t('未记录规格')}`], [t('供应商'), item.supplierName], [t('批次 / 采购单'), `${item.batchNo} / ${item.orderNo || t('未关联采购单')}`], [t('经办 / 验证'), `${item.owner || t('待分派')} / ${item.verifier || t('待分派')}`], [t('处理期限'), item.dueDate || t('待分派时确认')]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={cn(label === t('处理期限') && overdue(item) && 'text-destructive')}>{value}{label === t('处理期限') && overdue(item) ? ` · ${t('已逾期')}` : ''}</dd></div>)}</dl>
       </section>
-      <ol className="qep-progress" aria-label={t('异常处理进度')}>{stages.map((status, index) => <li key={status} aria-current={index === step ? 'step' : undefined} data-past={index < step}><span>{index < step ? <CheckCircle2 className="size-4" aria-hidden="true" /> : index + 1}</span>{t(qualityStatusLabels[status])}</li>)}</ol>
+      <section className="qep-status-summary" aria-label={t('当前异常状态')}><div><span>{t('当前状态')}</span>{showStatus(item)}</div><div><span>{t('数量事实')}</span><strong>{qty(item.defectiveQty)} / {qty(item.inspectedQty)}</strong><small>{t('不良 / 检验')}</small></div><div><span>{t('下一动作')}</span><strong>{t(qualityActionLabels[nextAction(item)])}</strong><small>{item.owner || t('经办待分派')}</small></div></section>
       {flash?.id === item.id ? <p role="status" className="qep-flash">{flash.text}</p> : null}
       <div className="qep-detail-grid">
         <div className="qep-facts-column">

@@ -7,7 +7,8 @@ class CreatePlanDto {
   @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId!: string;
   @IsString() @MaxLength(7) month!: string;
   @IsString() @MaxLength(200) productId!: string;
-  @IsString() @MaxLength(200) productLine!: string;
+  @IsString() @MaxLength(200) deviceId!: string;
+  @IsString() @MaxLength(200) bomRevisionId!: string;
   @IsNumber() targetQty!: number;
   @IsNumber() shipmentTargetQty!: number;
   @IsString() @MaxLength(2000) reason!: string;

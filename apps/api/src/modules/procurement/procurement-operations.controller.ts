@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Request } from '@nestjs/common';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { ProcurementOperationsQueryDto, SaveProductionReportDto, SaveQualityRecordDto, VerifyQualityRecordDto, ReopenQualityRecordDto } from './dto/procurement-operations.dto';
+import { ProcurementOperationsQueryDto, SaveProductionReportDto, SaveQualityRecordDto, VerifyQualityRecordDto, ReopenQualityRecordDto, QualityAnalysisCommandDto } from './dto/procurement-operations.dto';
 import { QualityVerificationService } from './quality-verification.service';
 import { ProcurementOperationsService } from './procurement-operations.service';
 import type { ProcActor } from './procurement.types';
@@ -44,6 +44,18 @@ export class ProcurementOperationsController {
   createQuality(@Body() dto: SaveQualityRecordDto, @Request() req: AuthedRequest) {
     return this.service.saveQualityRecord(null, dto, this.actor(req));
   }
+
+  @Get('quality-records/:id/analysis')
+  @Permissions('proc-quality:verify', 'proc-quality:manage', 'page:proc-cockpit', 'page:rd-director-dashboard', 'page:production-execution')
+  qualityAnalysis(@Param('id') id: string, @Request() req: AuthedRequest) { return this.service.qualityAnalysis(id, this.actor(req)); }
+
+  @Get('quality-records/:id/attachments/:fileId')
+  @Permissions('proc-quality:verify', 'proc-quality:manage', 'page:proc-cockpit', 'page:rd-director-dashboard', 'page:production-execution')
+  qualityAttachment(@Param('id') id: string, @Param('fileId') fileId: string, @Request() req: AuthedRequest) { return this.service.qualityAttachment(id, fileId, this.actor(req)); }
+
+  @Post('quality-records/:id/analysis')
+  @Permissions('proc-quality:manage')
+  saveQualityAnalysis(@Param('id') id: string, @Body() input: QualityAnalysisCommandDto, @Request() req: AuthedRequest) { return this.service.saveQualityAnalysis(id, input, this.actor(req)); }
 
   @Get('quality-records/:id/verifications')
   @Permissions('proc-quality:verify', 'proc-quality:manage', 'page:proc-cockpit', 'page:rd-director-dashboard', 'page:production-execution')

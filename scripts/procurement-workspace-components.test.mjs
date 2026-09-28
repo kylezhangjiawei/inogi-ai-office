@@ -20,9 +20,14 @@ function declarations(path, names) {
     || ts.isVariableStatement(node) && node.declarationList.declarations.some((item) => names.includes(item.name.getText(ast))))
     .map((node) => node.getText(ast)).join("\n");
 }
-const common = compile(declarations("src/app/procurement/components/common.tsx", ["PROC_STATUS_META", "ROLLBACK_MAIN_FLOW", "ROLLBACK_DIRECT_FLOW", "rollbackTargetsOf"]));
+const common = compile(declarations("src/app/procurement/components/common.tsx", ["PROC_STATUS_META", "procurementNextAction", "ROLLBACK_MAIN_FLOW", "ROLLBACK_DIRECT_FLOW", "rollbackTargetsOf"]));
 const actions = compile(declarations("src/app/procurement/components/taskActions.tsx", ["DECISION_STATUSES", "TERMINAL_STATUSES", "NOT_STARTED_STATUSES", "removalModeOf", "nextPermissionOf"]));
 const image = compile(declarations("src/app/components/MobileZoomableImage.tsx", ["IMAGE_FILE_EXTENSION", "isImagePreviewSource"]));
+const productImage = compile(read("src/app/procurement/samples/sampleProductImageSource.ts"), {
+  "../../components/MobileZoomableImage": image,
+  "../../lib/procurementApi": {}, "../../lib/resourceAccess": {},
+  "../../lib/attachmentAccess": { procurementAttachmentPreview: (_taskId, file) => ({ id: file.id, name: file.fileName, mime: file.mimeType, url: file.fileUrl, thumbUrl: file.thumbUrl }) },
+});
 const data = compile(read("src/app/procurement/data.ts"), {
   react: {}, "../auth": {}, "../lib/authSession": { addAuthClearedListener() {} }, "../lib/procurementApi": {}, "../lib/rdApi": {},
 });
@@ -54,7 +59,7 @@ function render(component, props, permissions = []) {
   const imports = ast.statements.filter(ts.isImportDeclaration).flatMap((node) => !node.importClause?.isTypeOnly && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
     ? node.importClause.namedBindings.elements.filter((item) => !item.isTypeOnly).map((item) => item.name.text) : []);
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
-  Object.assign(stubs, common, actions, image, data, model, sampleFacts, sampleModel, {
+  Object.assign(stubs, common, actions, image, productImage, data, model, sampleFacts, sampleModel, {
     useMemo: (factory) => factory(),
     useCallback: (callback) => callback,
     useRef: (current) => ({ current }),
@@ -112,7 +117,7 @@ test("已结束或待研发审核不提供非法推进和回退，删除与取�
     assert.equal(Boolean(control(tree, "删除")), removal === "删除");
     if (["completed", "cancelled", "pending_rd_review"].includes(status)) {
       assert.equal(control(tree, "回退"), undefined);
-      assert.equal(nodes(tree).filter((node) => node.type === "Button" && node.props.onClick).length, 3, "只保留详情、研发与样品跳转");
+      assert.equal(nodes(tree).filter((node) => node.type === "Button" && node.props.onClick).length, 5, "只保留详情、记录、转派、研发与样品跳转");
     }
   }
 });
@@ -170,15 +175,17 @@ test("任务图片只使用真实物料/附件来源，缺缩略图回退原图�
   const photo = { fileName: "photo.png", mimeType: "image/png", fileUrl: "/actual/original.png", thumbUrl: "/actual/thumb.png" };
   const tasks = [task("material", { attachmentList: [photo] }), task("thumb", { attachmentList: [pdf, photo] }), task("original", { attachmentList: [{ ...photo, thumbUrl: undefined }] }), task("no-image", { attachmentList: [pdf] })];
   const tree = render("ProcWorkspaceTaskList", listProps(tasks, { materials: [{ id: "material-material", imageUrl: "/actual/material.png" }] }));
-  assert.deepEqual(nodes(tree).filter((node) => node.type === "img").map((node) => node.props.src), ["/actual/material.png", "/actual/thumb.png", "/actual/original.png"]);
+  assert.deepEqual(nodes(tree).filter((node) => node.type === "RenewableImage").map((node) => node.props.src), ["/actual/material.png", "/actual/thumb.png", "/actual/original.png"]);
   for (const quantity of [NaN, Infinity, -1]) {
     const invalid = task("invalid", { quantity });
     const panel = render("ProcWorkspaceTaskPanel", panelProps(invalid));
     assert.match(textOf(fact(panel, "需求数量")), /待核对/);
     const list = render("ProcWorkspaceTaskList", listProps([invalid]));
-    const cell = nodes(list).find((node) => node.props?.className === "proc-s01-quantity");
+    const cell = nodes(list).find((node) => node.props?.className === "proc-s01-material");
     assert.match(textOf(cell), /待核对/);
     assert.doesNotMatch(textOf(cell), /NaN|Infinity|-1/);
+    const arrival = nodes(list).find((node) => node.props?.className === "proc-s01-material");
+    assert.match(textOf(arrival), /未到货待核对/);
   }
 });
 

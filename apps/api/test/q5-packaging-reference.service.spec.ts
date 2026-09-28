@@ -10,6 +10,8 @@ function packagingHarness() {
   const queries: any[] = [];
   const materials = [{ tpInventoryCode: 'E05-03', category: '辅料', unit: '条' }];
   const prisma: any = {
+    $transaction: async (run: any) => run(prisma),
+    runtimeState: { findMany: async () => [] },
     procBomNode: { findMany: async () => bom },
     procMaterial: { findMany: async () => materials },
     procInventoryBalance: { findMany: async ({ where }: any) => {
@@ -25,7 +27,7 @@ function packagingHarness() {
     level: 0, remark: null, material: null, updatedAt: new Date('2026-09-08T00:00:00Z'),
   });
   const addBalance = (code: string, quantity: number, warehouse = '【活】量产仓') => balances.push({
-    tpInventoryCode: code, warehouse, stockQty: quantity, availableQty: quantity,
+    tpInventoryCode: code, unit: materials.find(row => row.tpInventoryCode === code)?.unit ?? '件', warehouse, stockQty: quantity, availableQty: quantity,
     inTransitQty: 0, syncedAt: new Date('2026-09-08T00:00:00Z'), material: null,
   });
   return { service, addBom, addBalance, queries, materials };
@@ -52,6 +54,7 @@ test('Q5 缺少 BOM 时仍显示包材原表 37 行，来源顺序名称与重�
 test('同编码仅引用完整装配用量，包材与重复源行不增加 BOM 用量或改变齐套', async () => {
   const h = packagingHarness();
   h.addBom('E05-03', 1);
+  h.materials.push({ tpInventoryCode: 'A10-141', category: '包材', unit: '件' });
   h.addBom('A10-141', 1);
   h.addBom('A10-141', 2);
   h.addBom('E05-03', 50, '通用');
@@ -140,5 +143,5 @@ test('包材并行展示库存诊断与缺用量，冲突行不推断库存映�
     assert.equal('inventoryDiagnostic' in conflict, false);
   }
   assert.equal(result.items.length, 0);
-  assert.equal(result.summary.currentBuildableSets, 0);
+  assert.equal(result.summary.currentBuildableSets, null);
 });

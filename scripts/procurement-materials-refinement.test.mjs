@@ -25,7 +25,8 @@ test("物料页面组保持 Horizon 单强调视觉并移除装饰性样式", ()
   }
 
   assert.match(workbench, /className="proc-horizon/);
-  assert.match(table, /data-\[state=on\]:bg-accent data-\[state=on\]:text-primary/);
+  assert.match(table, /export function MaterialTable/);
+  assert.doesNotMatch(table, /ToggleGroup|FolderTree|分类浏览|viewMode/);
   assert.match(drawer, /proc-horizon-drawer/);
   assert.match(critical, /horizon-theme horizon-portal proc-horizon-overlay/);
 });

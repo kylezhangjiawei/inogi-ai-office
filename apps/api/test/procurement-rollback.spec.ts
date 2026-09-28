@@ -427,6 +427,7 @@ test('隔离 PostgreSQL：回退清理、免费样品保留、事务原子性与
       const rdTaskId = `RD-${task.id}`;
       await first.procTask.update({ where: { id: task.id }, data: {
         status: 'pending_confirm', source: 'rd', rdTaskId, buyer: '旧采购员', buyerUserId: 'old-buyer',
+        quantity: 1, unit: '件', spec: '隔离测试规格', needDate: new Date('2026-09-30T00:00:00.000Z'),
       } });
       const oldMessageId = `old-${task.id}`;
       const newMessageId = `new-${task.id}`;

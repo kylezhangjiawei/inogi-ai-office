@@ -10,6 +10,9 @@ const modules = Object.fromEntries(['SampleTestAssignmentDialog', 'ProcSampleTes
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
   }).outputText,
 ]));
+const validationModel = {};
+new Function('exports', ts.transpileModule(readFileSync(new URL('../src/app/procurement/samples/sampleValidationModel.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(validationModel);
+const explorationValidation = { kind: 'exploration', checks: ['drawing', 'sip', 'sop', 'fixture', 'trial'].map(key => ({ key, applicability: 'not_applicable', reason: '内部探索，无转产适用要求' })) };
 const sampleFacts = {};
 new Function('exports', ts.transpileModule(readFileSync(new URL('../src/app/lib/procSampleFacts.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -118,6 +121,8 @@ function fixture(name, props = {}, api = {}) {
     '../../lib/procurementApi': boundary,
     '../../auth': { useAuth: () => ({ user: authUser }) },
     '../../lib/procSampleFacts': sampleFacts,
+    '../samples/SampleValidationPanel': { SampleValidationPanel: 'SampleValidationPanel' },
+    '../samples/sampleValidationModel': validationModel,
     './SampleTechnicalFiles': { SampleTechnicalFiles: 'SampleTechnicalFiles' },
     './RdDeliverySnapshotPanel': { RdDeliverySnapshotPanel: 'RdDeliverySnapshotPanel' },
     '../sampleWorkspace.css': {},
@@ -170,7 +175,35 @@ function button(f, label) { return find(f.render(), (node) => node.type === 'But
 function submitButton(f) { return find(f.render(), (node) => node.type === 'Button' && node.props.type === 'submit'); }
 function alerts(f) { return all(f.render(), (node) => node.props.role === 'alert').map(text).join(' '); }
 async function ready(name, props, api) { const f = fixture(name, props, api); f.render(); await settle(); f.render(); if (name === 'SampleTestAssignmentDialog' && props.task.status === 'pending_sample') change(f, 'sample-test-arrival', '2026-09-08T01:00:00'); return f; }
-function enterConclusion(f, result = 'passed', note = '  测试合格  ') { change(f, 'sample-test-result', result); change(f, 'sample-test-conclusion', note); }
+function enterConclusion(f, result = 'passed', note = '  测试合格  ') { find(f.render(), node => node.type === 'SampleValidationPanel').props.onChange(explorationValidation); f.render(); change(f, 'sample-test-result', result); change(f, 'sample-test-conclusion', note); }
+
+test('资料默认先展示，切换登记与历史保留结论及登记草稿，未保存登记仍阻止确认', async () => {
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true });
+  const panel = value => find(f.render(), node => node.props.id === `sample-${task.id}-${value}-panel`);
+  const switchTo = value => { find(f.render(), node => node.type === 'Tabs').props.onValueChange(value); f.render(); };
+  assert.equal(panel('review').props.hidden, false);
+  assert.equal(panel('records').props.hidden, true);
+  assert.equal(panel('history').props.hidden, true);
+  assert.ok(find(panel('review'), node => node.type === 'SampleTechnicalFiles'));
+  assert.equal(find(panel('review'), node => node.type === 'SampleRecordsPanel'), undefined);
+  enterConclusion(f, 'failed_resample', '保留改样结论');
+  const records = find(panel('records'), node => node.type === 'SampleRecordsPanel');
+  records.props.onInteractionStateChange({ dirty: true, busy: false });
+  switchTo('records');
+  assert.equal(panel('records').props.hidden, false);
+  switchTo('history');
+  assert.ok(find(panel('history'), node => node.type === 'SampleRoundHistory'));
+  assert.ok(find(panel('history'), node => node.type === 'RdDeliverySnapshotPanel'));
+  switchTo('review');
+  assert.equal(field(f, 'sample-test-result').props.value, 'failed_resample');
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '保留改样结论');
+  assert.equal(submitButton(f).props.disabled, true);
+  assert.ok(find(panel('records'), node => node.type === 'SampleRecordsPanel'), '非当前标签的登记组件保持挂载');
+  button(f, '继续登记').props.onClick(); f.render();
+  assert.equal(panel('records').props.hidden, false);
+  f.setProps({ taskId: 'new-task' }); await settle(); f.render();
+  assert.equal(find(f.render(), node => node.type === 'Tabs').props.value, 'review');
+});
 
 test('分派目录使用真实账号 ID，同名用户不混淆，默认优先已分派人其次研发联系人', async () => {
   for (const [current, expected] of [[task, 'rd-contact'], [{ ...task, status: 'testing', sampleTest: { testerUserId: 'rd-assigned', result: null } }, 'rd-assigned']]) {
@@ -273,7 +306,7 @@ test('确认携带当前分派 roundId、明确结果和去首尾空白结论，
     const f = await ready('ProcSampleTestDialog', { taskId: task.id }, { confirmProcSampleTest: async (...args) => { writes.push(args); return finished; } });
     enterConclusion(f, outcome, '  第一行测试结论\n第二行跟进要求  ');
     submit(f); await settle();
-    assert.deepEqual(writes, [[task.id, { roundId: `round-${task.id}`, result: outcome, note: '第一行测试结论\n第二行跟进要求' }]]);
+    assert.deepEqual(writes, [[task.id, { validation: explorationValidation, roundId: `round-${task.id}`, result: outcome, note: '第一行测试结论\n第二行跟进要求' }]]);
     const view = text(f.render());
     assert.match(view, /确认研发人员/);
     assert.ok(view.includes(new Date(finished.sampleTest.confirmedAt).toLocaleString('zh-CN')));
@@ -414,7 +447,7 @@ test('revision 刷新得到新 roundId 时清空旧轮草稿，提交只携带�
   assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
   assert.equal(submitButton(f).props.disabled, true);
   enterConclusion(f, 'passed', '新轮测试通过'); submit(f); await settle();
-  assert.deepEqual(writes, [[task.id, { roundId: 'next-round', result: 'passed', note: '新轮测试通过' }]]);
+  assert.deepEqual(writes, [[task.id, { validation: explorationValidation, roundId: 'next-round', result: 'passed', note: '新轮测试通过' }]]);
 });
 
 test('同轮刷新变成已确认或失去本人确认权限时旧草稿不能继续提交', async () => {
@@ -462,7 +495,7 @@ test('inline 复用同一确认表单和提交锁，双击只发一次且不会�
   enterConclusion(f, 'passed', '  本人确认  ');
   const handler = find(f.render(), (node) => node.type === 'form').props.onSubmit;
   handler({ preventDefault() {} }); handler({ preventDefault() {} }); f.render();
-  assert.deepEqual(writes, [[task.id, { roundId: `round-${task.id}`, result: 'passed', note: '本人确认' }]]);
+  assert.deepEqual(writes, [[task.id, { validation: explorationValidation, roundId: `round-${task.id}`, result: 'passed', note: '本人确认' }]]);
   assert.equal(field(f, 'sample-test-result').props.disabled, true);
   assert.equal(field(f, 'sample-test-conclusion').props.disabled, true);
   assert.equal(submitButton(f).props.disabled, true);
@@ -552,4 +585,15 @@ test('时间摘要沿用同一测试详情，读取失败保留草稿但摘要�
   assert.equal(summary().props.detail.task.id,task.id);assert.equal(summary().props.error,false);
   fail=true;f.setProps({taskId:task.id,inline:true,revision:'new'});await settle();f.render();
   assert.equal(summary().props.error,true);assert.equal(field(f,'sample-test-conclusion').props.value,'保留测试结论草稿');assert.equal(submitButton(f).props.disabled,true);
+});
+
+
+test('未分类或转产依据缺失时不得提交通过；探索不适用说明随结论保存', async () => {
+  const writes = [];
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id }, { confirmProcSampleTest: async (...args) => { writes.push(args); return completed(); } });
+  change(f, 'sample-test-result', 'passed'); change(f, 'sample-test-conclusion', '通过');
+  submit(f); await settle(); assert.equal(writes.length, 0); assert.match(alerts(f), /请选择研发探索/);
+  find(f.render(), node => node.type === 'SampleValidationPanel').props.onChange(validationModel.emptySampleValidation('transfer'));
+  f.render(); submit(f); await settle(); assert.equal(writes.length, 0); assert.match(alerts(f), /图纸/);
+  enterConclusion(f); submit(f); await settle(); assert.equal(writes.length, 1); assert.equal(writes[0][1].validation.kind, 'exploration');
 });

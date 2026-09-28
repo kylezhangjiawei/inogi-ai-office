@@ -15,7 +15,6 @@ const procurementSources = {
   "采购通用弹窗": source("src/app/procurement/components/modals.tsx"),
   "采购任务动作": source("src/app/procurement/components/taskActions.tsx"),
   "研发转采购": source("src/app/procurement/components/rdInsertion.tsx"),
-  "核心配件全景": source("src/app/procurement/components/CoreMaterialsPanorama.tsx"),
   "采购子系统详情": source("src/app/procurement/components/ProcurementModuleDetail.tsx"),
   "采购物料表": source("src/app/procurement/components/MaterialTable.tsx"),
 };
@@ -84,16 +83,12 @@ test("采购深层弹窗继续使用项目原语并保留核心业务调用", ()
   assert.match(insertion, /await uploadProcurementAttachment\(row\.file\)/);
 });
 
-test("核心配件、模块详情和物料表继续保留筛选与任务入口", () => {
-  const core = procurementSources["核心配件全景"];
+test("模块详情和物料表继续保留筛选与任务入口", () => {
   const detail = procurementSources["采购子系统详情"];
   const materials = procurementSources["采购物料表"];
 
-  assert.match(core, /const saveConfig = async \(\) =>/);
-  assert.match(core, /<Dialog open=\{editorOpen\}/);
-  assert.match(detail, /<TaskDetailDrawer/);
-  assert.match(detail, /<NewRequirementModal/);
-  assert.match(detail, /<EditTaskModal/);
+  assert.match(detail, /<ProcurementTaskSummaryDrawer[^\n]*readOnly/);
+  assert.doesNotMatch(detail, /<NewRequirementModal|<EditTaskModal/);
   assert.match(materials, /materialAggregates\(tasks, m\)/);
   assert.match(materials, /onFiltersChange/);
   assert.match(materials, /onOpen\(m\)/);

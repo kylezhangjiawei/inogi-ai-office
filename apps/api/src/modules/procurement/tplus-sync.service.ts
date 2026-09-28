@@ -834,7 +834,16 @@ export class TplusSyncService {
     );
     let upserted = 0;
     for (const s of rows) {
-      await this.prisma.procSupplier.upsert({
+      await this.prisma.$transaction(async tx => {
+      const identity = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`quote-supplier:${identity(s.name)}`}))`;
+      const existing = await tx.procSupplier.findUnique({ where: { tpCode: s.code } });
+      if (!existing) {
+        const candidates = (await tx.procSupplier.findMany({ where: { tpCode: null } })).filter(row => identity(row.name) === identity(s.name));
+        if (candidates.length > 1) throw new BadRequestException(`供应商 ${s.name} 存在多个本地档案，请核对后重新同步`);
+        if (candidates[0]) await tx.procSupplier.update({ where: { id: candidates[0].id }, data: { tpCode: s.code } });
+      }
+      await tx.procSupplier.upsert({
         where: { tpCode: s.code },
         create: {
           tpCode: s.code,
@@ -859,6 +868,7 @@ export class TplusSyncService {
           source: 'tplus',
           syncedAt: new Date(),
         },
+      });
       });
       upserted += 1;
     }

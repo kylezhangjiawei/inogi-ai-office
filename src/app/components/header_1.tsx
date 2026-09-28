@@ -26,6 +26,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 /** Parse the message body to a human-readable summary line. */
 function getMsgSummary(msg: RdMessage): string {
@@ -467,13 +468,10 @@ export function Header() {
                   aria-label={lang === "en" ? "Open user menu" : "打开用户菜单"}
                   title={`${user?.name ?? (lang === "en" ? "Guest" : "访客")} · ${user ? t(getRoleLabel(user.roleName)) : t("未登录")}`}
                 >
-                  <div className="rd-horizon-header-avatar flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-sm font-bold text-primary">
-                    {avatar ? (
-                      <img src={avatar} alt={user?.name ?? "User"} className="h-full w-full object-cover" />
-                    ) : (
-                      <span aria-hidden="true">{user?.name?.trim().slice(0, 1) || "U"}</span>
-                    )}
-                  </div>
+                  <Avatar className="rd-horizon-header-avatar size-11 bg-accent text-sm font-bold text-primary">
+                    <AvatarImage src={avatar || undefined} alt={user?.name ?? "User"} className="object-cover" />
+                    <AvatarFallback className="bg-accent" aria-hidden="true">{user?.name?.trim().slice(0, 1) || "U"}</AvatarFallback>
+                  </Avatar>
                   <div className="rd-horizon-header-user-copy min-w-0 text-left">
                     <div className="rd-horizon-header-user-name truncate text-sm font-semibold text-slate-800">{user?.name ?? "访客"}</div>
                     <div className="rd-horizon-header-user-role truncate text-xs text-slate-500">{user ? t(getRoleLabel(user.roleName)) : t("未登录")}</div>

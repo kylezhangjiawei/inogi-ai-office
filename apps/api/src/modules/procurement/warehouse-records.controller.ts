@@ -14,8 +14,8 @@ type AuthedRequest = { user: { id: string; name?: string; permissions: string[] 
 export class WarehouseRecordsController {
   constructor(private readonly service: WarehouseRecordsService) {}
   private actor(req: AuthedRequest) { return { id: req.user.id, name: req.user.name ?? '', permissions: req.user.permissions }; }
-  @Get() @Permissions('page:warehouse-flow', 'page:production-execution')
+  @Get() @Permissions('page:warehouse-flow', 'page:production-execution', 'page:warehouse-count')
   list(@Request() req: AuthedRequest) { return this.service.list(this.actor(req)); }
-  @Post() @Permissions('page:warehouse-flow', 'page:production-execution')
+  @Post() @Permissions('page:warehouse-flow', 'page:production-execution', 'page:warehouse-count')
   command(@Body() input: RecordCommandDto, @Request() req: AuthedRequest) { return this.service.command(input, this.actor(req)); }
 }

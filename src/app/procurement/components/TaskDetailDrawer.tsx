@@ -1,9 +1,9 @@
 import { procurementAttachmentPreview } from "../../lib/attachmentAccess";
-// 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
+// 采购任务详情抽屉：下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2, Undo2 } from "lucide-react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,13 +15,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
+import { ProcurementDetailFrame } from "./ProcurementDetailFrame";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { Button } from "../../components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../components/ui/collapsible";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, rollbackCleanupHintOf, rollbackTargetsOf, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, FREE_SAMPLE_ONLY_STATUSES, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, procurementStepsOf, rollbackCleanupHintOf, rollbackTargetsOf, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
@@ -33,18 +35,20 @@ import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
 import { SAMPLE_TEST_RESULT_LABELS } from "./ProcSampleTestDialog";
+import { ProcurementDecisionPanel } from "./ProcurementDecisionPanel";
 import { RdDeliverySnapshotPanel } from "./RdDeliverySnapshotPanel";
 import { getProcSampleFacts } from "../../lib/procSampleFacts";
 import { isSampleTask } from "../sampleWorkspaceModel";
 import { routePath } from "../../lib/routePaths";
+import { SampleProductImage } from "../samples/SampleProductImage";
 
 
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
+function Info({ label, value, className }: { label: string; value: React.ReactNode; className?: string }) {
   const { t } = useI18n();
   return (
-    <div className="flex gap-2 py-0.5 text-sm">
+    <div className={cn("proc-task-fact flex gap-2 py-0.5 text-sm", className)}>
       <span className="w-24 shrink-0 text-muted-foreground">{t(label)}</span>
-      <span className="min-w-0 break-words text-pretty text-slate-700">{value}</span>
+      <span className="min-w-0 break-words text-pretty text-slate-700">{value == null || value === "" ? t("待确认") : value}</span>
     </div>
   );
 }
@@ -65,10 +69,22 @@ function formatProcLogTime(log: ProcLog): string {
   return log.at || "";
 }
 
-export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelated }: { task: ProcurementTask; onClose: () => void; initialAction?: "rollback" | "logs"; onNavigateRelated?: (path: string) => void }) {
+export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelated, restoreFocus, presentation = "drawer", readOnly = false }: { task: ProcurementTask; onClose: () => void; initialAction?: "rollback" | "logs"; onNavigateRelated?: (path: string) => void; restoreFocus?: () => void; presentation?: "drawer" | "page" | "embedded" | "workspace"; readOnly?: boolean }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { materials } = useProcurementData();
+  const [section, setSection] = useState(initialAction === "logs" ? "history" : "overview");
+  const page = presentation === "page";
+  const workspace = presentation === "workspace";
+  const embedded = presentation === "embedded" || workspace;
+  const tabbed = page || embedded;
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const panelProps = (value: string) => embedded ? {
+    role: "tabpanel", id: `proc-${task.id}-${value}-panel`, "aria-labelledby": `proc-${task.id}-${value}-tab`, tabIndex: 0,
+  } : { role: page ? "region" : undefined };
+  const tabProps = (value: string) => embedded ? {
+    id: `proc-${task.id}-${value}-tab`, "aria-controls": `proc-${task.id}-${value}-panel`,
+  } : {};
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -84,8 +100,13 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
   const logsTriggerRef = useRef<HTMLButtonElement>(null);
   const logsFocusRequestRef = useRef<string | null>(null);
   const initialActionHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (tabbed && section === "history") setLogsOpen(true);
+    if (embedded) scrollAreaRef.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')?.scrollTo({ top: 0 });
+  }, [tabbed, embedded, section]);
   const unlinkOrderTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const can = useProcCan();
+  const hasPermission = useProcCan();
+  const can = (permission: string | null | undefined) => !readOnly && hasPermission(permission);
   const { deptOf } = useBuyerDirectory();
   const taskAction = useProcTaskAction();
   const requester = taskRequester(task);
@@ -94,8 +115,6 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
   const sampleFacts = getProcSampleFacts(task);
   const showSample = isSampleTask(task);
   const meta = PROC_STATUS_META[task.status];
-  const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
-  const curIdx = flow.indexOf(task.status);
   // 报价维护错了要能重做。已下单及之后不给：那时单价已随采购单出去，改这里会与 T+ 对不上
   // 报价读写状态和任务流转分开显示，网络失败时允许在原位重试。
   const canResetQuotes = can("proc-task:select-quote") && QUOTE_RESETTABLE_STATUSES.includes(task.status);
@@ -103,6 +122,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
   const [resetReason, setResetReason] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const submitResetQuotes = async () => {
+    if (readOnly) return;
     const requestScope = captureProcurementScope();
     setResetBusy(true);
     try {
@@ -163,9 +183,10 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
       openRollback();
     } else {
       logsFocusRequestRef.current = task.id;
+      if (tabbed) setSection("history");
       setLogsOpen(true);
     }
-  }, [initialAction, task.id]);
+  }, [initialAction, task.id, tabbed]);
   useEffect(() => {
     if (!logsOpen || logsFocusRequestRef.current !== task.id) return;
     logsFocusRequestRef.current = null;
@@ -251,6 +272,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
   const [unlinking, setUnlinking] = useState<ProcurementTask["purchaseOrders"][number] | null>(null);
   const [unlinkBusy, setUnlinkBusy] = useState(false);
   const submitUnlink = async () => {
+    if (readOnly) return;
     if (!unlinking) return;
     setUnlinkBusy(true);
     try {
@@ -265,6 +287,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
     }
   };
   const submitReject = async () => {
+    if (readOnly) return;
     const reason = rejectReason.trim();
     if (!reason) { toast.error(t("请填写驳回理由")); return; }
     setRejectBusy(true);
@@ -328,30 +351,8 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
     && can("proc-task:inquiry");
   const materialSummary = [task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ");
 
-  return (
-    <Sheet open onOpenChange={(o) => { if (!o && !rollbackBusyRef.current) onClose(); }}>
-      <SheetContent
-        side="right"
-        className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-[720px]"
-        aria-describedby={undefined}
-        onCloseAutoFocus={(event) => {
-          if (openerRef.current?.isConnected && openerRef.current !== document.body) {
-            event.preventDefault();
-            openerRef.current.focus();
-          }
-        }}
-      >
-        {/* 头部（pr-8 给自带关闭 X 留位） */}
-        <SheetHeader className="block border-b border-slate-100 px-6 py-4">
-          <div ref={drawerHeaderRef} tabIndex={-1} className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
-            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
-              <SheetTitle className="min-w-0 break-words text-balance text-lg font-bold tabular-nums text-slate-900">{task.code}</SheetTitle>
-              <StatusPill status={task.status} />
-              <BusinessLinePill line={task.businessLine} />
-              <SourcePill source={task.source} />
-              <MethodPill method={task.method} />
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+  const headingActions = (
+    <div className="proc-task-heading-actions flex shrink-0 flex-wrap items-center gap-1.5">
               {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
               {(can("proc-task:create") || can("proc-task:reassign")) && (
                 <Button type="button" variant="outline" size="sm" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</Button>
@@ -364,27 +365,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                 <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</Button>
               )}
             </div>
-          </div>
-          <div className="mt-1 text-pretty text-sm tabular-nums text-slate-500" title={materialSummary}>
-            <AutoTranslatedText as="div" className="line-clamp-2 break-words" text={materialSummary} />
-          </div>
-          {/* 步骤条 */}
-          <div className="mt-4 flex items-center overflow-x-auto pb-1">
-            {flow.map((s, i) => (
-              <div key={s} className="flex items-center">
-                <div className="flex flex-col items-center gap-1">
-                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-primary text-white" : "bg-slate-100 text-muted-foreground")}>{i + 1}</span>
-                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-primary" : "text-muted-foreground")}>{t(PROC_STATUS_META[s].label)}</span>
-                </div>
-                {i < flow.length - 1 && <div className={cn("mx-1 h-0.5 w-5", i < curIdx ? "bg-emerald-400" : "bg-slate-200")} />}
-              </div>
-            ))}
-          </div>
-        </SheetHeader>
-
-        <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 px-6 py-4">
-          {canCheckSampleStatus && (
+  );
+  const workflowActions = <>
+    {canCheckSampleStatus && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-pretty text-sm font-medium text-amber-800">{t("已有免费样品登记，请核实当前到样状态")}</p>
               <p className="mt-1 text-pretty text-xs leading-5 text-amber-700">{t("历史登记可能仍停在询价阶段，或曾跳过待到样。请核实记录属于本轮且样品尚未收到，再修正状态；已经收到的样品无需修正。")}</p>
@@ -458,18 +441,74 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
               </div>
             </div>
           )}
+  </>;
+  const sampleAction = can("page:proc-cockpit") && <Button type="button" variant="outline" disabled={taskAction.busy || rollbackBusy || resetBusy || rejectBusy} onClick={() => { onClose(); (onNavigateRelated ?? navigate)(`${routePath("page:proc-cockpit", "/proc-cockpit")}?tab=samples&sample=${encodeURIComponent(task.id)}`); }} className="min-h-10 gap-1.5 rounded-lg border-[var(--primary-soft-border)] text-xs font-semibold text-primary hover:bg-accent">
+                  {t('打开样品协同')}<ExternalLink className="size-3.5" aria-hidden="true" />
+                </Button>;
+  const historyAction = (<Button variant="unstyled" type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</Button>);
+  const resetAction = canResetQuotes && (
+                    <Button variant="unstyled"
+                      ref={resetQuoteTriggerRef}
+                      type="button"
+                      onClick={() => setResetting(true)}
+                      className="shrink-0 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      {t('重新维护')}
+                    </Button>
+                  );
+  const showQuoteActions = task.method === "inquiry" && !quotesLoading && !quotesError && quotes.length > 0;
+  const rdTaskId = task.rdTaskId?.trim();
+  const canOpenRd = Boolean(rdTaskId) && (can("page:rd-task-management") || can("page:rd-my-workspace"));
+  const relatedNavigationBusy = taskAction.busy || rollbackBusy || resetBusy || rejectBusy || unlinkBusy;
+  const workflowStages = embedded ? procurementStepsOf(task) : [];
 
+  return (
+    <ProcurementDetailFrame page={page} embedded={embedded} onClose={() => { if (!rollbackBusyRef.current) onClose(); }}
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected && openerRef.current !== document.body) {
+            event.preventDefault();
+            openerRef.current.focus();
+          } else if (restoreFocus) {
+            event.preventDefault();
+            restoreFocus();
+          }
+        }}
+      >
+        {/* 头部（pr-8 给自带关闭 X 留位） */}
+        <SheetHeader className="proc-task-heading block border-b border-slate-100 px-6 py-4">
+          {embedded && <div className="proc-task-image"><SampleProductImage task={task} material={materials.find(item => item.id === task.materialId)} /></div>}
+          <div ref={drawerHeaderRef} tabIndex={-1} className="proc-task-heading-content flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
+              {page ? <h1 className="min-w-0 text-xl font-semibold text-foreground">{task.materialName}</h1> : workspace ? <h3 className="min-w-0 basis-full break-words text-lg font-semibold text-foreground">{task.materialName}</h3> : <SheetTitle className="min-w-0 break-words text-balance text-lg font-bold tabular-nums text-slate-900">{embedded ? task.materialName : task.code}</SheetTitle>}
+              <StatusPill status={task.status} />
+              <BusinessLinePill line={task.businessLine} />
+              <SourcePill source={task.source} />
+              <MethodPill method={task.method} />
+            </div>
+            {!embedded && headingActions}
+          </div>
+          <div className="proc-task-heading-summary mt-1 text-pretty text-sm tabular-nums text-slate-500" title={materialSummary}>
+            {embedded ? <><div className="break-all text-xs text-muted-foreground">{task.code}</div><AutoTranslatedText as="div" className="mt-1 break-words" text={`${task.spec || t("规格待补充")} · ${task.quantity} ${task.unit}`} /></> : <AutoTranslatedText as="div" className="line-clamp-2 break-words" text={page ? `${task.code} · ${task.spec || t("规格待补充")} · ${task.quantity} ${task.unit}` : materialSummary} />}
+          </div>
+        </SheetHeader>
+        {tabbed && <Tabs value={section} onValueChange={setSection} className="proc-task-tabs"><TabsList aria-label={t("采购详情栏目")} className="proc-detail-tabs w-full justify-start h-auto bg-transparent">
+          <TabsTrigger value="overview" {...tabProps("overview")}>{t("需求与资料")}</TabsTrigger>
+          <TabsTrigger value="quotes" {...tabProps("quotes")}>{t("供应商报价")}</TabsTrigger>
+          <TabsTrigger value="orders" {...tabProps("orders")}>{t("采购与到货")}</TabsTrigger>
+          <TabsTrigger value="history" {...tabProps("history")} onClick={() => setLogsOpen(true)}>{t(embedded ? "流程与记录" : "操作记录")}</TabsTrigger>
+        </TabsList></Tabs>}
+
+        <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1">
+        <div className="proc-detail-scroll-content space-y-4 px-6 py-4">
+          {!embedded && workflowActions}
+
+          <div {...panelProps("overview")} aria-label={t("需求与资料")} hidden={tabbed && section !== "overview"} className="proc-detail-section">
           {/* 基本信息 */}
           <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
             <div className="mb-1 text-balance text-sm font-semibold text-slate-700">{t('基本信息')}</div>
-            <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-              <div>
+            <div className="proc-task-basic-grid">
+              <div className="proc-task-basic-row">
                 <Info label="物料 / 规格" value={<AutoTranslatedText text={[task.materialName, task.spec].filter(Boolean).join(" · ")} />} />
-                <Info label="数量" value={<span className="tabular-nums">{task.quantity.toLocaleString()} {t(task.unit)}</span>} />
-                <Info label="需求日期" value={<span className="tabular-nums">{task.needDate}</span>} />
-                {task.deadline && <Info label="Deadline" value={<span className="tabular-nums">{task.deadline}</span>} />}
-              </div>
-              <div>
                 <Info label="需求提出人" value={
                   <span className="inline-flex items-center gap-1.5">
                     <PersonAvatar name={requester.name} size="xs" />
@@ -477,6 +516,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     <span className="text-xs text-muted-foreground">{t(requester.dept)}</span>
                   </span>
                 } />
+              </div>
+              <div className="proc-task-basic-row">
+                <Info label="数量" value={<span className="tabular-nums">{task.quantity.toLocaleString()} {t(task.unit)}</span>} />
                 <Info label="采购负责人" value={
                   <span className="inline-flex items-center gap-1.5">
                     <PersonAvatar name={buyerLabel} size="xs" />
@@ -486,9 +528,28 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     ) : null}
                   </span>
                 } />
+              </div>
+              <div className="proc-task-basic-row">
+                <Info label="需求日期" value={<span className="tabular-nums">{task.needDate || t("待确认")}</span>} />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}
-                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-primary" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-muted-foreground">{task.rdTaskId}</span>}</span>} />}
-                {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
+              </div>
+              <div className="proc-task-basic-row">
+                {task.deadline && <Info label="Deadline" value={<span className="tabular-nums">{task.deadline}</span>} />}
+                {(rdTaskId || task.rdTaskTitle) && <Info className="proc-task-basic-secondary" label="关联研发任务" value={canOpenRd ? (
+                  <Button variant="unstyled" type="button" aria-label={t("查看关联研发任务")} disabled={relatedNavigationBusy}
+                    onClick={() => {
+                      if (!canOpenRd || relatedNavigationBusy || !rdTaskId) return;
+                      onClose();
+                      (onNavigateRelated ?? navigate)(`/rd-task/${encodeURIComponent(rdTaskId)}`);
+                    }}
+                    className="proc-related-task-link flex w-full min-w-0 items-start gap-2 rounded-lg border border-border bg-accent/40 px-3 py-2 text-left text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+                    <span className="min-w-0 flex-1"><AutoTranslatedText as="span" className="block break-words font-medium" text={task.rdTaskTitle || rdTaskId!} />{task.rdTaskTitle && <span className="mt-1 block break-all text-xs tabular-nums text-muted-foreground">{rdTaskId}</span>}</span>
+                    <ExternalLink className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  </Button>
+                ) : <span><AutoTranslatedText as="span" className="block" text={task.rdTaskTitle || rdTaskId!} />{task.rdTaskTitle && rdTaskId && <span className="mt-1 block break-all text-xs tabular-nums text-muted-foreground">{rdTaskId}</span>}</span>} />}
+              </div>
+              <div className="proc-task-basic-row">
+                {task.method === "direct" && task.purchaseLink && <Info className="proc-task-basic-secondary" label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
               </div>
             </div>
             {task.consumableNote && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{t('低值易耗品：')}<AutoTranslatedText text={task.consumableNote} /></div>}
@@ -505,9 +566,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-balance text-sm font-semibold text-slate-700">{t('样品与测试')}</h3>
-                {can("page:proc-cockpit") && <Button type="button" variant="outline" disabled={taskAction.busy || rollbackBusy || resetBusy || rejectBusy} onClick={() => { onClose(); (onNavigateRelated ?? navigate)(`${routePath("page:proc-cockpit", "/proc-cockpit")}?tab=samples&sample=${encodeURIComponent(task.id)}`); }} className="min-h-10 gap-1.5 rounded-lg border-[var(--primary-soft-border)] text-xs font-semibold text-primary hover:bg-accent">
-                  {t('打开样品协同')}<ExternalLink className="size-3.5" aria-hidden="true" />
-                </Button>}
+                {!embedded && sampleAction}
               </div>
               {selectedQuotes.length > 0 && (
                 <Info
@@ -561,6 +620,9 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
           )}
 
           {/* 报价区（询价）：加载、失败和空态都给出明确下一步。 */}
+          </div>
+          <div {...panelProps("quotes")} aria-label={t("供应商报价")} hidden={tabbed && section !== "quotes"} className="proc-detail-section">
+          {tabbed && task.method !== "inquiry" && <p className="py-8 text-sm text-muted-foreground">{t("此任务采用直购流程，无需供应商询价。")}</p>}
           {task.method === "inquiry" && quotesLoading ? (
             <div aria-label={t("正在加载供应商报价")} className="proc-horizon-drawer-section space-y-2 rounded-xl border border-slate-100 p-4">
               <div className="h-4 w-32 rounded bg-slate-100" />
@@ -576,7 +638,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
           ) : task.method === "inquiry" && quotes.length === 0 ? (
             <div className="proc-horizon-drawer-section rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
               <p className="text-sm font-semibold text-slate-600">{t("暂无供应商报价")}</p>
-              <p className="mt-1 text-pretty text-xs text-slate-500">{t("请通过上方下一步操作维护报价；完成后会在这里展示价格、交期与确认状态。")}</p>
+              <p className="mt-1 text-pretty text-xs text-slate-500">{t("报价记录会在这里展示价格、交期与确认状态。")}</p>
             </div>
           ) : null}
           {task.method === "inquiry" && !quotesLoading && !quotesError && quotes.length > 0 && (
@@ -591,23 +653,14 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                     </div>
                     <p className="mt-1 break-words text-pretty tabular-nums" title={`${histLow.supplierName} · ${histLow.quoteDate}`}>{histLow.supplierName} · {histLow.quoteDate}</p>
                   </div>
-                  <Button variant="unstyled" type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</Button>
+                  {!embedded && historyAction}
                 </div>
               )}
               <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
                 <div ref={quoteSectionRef} tabIndex={-1} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2">
                   <span className="text-sm font-semibold tabular-nums text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</span>
                   {/* 维护错价格此前只能作废整条任务重建，这里提供重做入口；已下单之后不再允许改 */}
-                  {canResetQuotes && (
-                    <Button variant="unstyled"
-                      ref={resetQuoteTriggerRef}
-                      type="button"
-                      onClick={() => setResetting(true)}
-                      className="shrink-0 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    >
-                      {t('重新维护')}
-                    </Button>
-                  )}
+                  {!embedded && resetAction}
                 </div>
                 <ul className="divide-y divide-slate-100">
                   {quotes.map((q) => (
@@ -660,6 +713,10 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             </div>
           )}
 
+          </div>
+          <div {...panelProps("orders")} aria-label={t("采购与到货")} hidden={tabbed && section !== "orders"} className="proc-detail-section">
+          {(!page || section === "orders") && <ProcurementDecisionPanel key={task.id} task={task} compact={embedded} />}
+          {tabbed && !orderStage && !task.purchaseOrders.length && !task.arrivedQty && <p className="py-8 text-sm text-muted-foreground">{t("尚未产生采购单或到货记录。进入采购阶段后可在这里核对。")}</p>}
           {/* 下单与付款 / 到货记录：仅在任务进入下单阶段后展示，前期阶段无内容不占位 */}
           {orderStage && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
@@ -720,6 +777,25 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
             </div>
           )}
 
+          </div>
+          <div {...panelProps("history")} aria-label={t(embedded ? "流程与记录" : "操作记录")} hidden={tabbed && section !== "history"} className="proc-detail-section">
+          {embedded && <section aria-label={t("任务流程")} className="proc-task-workflow">
+            <div className="proc-task-stage-summary">
+              <div><span>{t("当前阶段")}</span><strong>{t(meta.label)}</strong></div>
+              <div><span>{t(meta.next ? "下一步" : "任务状态")}</span><strong>{t(meta.next ? (isRdReview ? "审核通过" : awaitingTest ? "调整测试人员" : meta.next) : task.status === "pending_rd_review" ? "等待研发继续转采购" : "流程已结束")}</strong></div>
+            </div>
+            {workflowStages.some(stage => stage.current) && <details className="proc-task-stage-details">
+              <summary>{t("查看完整流程阶段")}</summary>
+              <p className="text-xs text-muted-foreground">{t("以下为流程顺序，实际操作以记录为准。")}</p>
+              <ol className="proc-task-stage-list">
+                {workflowStages.map((stage, index) => <li key={stage.status} data-stage={stage.status} data-current={stage.current} data-skipped={stage.skipped} aria-current={stage.current ? "step" : undefined}>
+                  <span className="proc-task-stage-number" aria-hidden="true">{index + 1}</span>
+                  <span>{t(PROC_STATUS_META[stage.status].label)}</span>
+                  <small>{t(stage.current ? "当前阶段" : stage.skipped ? "无需样品" : stage.completed ? "前序阶段" : "后续阶段")}</small>
+                </li>)}
+              </ol>
+            </details>}
+          </section>}
           {/* 操作日志 */}
           <Collapsible ref={logsSectionRef} open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section scroll-mt-4 rounded-xl border border-slate-100">
             <CollapsibleTrigger ref={logsTriggerRef} className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-muted-foreground", logsOpen && "rotate-180")} /></CollapsibleTrigger>
@@ -746,10 +822,20 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
               )}
             </CollapsibleContent>
           </Collapsible>
+          </div>
         </div>
         </ScrollArea>
+        {embedded && !readOnly && <footer aria-label={t("任务操作")} className="proc-task-footer">
+          {workflowActions}
+          <div className="proc-task-footer-secondary">
+            {headingActions}
+            {showSample && sampleAction}
+            {showQuoteActions && histLow && historyAction}
+            {showQuoteActions && resetAction}
+          </div>
+        </footer>}
         <PriceHistoryModal materialId={task.materialId} materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
-        {taskAction.modal}
+        {!readOnly && taskAction.modal}
         {moveOpen && (
         <MoveTaskDialog
           taskIds={[task.id]}
@@ -864,7 +950,6 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
       {previewAttachment ? (
         <AttachmentPreviewDialog attachment={previewAttachment} attachments={task.attachmentList.map((attachment) => procurementAttachmentPreview(task.id, attachment))} onClose={() => setPreviewAttachment(null)} />
       ) : null}
-      </SheetContent>
-    </Sheet>
+    </ProcurementDetailFrame>
   );
 }

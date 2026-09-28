@@ -179,10 +179,10 @@ export function AfterSalesList() {
           </div>
         </div>
 
-          <div className="min-w-0 overflow-x-auto">
+          <div className="min-h-0 min-w-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto [scrollbar-gutter:stable]">
             <table className="w-full min-w-[980px] text-left">
               <caption className="sr-only">售后 Case 处理队列，包含工单编号、客户、设备、优先级、负责人、状态与更新时间</caption>
-              <thead className="bg-slate-50/80">
+              <thead className="sticky top-0 z-10 bg-slate-50/95">
               <tr>{["工单编号", "客户", "产品 / SN", "问题类型", "优先级", "负责人", "状态", "更新时间", "操作"].map((header) => <th key={header} scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500">{header}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-slate-100">

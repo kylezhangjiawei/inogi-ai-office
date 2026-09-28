@@ -1,6 +1,6 @@
 export type OrderSource = 'wecom_mail' | 'gmail' | 'upload';
 export type OrderStatusType = 'warning' | 'error' | 'success';
-export type ProductCheckStatus = '通过' | '价格差异' | '库存不足';
+export type ProductCheckStatus = '通过' | '价格差异' | '库存不足' | '库存待核对';
 export type InventoryStatus = '正常' | '偏低' | '缺货';
 export type StockMovementType = 'in' | 'out' | 'adjust';
 export type PurchaseOrderStatus = '待确认' | '已下单' | '部分到货' | '已完成' | '异常';
@@ -18,6 +18,7 @@ export type OrderSummary = {
 };
 
 export type OrderProduct = {
+  stockCheck?: import('./order-stock.service').OrderStockCheck;
   id: string;
   lineId?: string;
   name: string;

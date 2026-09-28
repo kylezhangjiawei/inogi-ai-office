@@ -138,7 +138,12 @@ export function collectRdTechnicalAttachments(taskId: string, notes: RdTaskProgr
     if (seen.has(key)) return [];
     seen.add(key);
     return [{ key, sourceNoteId: note.id, attachment, uploadedBy: note.actor.name, uploadedAt: note.created_at }];
-  }));
+  })).sort((left, right) => {
+    const leftTime = Date.parse(left.uploadedAt);
+    const rightTime = Date.parse(right.uploadedAt);
+    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+    return rightTime - leftTime;
+  });
 }
 
 export function technicalVersionAttachment(version: RdTechnicalDocumentVersion): RdTaskProgressAttachment {

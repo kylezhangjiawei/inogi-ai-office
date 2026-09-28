@@ -421,6 +421,7 @@ test('non-main product UI renders the server-confirmed tree instead of an optimi
     'utf8',
   );
   const apiSource = readFileSync(resolve(__dirname, '../../../src/app/lib/rdApi.ts'), 'utf8');
+  const treeSource = readFileSync(resolve(__dirname, '../../../src/app/rd/CategoryTree.tsx'), 'utf8');
 
   assert.match(
     pageSource,
@@ -432,12 +433,12 @@ test('non-main product UI renders the server-confirmed tree instead of an optimi
   );
 
   function actionButton(mode: string) {
-    const action = pageSource.lastIndexOf(`mode: "${mode}"`);
-    const start = pageSource.lastIndexOf('<Button', action);
-    const end = pageSource.indexOf('</Button>', action);
+    const action = treeSource.lastIndexOf(`mode: "${mode}"`);
+    const start = treeSource.lastIndexOf('<Button', action);
+    const end = treeSource.indexOf('</Button>', action);
     assert.ok(action >= 0 && start >= 0 && end > action, `${mode} must have a rendered Button`);
-    assert.equal(pageSource.indexOf('</Button>', start), end, `${mode} must belong to the selected Button`);
-    return pageSource.slice(start, end);
+    assert.equal(treeSource.indexOf('</Button>', start), end, `${mode} must belong to the selected Button`);
+    return treeSource.slice(start, end);
   }
   const childRenameButton = actionButton('edit-sub');
   assert.doesNotMatch(childRenameButton, /disabled=/, 'a populated child must remain renameable');

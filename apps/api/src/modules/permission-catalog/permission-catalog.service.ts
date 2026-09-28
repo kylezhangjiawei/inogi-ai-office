@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SavePermissionCatalogItemDto } from './dto/save-permission-catalog-item.dto';
+import { ReorderPermissionCatalogItemsDto } from './dto/reorder-permission-catalog-items.dto';
 import { DEFAULT_PERMISSION_CATALOG } from './permission-catalog.defaults';
 import { DEPARTMENT_KB_ID_BY_CODE } from '../research-development/dept-knowledge.constants';
 
@@ -49,11 +51,41 @@ export class PermissionCatalogService {
     await this.ensureDefaults();
     await this.syncDepartmentKnowledgeLabels();
     const items = await this.prisma.permissionCatalogItem.findMany({
-      orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
     // builtIn：随代码发布、删了会被 ensureDefaults 补回的条目。前端据此隐藏删除入口，
     // 避免用户点一个必然失败（或看似成功实则复活）的按钮。
     return items.map((item) => ({ ...item, builtIn: BUILTIN_CATALOG_CODES.has(item.code) }));
+  }
+
+  async reorder({ ids }: ReorderPermissionCatalogItemsDto) {
+    if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) {
+      throw new BadRequestException('请提交不重复的完整页面顺序');
+    }
+    await this.ensureDefaults();
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const pages = await tx.permissionCatalogItem.findMany({
+          where: { type: 'page' },
+          select: { id: true, sortOrder: true },
+        });
+        const previous = new Map(pages.map((item) => [item.id, item.sortOrder]));
+        if (ids.length !== pages.length || ids.some((id) => !previous.has(id))) {
+          throw new ConflictException('页面目录已变化，请刷新后重新调整顺序');
+        }
+        for (const [index, id] of ids.entries()) {
+          const sortOrder = (index + 1) * 10;
+          if (previous.get(id) === sortOrder) continue;
+          await tx.permissionCatalogItem.update({ where: { id }, data: { sortOrder } });
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2025'].includes(error.code)) {
+        throw new ConflictException('页面目录正在被其他人更新，请刷新后重新调整顺序');
+      }
+      throw error;
+    }
+    return this.listItems();
   }
 
   async save(payload: SavePermissionCatalogItemDto) {
@@ -182,16 +214,19 @@ export class PermissionCatalogService {
    *
    * 只下发 page 类型：action 码不对应路由。
    */
-  async getNavMeta(): Promise<Array<{ code: string; routePath: string; navHidden: boolean }>> {
+  async getNavMeta(): Promise<Array<{ code: string; routePath: string; navHidden: boolean; sortOrder: number; groupLabel: string }>> {
     await this.ensureDefaults();
     const items = await this.prisma.permissionCatalogItem.findMany({
       where: { type: 'page' },
-      select: { code: true, routePath: true, navHidden: true },
+      select: { code: true, routePath: true, navHidden: true, sortOrder: true, groupLabel: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
     return items.map((item) => ({
       code: item.code,
       routePath: item.routePath ?? '',
       navHidden: item.navHidden,
+      sortOrder: item.sortOrder,
+      groupLabel: item.groupLabel,
     }));
   }
 

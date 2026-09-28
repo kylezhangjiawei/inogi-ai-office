@@ -312,9 +312,10 @@ export function MailboxManagementPage() {
             ) : null}
           </div>
 
-          <Table className="min-w-[920px] text-left">
+          <div className="mailbox-table-scroll min-h-0 min-w-0 max-h-[min(46rem,max(18rem,calc(100dvh-25rem)))] overflow-auto [scrollbar-gutter:stable]">
+          <Table className="min-w-[920px] text-left" containerClassName="overflow-visible">
             <TableCaption className="sr-only">邮箱配置列表，包含凭据状态、启用状态、创建及修改时间和操作信息。</TableCaption>
-            <TableHeader className="bg-slate-50/80">
+              <TableHeader className="sticky top-0 z-10 bg-slate-50/95">
               <TableRow>
                 {["邮箱地址", "密码状态", "启用状态", "创建时间", "修改时间", "操作人", "操作"].map((title) => (
                   <TableHead key={title} scope="col" className={cn("h-11 px-4 text-xs font-semibold text-slate-600", title === "操作" && "text-right")}>
@@ -397,6 +398,7 @@ export function MailboxManagementPage() {
               )}
             </TableBody>
           </Table>
+          </div>
 
           <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-slate-500 tabular-nums">

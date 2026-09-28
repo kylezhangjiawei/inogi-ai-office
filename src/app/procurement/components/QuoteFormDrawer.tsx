@@ -38,11 +38,12 @@ function localToday(): string {
 }
 
 export function QuoteFormDrawer({
-  material, quote, onClose, onSaved,
+  material, quote, supplierName, onClose, onSaved,
 }: {
   material: { id: string; name: string; unit: string };
   /** 传 quote 为编辑，不传为新增厂家报价 */
   quote?: SupplierQuote;
+  supplierName?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -55,7 +56,7 @@ export function QuoteFormDrawer({
   const [formErrors, setFormErrors] = useState<QuoteFormErrors>({});
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [form, setForm] = useState(() => ({
-    supplierName: quote?.supplierName ?? "",
+    supplierName: quote?.supplierName ?? supplierName ?? "",
     supplierModel: quote?.supplierModel ?? "",
     currency: quote?.currency ?? "CNY",
     taxIncluded: quote?.taxIncluded ?? true,
@@ -115,12 +116,13 @@ export function QuoteFormDrawer({
     };
   }, []);
 
-  // 输入的厂家名命中已有供应商时带上 id，避免同名重建
-  const supplierId = useMemo(
-    () => suppliers.find((s) => s.name === form.supplierName.trim())?.id,
+  const [chosenSupplierId, setChosenSupplierId] = useState(quote?.supplierId ?? "");
+  const matchingSuppliers = useMemo(
+    () => suppliers.filter((s) => s.name.normalize('NFKC').trim().toLocaleLowerCase() === form.supplierName.normalize('NFKC').trim().toLocaleLowerCase()),
     [suppliers, form.supplierName],
   );
-  const supplierOptions = useMemo(() => suppliers.map((s) => s.name), [suppliers]);
+  const supplierId = matchingSuppliers.length === 1 ? matchingSuppliers[0].id : matchingSuppliers.find(s => s.id === chosenSupplierId)?.id;
+  const supplierOptions = useMemo(() => [...new Set(suppliers.map((s) => s.name))], [suppliers]);
 
   const setTier = (index: number, key: keyof TierRow, value: string) =>
     setTiers((rows) => rows.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
@@ -134,6 +136,10 @@ export function QuoteFormDrawer({
       setFormErrors({ supplier: message });
       supplierFieldRef.current?.querySelector("input")?.focus();
       toast.error(message);
+      return;
+    }
+    if (matchingSuppliers.length > 1 && !supplierId) {
+      setFormErrors({ supplier: t("存在同名供应商，请选择对应档案") });
       return;
     }
     const parsed: { minQty: number; unitPrice: number }[] = [];
@@ -229,8 +235,9 @@ export function QuoteFormDrawer({
               <span className={LABEL}>{t("厂家名称")}<span className="ml-0.5 text-rose-500">*</span></span>
               <ComboInput disabled={busy || imageBusy} value={form.supplierName} onChange={(value) => { set("supplierName")(value); setFormErrors((current) => ({ ...current, supplier: undefined, submit: undefined })); }} options={supplierOptions} placeholder={t("输入或从已有供应商中选")} className={cn(FIELD, formErrors.supplier && "border-rose-300 focus:border-rose-400")} />
               {formErrors.supplier && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{formErrors.supplier}</span>}
-              {form.supplierName.trim() && !supplierId && <span className="mt-1 block text-[11px] text-amber-600">{t("新厂家：保存时将自动创建本地供应商")}</span>}
+              {form.supplierName.trim() && matchingSuppliers.length === 0 && <span className="mt-1 block text-[11px] text-amber-600">{t("新厂家：保存时将自动创建本地供应商")}</span>}
             </label>
+            {matchingSuppliers.length > 1 && <div className="col-span-full"><span className={LABEL}>{t("同名供应商档案")}</span><Select value={supplierId ?? ""} onValueChange={setChosenSupplierId}><SelectTrigger aria-label={t("同名供应商档案")} className="mt-1 w-full"><SelectValue placeholder={t("请选择对应的 ERP 编码或档案")} /></SelectTrigger><SelectContent>{matchingSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} · {s.tpCode || s.shortName || s.id}</SelectItem>)}</SelectContent></Select></div>}
             <label className="block"><span className={LABEL}>{t("厂家型号 / 品牌")}</span><Input value={form.supplierModel} onChange={(e) => set("supplierModel")(e.target.value)} className={FIELD} /></label>
             <div>
               <span className={LABEL}>{t("币种")}</span>

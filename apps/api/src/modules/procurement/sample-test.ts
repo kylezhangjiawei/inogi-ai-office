@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import type { SampleValidationRecord } from './sample-validation';
 
 export const SAMPLE_TEST_RESULTS = ['passed', 'failed_resample', 'failed_requote'] as const;
 export type SampleTestResult = typeof SAMPLE_TEST_RESULTS[number];
@@ -18,6 +19,7 @@ export interface SampleRecordRevision {
   commercial?: SampleCommercialConditions | null;
 }
 export interface ProcurementSampleTest {
+  validation?: SampleValidationRecord | null;
   roundId: string;
   testerUserId: string;
   testerName: string;
@@ -61,6 +63,7 @@ export function sampleTestOf(metadata: Prisma.JsonValue | undefined): Procuremen
   if (!['roundId', 'testerUserId', 'testerName', 'assignedAt', 'assignedByName'].every((key) => typeof value[key] === 'string')) return null;
   if (value.result !== null && !SAMPLE_TEST_RESULTS.includes(value.result as SampleTestResult)) return null;
   return {
+    validation: value.validation && typeof value.validation === 'object' && !Array.isArray(value.validation) && ['exploration', 'transfer'].includes(String(value.validation.kind)) && Array.isArray(value.validation.checks) && value.validation.checks.length === 5 && value.validation.checks.every((check) => check && typeof check === 'object' && !Array.isArray(check) && ['drawing', 'sip', 'sop', 'fixture', 'trial'].includes(String(check.key)) && ['required', 'not_applicable'].includes(String(check.applicability))) ? value.validation as unknown as SampleValidationRecord : null,
     roundId: value.roundId as string, testerUserId: value.testerUserId as string, testerName: value.testerName as string,
     assignedAt: value.assignedAt as string, assignedByName: value.assignedByName as string,
     result: value.result as SampleTestResult | null,

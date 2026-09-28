@@ -65,7 +65,7 @@ test('endpoint requires workspace plus a real order-read permission before any d
   }
   for (const permissions of [['*'], ['page:proc-my-workspace', 'page:purchase-orders'], actor.permissions]) {
     const f = fixture();
-    const controller = new ProcurementController(f.service, {} as never, {} as never, {} as never);
+    const controller = new ProcurementController(f.service, {} as never, {} as never);
     const result = await controller.getWorkspaceArrivalDates('ref-1', { user: { ...actor, permissions } });
     assert.equal(result.items[0].kind, 'line');
   }

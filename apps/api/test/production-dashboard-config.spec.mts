@@ -77,7 +77,7 @@ test('production cockpit defaults to the formal overview and keeps the existing 
   assert.equal(legacy.props.key, 'ws-production');
   assert.notEqual(legacy.props.key, rdRoute[1], '跨工作区路由必须强制重挂载，避免复用上一工作区的任务 state');
   const overviewSource = await readFile(new URL('../../../src/app/production/execution/ProductionDashboardPage.tsx', import.meta.url), 'utf8');
-  assert.match(overviewSource, /<Link to="\/production-dashboard\?view=legacy">其他生产协同任务<\/Link>/, '正式总览必须保留可见的旧协同入口');
+  assert.match(overviewSource, /<Link to="\/production-dashboard\?view=legacy">其他协同任务<\/Link>/, '正式总览必须保留可见的旧协同入口');
   assert.doesNotMatch(
     appSource,
     /path: "production-dashboard"[^\n]*RDDirectorDashboardPage/,

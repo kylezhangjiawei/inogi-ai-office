@@ -192,6 +192,8 @@ export interface ProcTaskListQuery {
   buyerUserId?: string;
   materialId?: string;
   rdTaskId?: string;
+  /** 仅 rdLink=true 使用：逗号分隔的研发任务 ID，去重后最多 50 个。 */
+  rdTaskIds?: string;
   keyword?: string;
   /** 只看未完结（排除 completed/cancelled） */
   activeOnly?: string;

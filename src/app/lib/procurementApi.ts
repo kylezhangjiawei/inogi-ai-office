@@ -131,7 +131,7 @@ export interface RdProcurementTransferSnapshot {
   submittedByName: string;
   rdTaskId: string;
   rdTaskTitle: string;
-  requirement: { productId: string; materialName: string; spec: string; unit: string; quantity: number; purchaseLink: string | null; needDate: string | null; deadline: string | null; note: string | null };
+  requirement: { needDateNotApplicableReason?: string | null; specNotApplicableReason?: string | null; productId: string; materialName: string; spec: string; unit: string; quantity: number; purchaseLink: string | null; needDate: string | null; deadline: string | null; note: string | null };
   attachments: Array<{ fileName: string; fileUrl: string; fileKey: string | null; fileSize: number; mimeType: string | null; kind: string; technicalDocumentVersionId: string | null; documentId: string | null; version: string | null; category: string | null; title: string | null; attachmentId: string | null; sourceNoteId: string | null; versionCreatedAt: string | null }>;
 }
 
@@ -153,7 +153,17 @@ export interface ProcSampleRecordRevision {
   commercial?: ProcSampleCommercialConditions | null;
 }
 
+export interface ProcSampleValidationReference {
+  id: string; fileName: string; fileKey: string | null; technicalDocumentVersionId: string | null;
+  version: string | null; category: string | null; deliveryId: string | null;
+}
+export interface ProcSampleValidation {
+  kind: "exploration" | "transfer";
+  checks: Array<{ key: "drawing" | "sip" | "sop" | "fixture" | "trial"; applicability: "required" | "not_applicable"; reason?: string; referenceId?: string; outcome?: "passed" | "failed"; reference?: ProcSampleValidationReference | null }>;
+  checkedAt?: string; checkedById?: string; checkedByName?: string;
+}
 export interface ProcSampleTestAssignment {
+  validation?: ProcSampleValidation | null;
   roundId: string;
   testerUserId: string;
   testerName: string;
@@ -174,6 +184,7 @@ export interface ProcSampleTestAssignment {
 }
 
 export interface ProcSampleTestDetail {
+  validationReferences?: ProcSampleValidationReference[];
   task: Pick<ProcurementTask, "id" | "code" | "materialName" | "spec" | "quantity" | "unit" | "status" | "buyer" | "rdTaskId" | "rdTaskTitle" | "attachmentList" | "rdTransferSnapshots" | "needSample" | "sampleStatusNeedsReview" | "updatedAt" | "expectedArrivalDate" | "logs">;
   sampleTest: ProcSampleTestAssignment | null;
   canConfirm: boolean;
@@ -201,11 +212,12 @@ export interface Material {
   isSpecial: boolean;
   isConsumable: boolean;
   safeStock: number;
-  stockQty: number;
-  availableQty: number;
+  stockQty: number | null;
+  availableQty: number | null;
+  stockState?: 'known' | 'unknown'; stockIssues?: string[]; stockScope?: { kind: string }; stockReadAt?: string | null;
   inTransitQty: number;
   /** stockQty 的分仓构成（无库存记录的物料为空数组 / 缺省）。 */
-  warehouses?: Array<{ name: string; stock: number; available: number }>;
+  warehouses?: Array<{ name: string; stock: number; available: number | null; syncedAt?: string | null }>;
   inventorySyncedAt?: string;
   reviewStatus: MaterialReviewStatus;
   reviewSource?: MaterialReviewSource;
@@ -256,16 +268,17 @@ export interface InventoryReadinessItem {
   spec: string;
   unit: string;
   qtyPer: number | null;
-  stock: number;
-  available: number;
+  stock: number | null;
+  available: number | null;
+  stockState?: 'known' | 'unknown'; issues?: string[];
   inTransit: number;
   safeStock: number;
-  currentSets: number;
-  withTransitSets: number;
+  currentSets: number | null;
+  withTransitSets: number | null;
   targetDemand: number;
-  gapAfterTransit: number;
+  gapAfterTransit: number | null;
   status: InventoryReadinessStatus;
-  issue: "missing_code" | "missing_qty" | "inventory_unmatched" | null;
+  issue: "missing_code" | "missing_qty" | "inventory_unmatched" | "stock_unknown" | null;
   syncedAt: string | null;
   inventoryDiagnostic?: InventoryMatchDiagnostic;
 }
@@ -293,6 +306,9 @@ export interface Q5PackagingInventoryData {
 }
 
 export interface InventoryReadinessResponse {
+  stockScope?: { kind: string; warehouses?: string[] }; stockReadAt?: string;
+  stockRows?: { code: string; warehouse: string; available: number | null; syncedAt: string | null; unit: string }[];
+  bomBasis?: { kind: 'draft' } | { kind: 'published'; revisionId: string; version: number; retiredAt: string | null };
   source: "tplus";
   bomPositions?: Array<{ id: string; name: string }>;
   readOnly: true;
@@ -301,11 +317,11 @@ export interface InventoryReadinessResponse {
   warehouse: { keyword: string; label: string; matchedNames: string[] };
   syncedAt: string | null;
   summary: {
-    currentBuildableSets: number;
-    withTransitBuildableSets: number;
-    inTransitGainSets: number;
+    currentBuildableSets: number | null;
+    withTransitBuildableSets: number | null;
+    inTransitGainSets: number | null;
     targetSets: number;
-    targetGapAfterTransit: number;
+    targetGapAfterTransit: number | null;
     warningMaterials: number;
     bottleneckMaterials: number;
     inTransitMaterials: number;
@@ -421,6 +437,10 @@ export interface ProcStockPlanBatch {
 }
 
 export interface ProcStockPlan {
+  bomRevisionId?: string;
+  bomVersion?: number;
+  bomRetiredAt?: string | null;
+  bomBasis?: { origin: 'confirmed-current'; revisionId: string; fingerprint: string; actorName: string; at: string; reason: string };
   fulfillmentSummary?: import('./purchaseFulfillmentApi').StockPlanFulfillmentSummary;
   id: string;
   code: string;
@@ -523,6 +543,7 @@ export interface ProcWorkspaceArrivalDatesResponse {
 }
 
 export interface ProcStockPlanInput {
+  bomRevisionId?: string;
   planType?: ProcStockPlanType;
   productId?: string;
   treeNodeId?: string;
@@ -573,11 +594,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getInventoryReadiness(
-  params: { productLine?: string; targetSets?: number },
+  params: { productLine?: string; targetSets?: number; revisionId?: string },
   signal?: AbortSignal,
 ): Promise<InventoryReadinessResponse> {
   const search = new URLSearchParams();
   if (params.productLine) search.set("productLine", params.productLine);
+  if (params.revisionId) search.set("revisionId", params.revisionId);
   if (params.targetSets !== undefined) search.set("targetSets", String(params.targetSets));
   return request(`/inventory-readiness?${search.toString()}`, { signal });
 }
@@ -690,6 +712,22 @@ export async function listProcTasks(signal?: AbortSignal): Promise<ProcurementTa
   return [firstPage, ...remainingPages].flatMap((page) => page.items).slice(0, firstPage.total);
 }
 
+/** 批量读取研发任务的关联采购摘要，沿用研发任务读取权限和商业信息脱敏。 */
+export async function listRdProcurementLinks(
+  rdTaskIds: string[],
+  signal?: AbortSignal,
+): Promise<ProcurementTask[]> {
+  const ids = [...new Set(rdTaskIds.map((id) => id.trim()).filter(Boolean))];
+  const tasks: ProcurementTask[] = [];
+  // 每条研发任务最多关联一条采购任务，每批 50 条可在一页内完整返回。
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const query = new URLSearchParams({ rdLink: "true", rdTaskIds: ids.slice(offset, offset + 50).join(","), pageSize: "200" });
+    const data = await request<Paged<ProcurementTask>>(`/tasks?${query}`, { signal, cache: "no-store" });
+    tasks.push(...data.items);
+  }
+  return tasks;
+}
+
 /** 按研发任务查询已关联的采购任务。一个研发任务最多对应一条采购任务。 */
 export async function getProcTaskByRdTask(
   rdTaskId: string,
@@ -728,6 +766,7 @@ export interface BuyerCandidate {
   id: string;
   name: string;
   department?: string;
+  disabled?: boolean;
   /** 是否在采购成员名录内 */
   inRoster?: boolean;
   /** 是否具备接收采购任务并打开个人工作台的权限。 */
@@ -832,7 +871,7 @@ export async function aiParseProcTask(
 
 /** 研发侧转采购：必须带附件，后端会校验。 */
 export async function transferProcTask(
-  input: CreateProcTaskInput & { rdTaskId: string; rdTaskTitle?: string; rdContact?: string; rdContactUserId?: string },
+  input: CreateProcTaskInput & { rdTaskId: string; rdTaskTitle?: string; rdContact?: string; rdContactUserId?: string; needDateNotApplicableReason?: string; specNotApplicableReason?: string },
 ): Promise<ProcurementTask> {
   return request<ProcurementTask>("/tasks/transfer", {
     method: "POST",
@@ -912,9 +951,12 @@ export function updateProcSampleRecords(id: string, input: UpdateProcSampleRecor
   return request(`/tasks/${encodeURIComponent(id)}/sample-test/records`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
+export function addProcSampleEvidence(id: string, input: { roundId: string; baseUpdatedAt: string; items: Array<{ fileId: string }> }): Promise<ProcSampleTestDetail> {
+  return request(`/tasks/${encodeURIComponent(id)}/sample-test/evidence`, { method: "POST", body: JSON.stringify(input) });
+}
 export function confirmProcSampleTest(
   id: string,
-  input: { roundId: string; result: ProcSampleTestResult; note: string },
+  input: { roundId: string; result: ProcSampleTestResult; note: string; validation?: ProcSampleValidation },
 ): Promise<ProcSampleTestDetail> {
   return request(`/tasks/${encodeURIComponent(id)}/sample-test/confirm`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -1528,35 +1570,6 @@ export async function applyMaterialClassify(): Promise<{ jobId: string }> {
   return request("/materials/classify/apply", { method: "POST" });
 }
 
-export interface SafeStockPreview {
-  windowDays: number;
-  coverFactor: number;
-  usageMaterialCount: number;
-  skippedManual: number;
-  ruleCount: number;
-  aiPending: number;
-  samples: Array<{ code: string; name: string; orders: number; monthlyAvg: number; suggest: number }>;
-  aiSamples: string[];
-}
-
-export interface SafeStockReport {
-  ruleApplied: number;
-  aiApplied: Array<{ code: string; name: string; suggest: number; confidence: number }>;
-  aiSkipped: Array<{ code: string; name: string; reason: string }>;
-  aiError: string | null;
-  model: string | null;
-}
-
-/** 安全库存初始化干跑：基于采购镜像统计建议值，不落库。 */
-export async function previewSafeStock(): Promise<SafeStockPreview> {
-  return request("/materials/safe-stock/preview");
-}
-
-/** 安全库存初始化应用（异步）：返回 jobId，用 waitApplyJob 轮询结果。 */
-export async function applySafeStock(): Promise<{ jobId: string }> {
-  return request("/materials/safe-stock/apply", { method: "POST" });
-}
-
 export interface ReplenishSuggestion {
   materialId: string;
   code: string;
@@ -1651,10 +1664,86 @@ export interface QuoteBookRow {
 }
 
 export interface SupplierOption {
+  tpCode?: string;
   id: string;
   name: string;
   shortName?: string;
   source: string;
+}
+
+export interface BomNode {
+  id: string;
+  parentId: string | null;
+  name: string;
+  code: string | null;
+  productLine: string;
+  level: number;
+  qtyPer: number | null;
+  remark: string | null;
+  sortOrder: number;
+  updatedAt: string;
+  material: { id: string; name: string; spec: string; unit: string } | null;
+  children: BomNode[];
+}
+
+export interface BomNodeInput {
+  kind: "device" | "group" | "material";
+  productLine: string;
+  name?: string;
+  parentId?: string | null;
+  materialId?: string;
+  qtyPer?: number;
+  remark?: string;
+  sortOrder?: number;
+  baseUpdatedAt?: string;
+}
+
+export function getBomTree(signal?: AbortSignal): Promise<{ roots: BomNode[] }> {
+  return request("/bom", { signal });
+}
+
+export interface BomRevision {
+  id: string; deviceId: string; productRootId: string; version: number; fingerprint: string;
+  publishedAt: string; publishedByName: string; reason: string; retiredAt: string | null; retiredReason: string | null;
+  snapshot: { structure: { id: string; parentId: string | null; name: string }[]; items: { id: string; code: string; name: string; unit: string; qtyPer: number }[] };
+}
+export interface BomRevisionState {
+  deviceId: string; productRootId: string | null; draftFingerprint: string; snapshotFingerprint: string | null; issue: string | null;
+  revisions: BomRevision[]; products: { id: string; productId: string; name: string }[];
+}
+export interface BomDeviceOption { id: string; name: string; productLine: string; productRootId: string; productRoot: { productId: string; name: string }; revisions: { id: string; version: number }[] }
+export const readBomDeviceOptions = (signal?: AbortSignal) => request<{ devices: BomDeviceOption[] }>("/bom-devices/options", { signal });
+export const confirmStockPlanBomBasis = (id: string, body: { revisionId: string; expectedUpdatedAt: string; requestId: string; reason: string }) => request(`/stock-plans/${encodeURIComponent(id)}/confirm-bom-basis`, { method: "POST", body: JSON.stringify(body) });
+export const readBomRevisions = (id: string, signal?: AbortSignal) => request<BomRevisionState>(`/bom-devices/${encodeURIComponent(id)}/revisions`, { signal });
+export const bindBomDevice = (id: string, body: { productRootId: string; expectedFingerprint: string; reason: string; requestId: string }) => request(`/bom-devices/${encodeURIComponent(id)}/bind`, { method: "POST", body: JSON.stringify(body) });
+export const publishBomRevision = (id: string, body: { expectedFingerprint: string; reason: string; requestId: string }) => request<BomRevision>(`/bom-devices/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify(body) });
+export const retireBomRevision = (id: string, body: { reason: string; requestId: string }) => request(`/bom-devices/revisions/${encodeURIComponent(id)}/retire`, { method: "POST", body: JSON.stringify(body) });
+
+export function saveBomNode(input: BomNodeInput, id?: string): Promise<unknown> {
+  return request(`/bom/nodes${id ? `/${encodeURIComponent(id)}` : ""}`, {
+    method: id ? "PUT" : "POST", body: JSON.stringify(input),
+  });
+}
+
+export function deleteBomNode(id: string, baseUpdatedAt: string): Promise<unknown> {
+  return request(`/bom/nodes/${encodeURIComponent(id)}`, {
+    method: "DELETE", body: JSON.stringify({ baseUpdatedAt }),
+  });
+}
+
+export interface SupplierProfile extends SupplierOption {
+  tpCode?: string; enabled: boolean; contact?: string; phone?: string; email?: string; address?: string;
+  description?: string; tags?: string; cooperationStart?: string; supplyScope?: string; owner?: string; grade?: string;
+  materialRoles?: Record<string, 'primary' | 'alternative' | ''>;
+}
+export function listSupplierDirectory(signal?: AbortSignal): Promise<{ suppliers: SupplierProfile[] }> {
+  return request('/quote-book/supplier-directory', { signal });
+}
+export function saveSupplierProfile(profile: Omit<SupplierProfile, 'id' | 'source'>, id?: string): Promise<{ id: string }> {
+  return request(`/quote-book/supplier-directory${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(profile) });
+}
+export function saveSupplierMaterialRole(id: string, materialId: string, role: string): Promise<{ ok: boolean }> {
+  return request(`/quote-book/supplier-directory/${encodeURIComponent(id)}/material-role`, { method: 'PUT', body: JSON.stringify({ materialId, role }) });
 }
 
 export interface UpsertSupplierQuoteInput {

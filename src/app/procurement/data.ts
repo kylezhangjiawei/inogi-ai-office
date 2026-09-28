@@ -52,6 +52,7 @@ const EMPTY_STATE: ProcState = { tasks: [], materials: [], loading: true, error:
 let state: ProcState = EMPTY_STATE;
 let scopeKey: string | null = null;
 let scopeGeneration = 0;
+let taskWriteVersion = 0;
 let started = false;
 let inflight: Promise<void> | null = null;
 /** 正在飞的请求之后要补发的那一次刷新（见 refreshProcurement 注释）。 */
@@ -124,10 +125,16 @@ function subscribe(fn: () => void) {
 
 async function load() {
   const generation = scopeGeneration;
+  const writeVersion = taskWriteVersion;
   emit({ loading: true, error: null });
   try {
     const [tasks, materials] = await Promise.all([listProcTasks(), listMaterials()]);
     if (!isCurrentScope(generation)) return;
+    // 写入后的排队刷新会获取新快照；这次旧读取只结束加载，不回填旧业务数据。
+    if (writeVersion !== taskWriteVersion) {
+      emit({ loading: false });
+      return;
+    }
     emit({ tasks, materials, loading: false, error: null });
     notifyProcurementRefreshed();
   } catch (err) {
@@ -148,6 +155,7 @@ async function load() {
  */
 export function applyProcTaskUpdate(task: ProcurementTask, generation: number): void {
   if (!isCurrentScope(generation)) return;
+  taskWriteVersion += 1;
   const idx = state.tasks.findIndex((item) => item.id === task.id);
   if (idx === -1) return;
   const tasks = state.tasks.slice();

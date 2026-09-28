@@ -1,4 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { OssService } from '../oss/oss.service';
+import { assertQualityRead, emptyQualityAnalysis, QUALITY_ANALYSIS_PREFIX, QUALITY_CAUSES, QUALITY_SOURCES, qualityFiles, qualityPhenomena, qualityText, type QualityAnalysis } from './quality-analysis';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProcurementOperationsQueryDto, SaveProductionReportDto, SaveQualityRecordDto } from './dto/procurement-operations.dto';
@@ -72,7 +75,118 @@ export function locateProductionTaskSource(rows: Array<{ key: string; value: unk
 
 @Injectable()
 export class ProcurementOperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly oss?: OssService) {}
+
+
+  async qualityAnalysis(id: string, actor: ProcActor) {
+    const record = await assertQualityRead(this.prisma, id, actor);
+    const stored = await this.prisma.runtimeState.findUnique({ where: { key: QUALITY_ANALYSIS_PREFIX + id } });
+    const analysis = stored ? JSON.parse(stored.value) as QualityAnalysis : emptyQualityAnalysis();
+    const canManage = actor.permissions.includes('*') || actor.permissions.includes('proc-quality:manage');
+    const [people, suppliers, source] = await Promise.all([
+      canManage ? this.prisma.user.findMany({ where: { status: 'ACTIVE' }, select: { id: true, name: true }, orderBy: { name: 'asc' } }) : [],
+      canManage ? this.prisma.procSupplier.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }) : [],
+      this.prisma.runtimeState.findUnique({ where: { key: `procurement:execution:v1:quality:${id}` } }),
+    ]);
+    const productionSource = source ? JSON.parse(source.value) : null;
+    const collaboration = await this.prisma.runtimeState.findUnique({ where: { key: `procurement:execution:v1:collaboration:${id}` } });
+    const storedPlan = productionSource ? await this.prisma.runtimeState.findUnique({ where: { key: `procurement:execution:v1:plan:${productionSource.planId}` } }) : null;
+    if (productionSource && storedPlan) productionSource.planVersion = JSON.parse(storedPlan.value).version;
+    const warehouse = productionSource?.fieldIssueId ? await this.prisma.runtimeState.findUnique({ where: { key: `procurement:warehouse-flow:v1:issue:${productionSource.taskId}` } }) : null;
+    const received = warehouse ? (JSON.parse(warehouse.value).lines as Array<{ code: string; name: string; signedQty?: number; signedBatches?: { batchNo: string; quantity: number }[] }>).filter(row => (row.signedQty ?? 0) > 0) : [];
+    return { record: { ...this.qualityView(record), collaboration: collaboration ? JSON.parse(collaboration.value) : null }, analysis, people, suppliers, productionSource, receivedBatches: received.map(row => ({ code: row.code, name: row.name, batches: row.signedBatches ?? [] })) };
+  }
+
+  async qualityAttachment(id: string, fileId: string, actor: ProcActor) {
+    await assertQualityRead(this.prisma, id, actor);
+    const stored = await this.prisma.runtimeState.findUnique({ where: { key: QUALITY_ANALYSIS_PREFIX + id } });
+    const analysis = stored ? JSON.parse(stored.value) as QualityAnalysis : emptyQualityAnalysis();
+    if (!analysis.files.some(row => row.fileId === fileId)) throw new NotFoundException('该附件不属于此质量异常');
+    const asset = await this.prisma.fileAsset.findFirst({ where: { id: fileId, status: 'active' } });
+    if (!asset) throw new NotFoundException('附件已删除或不存在');
+    const url = this.oss?.getReadUrl(asset.objectKey, 600)?.url;
+    if (!url) throw new BadRequestException('附件暂时无法打开，请稍后重试');
+    return { id: fileId, name: asset.fileName, mime: asset.mimeType, size: asset.fileSize, url, previewUrl: url, downloadUrl: url };
+  }
+
+  async saveQualityAnalysis(id: string, input: { requestId: string; version: number; baseUpdatedAt: string; action: string; data: Record<string, unknown> }, actor: ProcActor) {
+    this.assertPermission(actor, 'proc-quality:manage');
+    if (!input || !/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId) || !Number.isSafeInteger(input.version) || input.version < 0 || !['save', 'confirm'].includes(input.action)) throw new BadRequestException('质量分析提交标识或版本无效');
+    const data = input.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new BadRequestException('质量分析内容无效');
+    const fingerprint = createHash('sha256').update(JSON.stringify([id, actor.id, input])).digest('hex');
+    return this.write(async db => {
+      const record = await assertQualityRead(db, id, actor);
+      const requestKey = `${QUALITY_ANALYSIS_PREFIX}request:${input.requestId}`;
+      const previousRequest = await db.runtimeState.findUnique({ where: { key: requestKey } });
+      if (previousRequest) {
+        if (previousRequest.value !== fingerprint) throw new ConflictException('提交标识已用于其他内容');
+        return { id };
+      }
+      if (record.status === 'closed') throw new ConflictException('已关闭异常不能改写原因，请先按原流程重新打开');
+      assertVersion(input.baseUpdatedAt, record.updatedAt);
+      const key = QUALITY_ANALYSIS_PREFIX + id, stored = await db.runtimeState.findUnique({ where: { key } });
+      const current = stored ? JSON.parse(stored.value) as QualityAnalysis : emptyQualityAnalysis();
+      if (current.version !== input.version) throw new ConflictException('质量分析已更新，请保留草稿并重新核对');
+      if (!QUALITY_CAUSES.includes(data.category as any)) throw new BadRequestException('主因类别无效');
+      const detail = qualityText(data.detail, '原因说明', 4000, true), evidence = qualityText(data.evidence, '原因依据', 4000, true);
+      const reason = qualityText(data.reason, '修改或确认依据');
+      const disposition = data.disposition === undefined ? record.disposition : qualityText(data.disposition, '处置方式', 30);
+      if (!['pending', 'return', 'rework', 'scrap', 'concession', 'replacement'].includes(disposition)) throw new BadRequestException('处置方式无效');
+      const resolution = data.resolution === undefined ? record.resolution : qualityText(data.resolution, '处置结果', 4000, true) || null;
+      if (disposition !== 'pending' && !resolution) throw new BadRequestException('请填写处置结果');
+      const raw = data.responsibility as Record<string, unknown> | undefined;
+      if (!raw || !['unknown', 'internal', 'supplier', 'other'].includes(String(raw.kind))) throw new BadRequestException('责任类型无效');
+      let responsibility: QualityAnalysis['responsibility'] = { kind: raw.kind as QualityAnalysis['responsibility']['kind'], name: '' };
+      if (raw.kind === 'internal') {
+        const user = await db.user.findFirst({ where: { id: qualityText(raw.id, '责任人'), status: 'ACTIVE' }, select: { id: true, name: true } });
+        if (!user) throw new BadRequestException('责任人不存在或已停用');
+        responsibility = { kind: 'internal', id: user.id, name: user.name };
+      } else if (raw.kind === 'supplier') {
+        const supplier = await db.procSupplier.findUnique({ where: { id: qualityText(raw.id, '责任供应商') }, select: { id: true, name: true } });
+        if (!supplier) throw new BadRequestException('责任供应商不存在');
+        responsibility = { kind: 'supplier', id: supplier.id, name: supplier.name };
+      } else if (raw.kind === 'other') responsibility.name = qualityText(raw.name, '责任主体', 200);
+      const phenomena = qualityPhenomena(data.phenomena);
+      const files = await qualityFiles(db, data.fileIds, actor, current.files);
+      let materialBatches = current.materialBatches;
+      if (data.materialBatches !== undefined) {
+        const source = await db.runtimeState.findUnique({ where: { key: `procurement:execution:v1:quality:${id}` } });
+        const link = source ? JSON.parse(source.value) : null;
+        if (!link?.fieldIssueId) throw new BadRequestException('此异常没有现场实领批次来源');
+        const warehouse = await db.runtimeState.findUnique({ where: { key: `procurement:warehouse-flow:v1:issue:${link.taskId}` } });
+        const received: { code: string; signedQty?: number; signedBatches?: { batchNo: string; quantity: number }[] }[] = warehouse ? JSON.parse(warehouse.value).lines : [];
+        if (!Array.isArray(data.materialBatches) || data.materialBatches.length > 2000) throw new BadRequestException('实际物料批次无效');
+        const seen = new Set<string>();
+        materialBatches = data.materialBatches.map((row: any) => {
+          const code = qualityText(row?.code, '实领物料编码', 200), batchNo = row.batchNo ? qualityText(row.batchNo, '实领批号', 120) : null;
+          const line = received.find(item => item.code === code);
+          if (!line || !(line.signedQty! > 0) || (batchNo && !line.signedBatches?.some(item => item.batchNo === batchNo && item.quantity > 0))) throw new BadRequestException('批号必须来自此作业已签收记录，未知批号请保留待补');
+          const identity = JSON.stringify([code, batchNo]); if (seen.has(identity)) throw new BadRequestException('实领批次不能重复'); seen.add(identity);
+          return { code, batchNo };
+        });
+      }
+      if (!Array.isArray(data.references) || data.references.length > 30) throw new BadRequestException('来源反馈最多 30 条');
+      const references = data.references.map((row: any) => {
+        if (!QUALITY_SOURCES.includes(row?.source)) throw new BadRequestException('反馈来源无效');
+        return { source: row.source, reference: qualityText(row.reference, '来源单号或记录', 200), note: qualityText(row.note, '来源反馈', 2000) };
+      });
+      if (input.action === 'confirm' && (data.category === 'unknown' || !detail || !evidence || responsibility.kind === 'unknown' || !phenomena.length)) throw new BadRequestException('确认主因须填写原因、责任认定、依据及现象次数；未知项请先保存待分析');
+      const at = new Date().toISOString();
+      const snapshot: Omit<QualityAnalysis, 'history'> = { version: current.version + 1, state: input.action === 'confirm' ? 'confirmed' : 'pending', category: data.category as QualityAnalysis['category'], detail, evidence, responsibility, phenomena, files, references, ...(materialBatches ? { materialBatches } : {}),
+        ...(input.action === 'confirm' ? { confirmedBy: actor.id, confirmedByName: actor.name, confirmedAt: at } : {}) };
+      const next: QualityAnalysis = { ...snapshot, history: [...current.history, { actorId: actor.id, actorName: actor.name, at, action: input.action, reason, snapshot }] };
+      if (stored) {
+        const changed = await db.runtimeState.updateMany({ where: { key, value: stored.value }, data: { value: JSON.stringify(next) } });
+        if (changed.count !== 1) throw new ConflictException('质量分析已更新，请重新核对');
+      } else await db.runtimeState.create({ data: { key, value: JSON.stringify(next) } });
+      const changedRecord = await db.procQualityRecord.updateMany({ where: { id, updatedAt: record.updatedAt }, data: { disposition, resolution, ...(disposition !== 'pending' ? { status: 'processing' } : {}), updatedBy: actor.id, updatedByName: actor.name } });
+      if (changedRecord.count !== 1) throw new ConflictException('原异常已更新，请重新核对');
+      await db.runtimeState.create({ data: { key: requestKey, value: fingerprint } });
+      await db.auditLog.create({ data: { module: 'procurement', source: 'web', action: `quality.analysis.${input.action}`, resource: 'proc-quality-record', resourceId: id, userId: actor.id, actorName: actor.name, summary: input.action === 'confirm' ? '确认质量主因与责任' : '保存质量分析', meta: JSON.parse(JSON.stringify({ before: current, after: next })) as Prisma.InputJsonValue } });
+      return { id };
+    });
+  }
 
   async productionTaskSource(taskId: string) {
     const rows = await this.prisma.systemSetting.findMany({ where: { key: { in: ['rdws.production.taskCategories', 'rdws.production.productTaskCategories'] } }, select: { key: true, value: true } });
@@ -111,7 +225,9 @@ export class ProcurementOperationsService {
       this.prisma.procQualityRecord.findMany({ where: { ...where, inspectionDate: range }, include: qualityInclude, orderBy: [{ inspectionDate: 'desc' }, { createdAt: 'desc' }] }),
     ]);
     const productionReports = reports.map((row) => this.productionView(row));
-    const qualityRecords = quality.map((row) => this.qualityView(row));
+    const analysisRows = quality.length ? await this.prisma.runtimeState.findMany({ where: { key: { in: quality.map(row => QUALITY_ANALYSIS_PREFIX + row.id) } } }) : [];
+    const analyses = new Map(analysisRows.map(row => [row.key, JSON.parse(row.value) as QualityAnalysis]));
+    const qualityRecords = quality.map(row => ({ ...this.qualityView(row), analysis: analyses.get(QUALITY_ANALYSIS_PREFIX + row.id) ?? null }));
     const units = [...new Set(productionReports.map((row) => row.unit))];
     const productionSummary = units.map((unit) => {
       const rows = productionReports.filter((row) => row.unit === unit);
@@ -120,7 +236,7 @@ export class ProcurementOperationsService {
       const capacityQty = capacityRecorded === rows.length ? rounded(rows.reduce((n, row) => n + (row.capacityQty ?? 0), 0)) : null;
       return { unit, reports: rows.length, plannedQty: sum('plannedQty'), actualQty: sum('actualQty'), goodQty: sum('goodQty'), defectiveQty: sum('defectiveQty'), workHours: sum('workHours'), capacityQty, capacityRecorded, attainmentRate: rate(sum('actualQty'), sum('plannedQty')), yieldRate: rate(sum('goodQty'), sum('actualQty')), capacityUtilization: capacityQty === null ? null : rate(sum('actualQty'), capacityQty) };
     });
-    const qualitySummary = ['procurement', 'production'].flatMap((source) => [...new Set(qualityRecords.filter((row) => row.source === source).map((row) => row.unit))].map((unit) => {
+    const qualitySummary = QUALITY_SOURCES.flatMap((source) => [...new Set(qualityRecords.filter((row) => row.source === source).map((row) => row.unit))].map((unit) => {
       const rows = qualityRecords.filter((row) => row.source === source && row.unit === unit);
       const inspectedQty = rounded(rows.reduce((n, row) => n + row.inspectedQty, 0));
       const defectiveQty = rounded(rows.reduce((n, row) => n + row.defectiveQty, 0));
@@ -178,7 +294,7 @@ export class ProcurementOperationsService {
     const productId = requiredText(dto.productId, '产品');
     const treeNodeId = requiredText(dto.treeNodeId, '子系统模块');
     const unit = requiredText(dto.unit, '数量单位');
-    if (!['procurement', 'production'].includes(dto.source)) throw new BadRequestException('不良来源无效');
+    if (!QUALITY_SOURCES.includes(dto.source)) throw new BadRequestException('不良来源无效');
     if (!['open', 'processing', 'closed'].includes(dto.status)) throw new BadRequestException('处理状态无效');
     if (!['pending', 'return', 'rework', 'scrap', 'concession', 'replacement'].includes(dto.disposition)) throw new BadRequestException('处置方式无效');
     const data = { productId, treeNodeId, unit, stockPlanId: optionalId(dto.stockPlanId), taskId: optionalId(dto.taskId), materialId: optionalId(dto.materialId), supplierId: optionalId(dto.supplierId), productionReportId: optionalId(dto.productionReportId), source: dto.source, batchNo: requiredText(dto.batchNo, '批次编号'), inspectionDate: operationDay(dto.inspectionDate, '检验日期'), inspectedQty: decimal(dto.inspectedQty, '检验数量', 3, true), defectiveQty: decimal(dto.defectiveQty, '不良数量', 3, true), issue: requiredText(dto.issue, '不良现象'), disposition: dto.disposition, status: dto.status, resolution: optionalId(dto.resolution) };
@@ -220,9 +336,10 @@ export class ProcurementOperationsService {
         if (current.status === 'closed') throw new ConflictException('已关闭记录不能直接修改，请先由验证人填写原因重新打开');
         const executionSource = await db.runtimeState.findUnique({ where: { key: `procurement:execution:v1:quality:${id}` } });
         const receiptSource = await db.runtimeState.findUnique({ where: { key: `procurement:receipt-quality-record:v1:${id}` } });
-        if (executionSource || receiptSource) {
+        const analysisSource = await db.runtimeState.findUnique({ where: { key: QUALITY_ANALYSIS_PREFIX + id } });
+        if (executionSource || receiptSource || analysisSource) {
           const identity = (row: typeof current | typeof data) => JSON.stringify([row.productId, row.treeNodeId, row.stockPlanId ?? null, row.taskId ?? null, row.materialId ?? null, row.supplierId ?? null, row.productionReportId ?? null, row.source, row.batchNo, row.inspectionDate.toISOString(), row.unit, row.inspectedQty.toString(), row.defectiveQty.toString()]);
-          if (identity(current) !== identity(data)) throw new BadRequestException('该异常来自生产初检，来源、批次和初检数量不可改写；请在原记录补充处置及复验');
+          if (identity(current) !== identity(data)) throw new BadRequestException('原异常的来源、批次和检验数量已固定，不可改写；请在原记录补充分析、处置及复验');
         }
         if (current.productId !== productId || current.treeNodeId !== treeNodeId) throw new BadRequestException('不能将不良记录移动到其他产品或模块');
         assertVersion(dto.baseUpdatedAt, current.updatedAt);
@@ -238,7 +355,7 @@ export class ProcurementOperationsService {
   private async write<T>(action: (db: Db) => Promise<T>): Promise<T> {
     try { return await this.prisma.$transaction(action, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
     catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2025'].includes(error.code)) throw new ConflictException('记录正在被其他人更新，请刷新后重试');
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2025', 'P2002'].includes(error.code)) throw new ConflictException('记录正在被其他人更新，请刷新后重试');
       throw error;
     }
   }

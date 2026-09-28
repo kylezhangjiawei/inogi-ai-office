@@ -73,25 +73,22 @@ test("报价库首次加载与刷新共用请求令牌，旧响应不能覆盖�
   assert.match(page, /\}, \[reload\]\)/);
 });
 
-test("采购人员页和管理抽屉以文字状态呈现负载、角色和在办任务", () => {
-  for (const page of [files.peoplePage, files.peopleDrawer]) {
+test("采购人员页维护成员并只读显示任务数量，任务交接留在任务管理抽屉", () => {
+  for (const page of [files.peopleDrawer]) {
     assert.match(page, /高负载/);
     assert.match(page, /负载可用/);
     assert.match(page, /在办任务/);
-    assert.match(page, /PROC_STATUS_META/);
     assert.match(page, /isProcurementTaskOverdue/);
     assert.match(page, /batchReassignProcTasks/);
     assert.match(page, /role="alert"/);
   }
-  assert.match(files.peoplePage, /缺少采购工作台权限/);
-  assert.match(files.peoplePage, /const allRows = useMemo/);
-  assert.match(files.peoplePage, /active: allRows\.reduce/);
-  assert.match(files.peoplePage, /resolveProcurementOwner\(task, uniqueNameIds, UNASSIGNED\)/);
-  assert.doesNotMatch(files.peoplePage, /task\.buyerUserId && memberById\.has/);
-  assert.match(files.peoplePage, /deptOf\(p\.name\)/);
+  assert.match(files.peoplePage, /listBuyerCandidates\(controller.signal, "all"\)/);
+  assert.match(files.peoplePage, /任务数量/);
+  assert.doesNotMatch(files.peoplePage, /batchReassignProcTasks|PersonTasksDrawer|autoAssignUnassigned|在办任务|任务交接/);
   assert.match(files.peoplePage, /busyRef\.current/);
-  assert.match(files.peoplePage, /if \(person\.active\.length === 0\)/);
-  assert.match(files.peoplePage, /disabled=\{busy \|\| p\.active\.length === 0\}/);
+  assert.match(files.peoplePage, /<Table aria-label=\{t\("采购成员列表"\)\}/);
+  assert.doesNotMatch(files.peoplePage, /PeopleManageDrawer|OperationalTasksPanel|setManageOpen/);
+  assert.match(files.peopleDrawer, /PROC_STATUS_META/);
   assert.match(files.peopleDrawer, /useConfirmDialog/);
   assert.match(files.peopleDrawer, /移出采购成员名录/);
   assert.match(files.peopleDrawer, /resolveProcurementOwner\(/);

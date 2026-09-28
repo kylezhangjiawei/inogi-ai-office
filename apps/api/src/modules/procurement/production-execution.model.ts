@@ -1,26 +1,56 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { bomHash, type BomSnapshot } from './bom-revisions.model';
 import { operationDay } from './procurement-operations.service';
 
 export interface ExecutionBomLine { id: string; code: string; name: string; unit: string; qtyPer: number }
 export interface ExecutionReport { id: string; date: string; quantity: number; goodQty: number; note: string; actorId: string; actorName: string; at: string }
-export interface ExecutionInspection { id: string; reportId: string; date: string; quantity: number; goodQty: number; evidence: string; actorId: string; actorName: string; at: string; qualityId: string | null; verifiedGoodQty?: number }
+export type ExecutionInspectionKind = 'process' | 'final' | 'legacy';
+export interface ExecutionDocument { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string }
+export interface ExecutionInspection { id: string; reportId: string; date: string; quantity: number; goodQty: number; evidence: string; actorId: string; actorName: string; at: string; qualityId: string | null; verifiedGoodQty?: number;
+  kind?: ExecutionInspectionKind; process?: string; sip?: { text: string; source: 'dispatch' | 'manual'; packageId?: string; document?: ExecutionDocument } }
 export interface ExecutionTask {
-  basis?: { packageId: string; code: string; sop: string; sip: string; drawing: string; sampleTaskId: string; roundId: string; changeIds: string[]; at: string };
+  fieldIssues?: { id: string; qualityId: string; reportId: string; inspectionId?: string; date: string; defectiveQty: number; issue: string; actorId: string; actorName: string; at: string; materialBatches: { code: string; batchNo: string | null }[] }[];
+  basis?: { packageId: string; code: string; sop: string; sip: string; drawing: string; sampleTaskId: string; roundId: string; changeIds: string[]; at: string; documents?: ExecutionDocument[] };
   id: string; batchId: string; name: string; treeNodeId: string; output: 'component' | 'whole'; unit: string;
   quantity: number; date: string; line: string; ownerId: string; ownerName: string;
   materials: Array<ExecutionBomLine & { requiredQty: number }>;
   status: 'draft' | 'dispatched' | 'cancelled'; reports: ExecutionReport[]; inspections?: ExecutionInspection[];
 }
 export interface ExecutionBatch { id: string; code: string; quantity: number; dueDate: string }
-export interface ExecutionEvent { id: string; action: string; reason: string; actorId: string; actorName: string; at: string; subjectId: string }
+export interface ExecutionEvent { id: string; action: string; reason: string; actorId: string; actorName: string; at: string; subjectId: string;
+  adjustment?: { before: Pick<ExecutionTask, 'date' | 'line' | 'ownerId' | 'ownerName' | 'quantity'>; after: Pick<ExecutionTask, 'date' | 'line' | 'ownerId' | 'ownerName' | 'quantity'>; reportedQty: number; warehouse?: { id: string; beforeVersion: number; afterVersion: number; lines: { code: string; beforeQty: number; afterQty: number; issuedQty: number; signedQty: number }[] } } }
 export interface ExecutionPlan {
+  deviceId?: string; bomRevisionId?: string; bomSnapshot?: BomSnapshot;
+  legacyBasisReview?: { deviceId: string; productRootId: string; sourceFingerprint: string; actorId: string; actorName: string; at: string; reason: string };
   id: string; version: number; month: string; productId: string; productName: string; productLine: string;
   targetQty: number; shipmentTargetQty: number; bom: ExecutionBomLine[]; bomFingerprint: string;
   batches: ExecutionBatch[]; tasks: ExecutionTask[]; events: ExecutionEvent[];
 }
 export interface ExecutionCommand { requestId: string; version: number; action: string; data: Record<string, unknown> }
+export const legacyBasisFingerprint = (plan: ExecutionPlan, productRootId: string, deviceId: string) => bomHash([plan.productId, productRootId, deviceId, plan.bom]);
+export function assertLegacyBom(plan: ExecutionPlan): void {
+  if (!plan.bom.length) throw new BadRequestException('原计划没有完整 BOM 快照，不能确认或扩大执行；请核实原始档案，已有实物流程仍可收尾');
+  const codes = new Set<string>();
+  for (const line of plan.bom) {
+    const code = executionText(line.code, '原快照物料编码');
+    executionText(line.id, '原快照物料身份'); executionText(line.name, '原快照物料名称'); executionText(line.unit, '原快照单位'); executionQty(line.qtyPer, '原快照单机用量', true);
+    if (codes.has(code)) throw new BadRequestException('原快照物料编码重复，请核实原始档案');
+    codes.add(code);
+  }
+}
+export function legacyBasisAllows(plan: ExecutionPlan, action: string, data: Record<string, unknown>): boolean {
+  if (plan.bomRevisionId) return true;
+  const review = plan.legacyBasisReview;
+  if (review && plan.deviceId === review.deviceId && review.sourceFingerprint === legacyBasisFingerprint(plan, review.productRootId, review.deviceId)) {
+    try { assertLegacyBom(plan); return true; } catch { /* Invalid historical data can still finish existing physical flows. */ }
+  }
+  if (action === 'task' || action === 'dispatch') return false;
+  if (action === 'targets') return typeof data.targetQty === 'number' && data.targetQty <= plan.targetQty;
+  if (action === 'adjust') { const task = plan.tasks.find(row => row.id === data.taskId); return Boolean(task && typeof data.quantity === 'number' && data.quantity <= task.quantity); }
+  return true;
+}
 export function executionText(value: unknown, label: string, max = 200): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new BadRequestException(`请填写有效的${label}`);
   return value.trim();
@@ -38,14 +68,24 @@ export function executionMonth(value: unknown): string {
   return month;
 }
 export const executionSum = (values: number[]) => values.reduce((sum, value) => sum.plus(value), new Prisma.Decimal(0)).toNumber();
+export const executionInspectionKind = (row: Pick<ExecutionInspection, 'kind'>): ExecutionInspectionKind => row.kind === 'process' || row.kind === 'final' ? row.kind : 'legacy';
+export const completionInspections = (task: Pick<ExecutionTask, 'inspections'>) => (task.inspections ?? []).filter(row => executionInspectionKind(row) !== 'process');
+export function executionFinalInspectionSummary(tasks: ExecutionTask[], date?: string) {
+  const rows = tasks.filter(task => task.status !== 'cancelled' && task.output === 'whole').flatMap(task => (task.inspections ?? []).filter(row => executionInspectionKind(row) === 'final' && (!date || row.date === date)));
+  const quantity = executionSum(rows.map(row => row.quantity)), goodQty = executionSum(rows.map(row => row.goodQty));
+  return { quantity, goodQty, firstPassRate: quantity ? new Prisma.Decimal(goodQty).div(quantity).times(100).toNumber() : null };
+}
 export function executionSummary(plan: ExecutionPlan) {
   const active = plan.tasks.filter((task) => task.status !== 'cancelled');
   // This is reported output, not quality release or warehouse posting.
   const reportedWholeQty = executionSum(active.filter((task) => task.output === 'whole').flatMap((task) => task.reports.map((row) => row.quantity)));
   const reportedWholeGoodQty = executionSum(active.filter((task) => task.output === 'whole').flatMap((task) => task.reports.map((row) => row.goodQty)));
-  const completedQty = executionSum(active.filter((task) => task.output === 'whole').flatMap((task) => (task.inspections ?? []).map((row) => executionSum([row.goodQty, row.verifiedGoodQty ?? 0]))));
+  const completed = active.filter(task => task.output === 'whole').flatMap(completionInspections);
+  const completedQty = executionSum(completed.map(row => executionSum([row.goodQty, row.verifiedGoodQty ?? 0])));
+  const legacyCompletedQty = executionSum(completed.filter(row => executionInspectionKind(row) === 'legacy').map(row => executionSum([row.goodQty, row.verifiedGoodQty ?? 0])));
   return { batchQty: executionSum(plan.batches.map((batch) => batch.quantity)), reportedWholeQty, reportedWholeGoodQty,
-    completedQty, remainingQty: Math.max(0, plan.targetQty - completedQty), remainingReportedQty: Math.max(0, plan.targetQty - reportedWholeGoodQty), tasks: active.length };
+    completedQty, legacyCompletedQty, finalCompletedQty: executionSum([completedQty, -legacyCompletedQty]), firstFinal: executionFinalInspectionSummary(active),
+    remainingQty: Math.max(0, plan.targetQty - completedQty), remainingReportedQty: Math.max(0, plan.targetQty - reportedWholeGoodQty), tasks: active.length };
 }
 export function executionTaskProgress(task: ExecutionTask) {
   const reported = executionSum(task.reports.map((row) => row.quantity)), good = executionSum(task.reports.map((row) => row.goodQty));
@@ -58,6 +98,7 @@ export function applyExecutionCommand(plan: ExecutionPlan, command: ExecutionCom
   const data = command.data;
   const reason = executionText(data.reason, '操作依据', 2000);
   let subjectId = plan.id;
+  let adjustment: ExecutionEvent['adjustment'];
   if (command.action === 'targets') {
     const targetQty = executionQty(data.targetQty, '生产目标', true, true), shipmentTargetQty = executionQty(data.shipmentTargetQty, '发货目标', false, true);
     if (targetQty < executionSum(plan.batches.map((batch) => batch.quantity))) throw new BadRequestException('生产目标不能小于已确认批次数量');
@@ -100,6 +141,22 @@ export function applyExecutionCommand(plan: ExecutionPlan, command: ExecutionCom
     if (command.action === 'dispatch') {
       if (task.status !== 'draft') throw new ConflictException('该作业已派发或取消');
       task.status = 'dispatched';
+    } else if (command.action === 'adjust') {
+      if (task.status === 'cancelled') throw new ConflictException('已取消作业不能调整');
+      if (!owner) throw new BadRequestException('请选择有效的现场负责人');
+      const batch = plan.batches.find(row => row.id === task.batchId)!;
+      const date = executionDay(data.date, '调整后作业日期'), line = executionText(data.line, '产线或工位', 80);
+      if (date < `${plan.month}-01` || date > batch.dueDate) throw new BadRequestException('调整后日期须在计划月初至批次交期之间');
+      const quantity = executionQty(data.quantity, '调整后数量', true, task.output === 'whole');
+      const reportedQty = executionSum(task.reports.map(row => row.quantity));
+      if (quantity < reportedQty) throw new BadRequestException('调整后数量不能低于累计已报工数量');
+      if (task.output === 'whole' && executionSum([quantity, ...plan.tasks.filter(row => row.id !== task.id && row.batchId === task.batchId && row.output === 'whole' && row.status !== 'cancelled').map(row => row.quantity)]) > batch.quantity) throw new BadRequestException('整机派工合计不能超过批次目标');
+      const snapshot = ({ date, line, ownerId, ownerName, quantity }: ExecutionTask) => ({ date, line, ownerId, ownerName, quantity });
+      const before = snapshot(task), after = { date, line, ownerId: owner.id, ownerName: owner.name, quantity };
+      if (JSON.stringify(before) === JSON.stringify(after)) throw new BadRequestException('作业安排没有变化');
+      const materials = task.materials.map(row => ({ ...row, requiredQty: executionQty(new Prisma.Decimal(row.qtyPer).times(quantity).toNumber(), '调整后领料需求', true) }));
+      adjustment = { before, after, reportedQty };
+      Object.assign(task, after, { materials });
     } else if (command.action === 'cancel') {
       if (task.reports.length || task.status === 'cancelled') throw new ConflictException('已有报工或已取消的作业不能直接取消');
       task.status = 'cancelled';
@@ -107,13 +164,22 @@ export function applyExecutionCommand(plan: ExecutionPlan, command: ExecutionCom
       if (task.status !== 'dispatched') throw new ConflictException('作业尚未派发');
       const report = task.reports.find((row) => row.id === data.reportId);
       if (!report) throw new BadRequestException('报工记录不属于当前作业');
+      const kind = data.kind;
+      if (kind !== 'process' && kind !== 'final') throw new BadRequestException('请选择过程检或终检；历史未分类记录不能作为新检验类型');
+      const process = executionText(data.process, '检验工序', 100);
+      const sipDocument = task.basis?.documents?.find(row => row.kind === 'sip');
+      const dispatchedSip = task.basis?.sip?.trim() || (sipDocument ? `${sipDocument.name} ${sipDocument.version}` : '');
+      const sip: NonNullable<ExecutionInspection['sip']> = dispatchedSip
+        ? { text: dispatchedSip, source: 'dispatch', packageId: task.basis!.packageId, ...(sipDocument ? { document: { ...sipDocument } } : {}) }
+        : { text: executionText(data.sip, 'SIP 检验依据', 2000), source: 'manual' };
       const quantity = executionQty(data.quantity, '本次初检数量', true, task.output === 'whole'), goodQty = executionQty(data.goodQty, '初检合格数量', false, task.output === 'whole');
       if (goodQty > quantity) throw new BadRequestException('初检合格数不能超过检验数');
-      if (executionSum([quantity, ...(task.inspections ?? []).filter((row) => row.reportId === report.id).map((row) => row.quantity)]) > report.quantity) throw new BadRequestException('初检数量累计不能超过本次报工数；复验请在原质量异常中办理');
+      const previous = (task.inspections ?? []).filter(row => row.reportId === report.id && (kind === 'final' ? executionInspectionKind(row) !== 'process' : row.kind === 'process' && row.process === process));
+      if (executionSum([quantity, ...previous.map(row => row.quantity)]) > report.quantity) throw new BadRequestException('同工序过程检或终检累计不能超过本次报工数；历史未分类记录占用终检数量，复验请在原质量异常中办理');
       const date = executionDay(data.date, '初检日期');
       if (date < report.date || date > executionToday()) throw new BadRequestException('检验日期须在报工日期至今天之间');
       if (goodQty < quantity) executionText(data.issue, '不良现象', 2000);
-      const inspection: ExecutionInspection = { id: randomUUID(), reportId: report.id, date, quantity, goodQty, evidence: reason, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), qualityId: null };
+      const inspection: ExecutionInspection = { id: randomUUID(), reportId: report.id, kind, process, sip, date, quantity, goodQty, evidence: reason, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), qualityId: null };
       (task.inspections ??= []).push(inspection); subjectId = inspection.id;
     } else if (command.action === 'report') {
       if (task.status !== 'dispatched') throw new ConflictException('请先派发作业');
@@ -125,7 +191,7 @@ export function applyExecutionCommand(plan: ExecutionPlan, command: ExecutionCom
       task.reports.push({ id: randomUUID(), date, quantity, goodQty, note: reason, actorId: actor.id, actorName: actor.name, at: new Date().toISOString() });
     } else throw new BadRequestException('不支持的计划操作');
   }
-  const event: ExecutionEvent = { id: randomUUID(), action: command.action, reason, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), subjectId };
+  const event: ExecutionEvent = { id: randomUUID(), action: command.action, reason, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), subjectId, ...(adjustment ? { adjustment } : {}) };
   plan.version += 1; plan.events.push(event);
   return event;
 }

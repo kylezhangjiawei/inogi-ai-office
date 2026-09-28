@@ -1,0 +1,74 @@
+.warehouse-cockpit-tabs { min-width: 0; overflow-x: auto; padding-bottom: .5rem; }
+.warehouse-cockpit-tabs [data-slot="tabs-list"] { height: 3rem; max-width: none; background: var(--card); border: 1px solid var(--border); }
+.warehouse-cockpit-tab-count { padding: .1rem .4rem; border-radius: .375rem; background: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.warehouse-cockpit-workspace { display: grid; grid-template-columns: 19rem minmax(0, 1fr); align-items: start; gap: 1rem; }
+.warehouse-cockpit-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: 1rem; }
+.warehouse-cockpit-section-heading h2, .warehouse-cockpit-section-heading h3 { font-size: .9375rem; font-weight: 650; }
+.warehouse-cockpit-section-heading p, .warehouse-cockpit-section-heading > span { margin-top: .375rem; font-size: .75rem; color: var(--muted-foreground); }
+.warehouse-cockpit-filters { display: grid; gap: .5rem; padding: 0 1rem 1rem; }
+.warehouse-cockpit-dispatch-list { max-height: 38rem; overflow-y: auto; padding: .25rem .5rem .5rem; }
+.warehouse-cockpit-dispatch { display: grid; width: 100%; gap: .45rem; margin-bottom: .375rem; padding: .875rem; text-align: left; border: 1px solid transparent; border-radius: .75rem; cursor: pointer; }
+.warehouse-cockpit-dispatch:hover { background: var(--muted); }
+.warehouse-cockpit-dispatch[aria-pressed="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--card)); }
+.warehouse-cockpit-dispatch:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.warehouse-cockpit-dispatch-title { font-size: .875rem; font-weight: 650; overflow-wrap: anywhere; }
+.warehouse-cockpit-status { width: fit-content; padding: .15rem .4rem; border-radius: .3rem; font-size: .75rem; color: var(--primary); background: var(--muted); }
+.warehouse-cockpit-dispatch-meta { font-size: .75rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.warehouse-cockpit-order-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem; border-bottom: 1px solid var(--border); }
+.warehouse-cockpit-order-heading h2 { margin: .375rem 0; font-size: 1.125rem; font-weight: 650; overflow-wrap: anywhere; }
+.warehouse-cockpit-order-heading p { font-size: .75rem; color: var(--muted-foreground); }
+.warehouse-cockpit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.warehouse-cockpit-materials [data-slot="table-container"] { max-height: 24rem; overflow: auto; }
+.warehouse-cockpit-materials table { table-layout: fixed; min-width: 42rem; }
+.warehouse-cockpit-materials th:first-child { width: 36%; }
+.warehouse-cockpit-materials th, .warehouse-cockpit-materials td { padding: .625rem 1rem; }
+.warehouse-cockpit-materials td { font-size: var(--font-size-body); font-variant-numeric: tabular-nums; }
+.warehouse-cockpit-materials td:first-child { white-space: normal; overflow-wrap: anywhere; }
+.warehouse-cockpit-materials :is(th, td):first-child { position: sticky; left: 0; background: var(--card); }
+.warehouse-cockpit-materials th:not(:first-child), .warehouse-cockpit-materials td:not(:first-child) { text-align: right; }
+.warehouse-cockpit-materials thead { position: sticky; top: 0; z-index: 1; background: var(--card); }
+.warehouse-cockpit-returns { padding: 1.25rem; border-top: 1px solid var(--border); }
+.warehouse-cockpit-returns .warehouse-table-scroll > [data-slot="table-container"] { max-height: 20rem; }
+@media (max-width: 1050px) { .warehouse-cockpit-workspace { grid-template-columns: 15rem minmax(0, 1fr); } }
+@media (max-width: 767px) {
+  .warehouse-cockpit-workspace { grid-template-columns: minmax(0, 1fr); }
+  .warehouse-cockpit-dispatch-list { max-height: 17rem; }
+  .warehouse-cockpit-order-heading, .warehouse-cockpit-returns { padding: 1rem; }
+}
+
+.warehouse-workbench .order-horizon-page-header { margin-bottom: 0; padding-bottom: .5rem; }
+.warehouse-workbench-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, .9fr); background: var(--card); border: 1px solid var(--border); border-radius: 1rem; overflow: hidden; }
+.warehouse-workbench-metric { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: .35rem; padding: 1rem 1.25rem; text-align: left; border-right: 1px solid var(--border); cursor: pointer; }
+.warehouse-workbench-metric:last-child { border-right: 0; }
+.warehouse-workbench-metric > span { grid-column: 1 / -1; display: flex; align-items: center; gap: .375rem; font-size: .75rem; color: var(--muted-foreground); }
+.warehouse-workbench-metric > strong { font-size: 2rem; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
+.warehouse-workbench-metric > small { font-size: .75rem; color: var(--muted-foreground); }
+.warehouse-workbench-metric:hover, .warehouse-workbench-metric[aria-pressed="true"] { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.warehouse-workbench-metric[aria-pressed="true"] { box-shadow: inset 0 -3px var(--primary); }
+.warehouse-workbench-metric:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
+.warehouse-workbench-overdue { background: color-mix(in srgb, var(--destructive) 4%, var(--card)); }
+.warehouse-workbench-overdue > strong, .warehouse-workbench-overdue svg { color: var(--destructive); }
+.warehouse-workbench-nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; }
+.warehouse-workbench-nav .warehouse-cockpit-tabs { padding-bottom: 0; }
+.warehouse-active-filter { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .375rem .75rem; border-radius: .5rem; background: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
+.warehouse-inline-returns > .warehouse-records-workspace { margin-top: .75rem; }
+.warehouse-inline-returns .warehouse-return-workspace { grid-template-columns: minmax(0, 1fr); }
+.warehouse-inline-returns .warehouse-return-detail { position: static; max-height: none; }
+.warehouse-inline-returns .warehouse-return-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.warehouse-workbench .warehouse-cockpit-dispatch-list { max-height: max(22rem, calc(100dvh - 24rem)); }
+.warehouse-workbench .warehouse-cockpit-materials [data-slot="table-container"] { max-height: max(22rem, calc(100dvh - 28rem)); scrollbar-gutter: stable; }
+@media (max-width: 767px) {
+  .warehouse-workbench-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .warehouse-workbench-metric { padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
+  .warehouse-workbench-metric:nth-child(even) { border-right: 0; }
+  .warehouse-workbench-overdue { grid-column: 1 / -1; display: flex; align-items: center; border-bottom: 0; }
+  .warehouse-workbench-overdue > strong { margin-left: auto; font-size: 1.5rem; }
+  .warehouse-inline-returns .warehouse-return-facts { grid-template-columns: minmax(0, 1fr); }
+  .warehouse-workbench .warehouse-cockpit-dispatch-list { max-height: 17rem; }
+  .warehouse-workbench .warehouse-cockpit-materials [data-slot="table-container"] { max-height: 28rem; }
+}
+@media (max-width: 480px) {
+  .warehouse-workbench-nav .warehouse-cockpit-tabs { width: 100%; }
+  .warehouse-cockpit-tabs [data-slot="tabs-list"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; height: auto; gap: .25rem; }
+  .warehouse-cockpit-tabs [data-slot="tabs-trigger"] { min-height: 2.5rem; }
+}

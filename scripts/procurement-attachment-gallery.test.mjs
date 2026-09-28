@@ -11,6 +11,19 @@ const imports = ast.statements.filter(ts.isImportDeclaration).flatMap((node) =>
 const code = ts.transpileModule(ast.statements.filter((node) => !ts.isImportDeclaration(node)).map((node) => node.getText(ast)).join("\n"),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 
+function loadDeclarations(path, names) {
+  const source = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  const ast = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const body = ast.statements.filter((node) => names.includes(node.name?.text)
+    || ts.isVariableStatement(node) && node.declarationList.declarations.some((item) => names.includes(item.name.getText(ast))))
+    .map((node) => node.getText(ast)).join("\n");
+  const exports = {};
+  new Function("exports", ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(exports);
+  return exports;
+}
+const common = loadDeclarations("src/app/procurement/components/common.tsx", ["PROC_STATUS_META", "procurementNextAction"]);
+const actions = loadDeclarations("src/app/procurement/components/taskActions.tsx", ["nextPermissionOf", "DECISION_STATUSES"]);
+
 function fixture(attachmentCount = 8) {
   const attachments = Array.from({ length: attachmentCount }, (_, i) => ({ id: `file-${i + 1}`, fileName: i === 4 ? "说明.pdf" : `图纸-${i + 1}.png`,
     mimeType: i === 4 ? "application/pdf" : "image/png", fileSize: 1000, fileUrl: `/original/${i + 1}`, thumbUrl: `/thumb/${i + 1}` }));
@@ -33,7 +46,7 @@ function fixture(attachmentCount = 8) {
     if (name === "./resourceAccess") return { requestResourceRefresh: (_key, load) => load() };
     return {};
   });
-  Object.assign(stubs, {
+  Object.assign(stubs, common, actions, {
     procurementAttachmentPreview: access.procurementAttachmentPreview,
     RenewableImage: "img",
     useState(initial) {
@@ -57,7 +70,6 @@ function fixture(attachmentCount = 8) {
     },
     useI18n: () => ({ t: (value, data = {}) => value.replace(/\{(\w+)\}/g, (_, key) => data[key] ?? key) }),
     useProcCan: () => () => false,
-    PROC_STATUS_META: { priced: { label: "已定价" } },
     taskRequester: () => ({ name: "研发员" }), taskMainDate: () => ({}), isProcurementTaskOverdue: () => false,
     removalModeOf: () => "delete", cn: (...args) => args.filter(Boolean).join(" "),
     isImagePreviewSource: (mime) => mime.startsWith("image/"),

@@ -648,7 +648,7 @@ test('历史免费样品可从询价两档纠正到待到样，未填供应商�
   }
 });
 
-test('待询价没有免费登记时拒绝纠正，普通需样询价及重新出样仍可进待到样', async () => {
+test('没有免费登记时拒绝历史纠正，正常需样任务通过完成询价进入待到样', async () => {
   for (const refs of [[], [{ id: 'paid', tpOrderNo: 'PO-1', supplierName: '供应商甲', metadata: {} }]]) {
     const h = sampleFlowHarness({ status: 'pending_inquiry' }, refs);
     await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'pending_inquiry', status: 'pending_sample' }, sampleActor), /没有登记免费样品/);
@@ -657,8 +657,12 @@ test('待询价没有免费登记时拒绝纠正，普通需样询价及重新�
   }
   for (const status of ['inquiring', 'testing']) {
     const h = sampleFlowHarness({ status, needSample: true });
-    const result = await h.service.transitionTask(h.task.id, { from_status: status, status: 'pending_sample' }, sampleActor);
-    assert.equal(result.status, 'pending_sample');
+    await assert.rejects(h.service.transitionTask(h.task.id, { from_status: status, status: 'pending_sample' }, sampleActor), /没有登记免费样品/);
+    assert.equal(h.task.status, status);
+    if (status === 'inquiring') {
+      const result = await h.service.completeInquiry(h.task.id, sampleActor);
+      assert.equal(result.status, 'pending_sample');
+    }
   }
 });
 

@@ -1385,9 +1385,9 @@ function GatewayRequestWorkspace({
           <Button variant="unstyled" type="button" className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25" onClick={onReload} aria-label="刷新请求明细"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
         </div>
       </div>
-      <div className="material-scrollbar overflow-x-auto">
+      <div className="material-scrollbar min-h-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto [scrollbar-gutter:stable]">
         <table className="w-full min-w-[980px] text-left">
-          <thead className="bg-slate-50 text-[10px] font-semibold text-slate-500"><tr><th scope="col" className="w-12 px-5 py-3"><span className="sr-only">展开</span></th><th scope="col" className="px-3 py-3">时间 / 请求 ID</th><th scope="col" className="px-3 py-3">场景</th><th scope="col" className="px-3 py-3">最终模型</th><th scope="col" className="px-3 py-3">状态</th><th scope="col" className="px-3 py-3">路由</th><th scope="col" className="px-3 py-3 text-right">延迟</th><th scope="col" className="px-5 py-3 text-right">Token</th></tr></thead>
+          <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-semibold text-slate-500"><tr><th scope="col" className="w-12 px-5 py-3"><span className="sr-only">展开</span></th><th scope="col" className="px-3 py-3">时间 / 请求 ID</th><th scope="col" className="px-3 py-3">场景</th><th scope="col" className="px-3 py-3">最终模型</th><th scope="col" className="px-3 py-3">状态</th><th scope="col" className="px-3 py-3">路由</th><th scope="col" className="px-3 py-3 text-right">延迟</th><th scope="col" className="px-5 py-3 text-right">Token</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {loading && !data ? <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-muted-foreground">正在读取调用明细...</td></tr> : data?.items.length ? data.items.map((item) => {
               const expanded = expandedId === item.id;

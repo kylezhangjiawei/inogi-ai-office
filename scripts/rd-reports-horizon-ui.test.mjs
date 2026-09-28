@@ -32,7 +32,7 @@ test("研发汇报使用 Horizon 根作用域、Radix Tabs 与统一主题主操
   assert.match(monthly, /"hz-surface rd-horizon-monthly-surface flex-1 border border-slate-200 bg-white"/);
   assert.match(monthly, /hz-primary-action/);
   assert.match(monthly, /import \{ Button \} from "\.\/components\/ui\/button"/);
-  assert.match(readFileSync(new URL("../src/app/components/ui/button.tsx", import.meta.url), "utf8"), /default: "rounded-full bg-primary text-primary-foreground shadow-\[var\(--shadow-primary\)\] hover:bg-primary-hover disabled:shadow-none"/);
+  assert.match(readFileSync(new URL("../src/app/components/ui/button.tsx", import.meta.url), "utf8"), /default: "bg-primary text-primary-foreground shadow-\[var\(--shadow-primary\)\] hover:bg-primary-hover disabled:shadow-none"/);
   assert.doesNotMatch(reports, /#002fa7|#002581/i);
   assert.doesNotMatch(monthly, /#002fa7|#002581/i);
   assert.match(monthly, /tone="blue"/);

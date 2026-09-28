@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../src/app/procurement/WarehouseFlowPage.ts
 const ast = ts.createSourceFile('WarehouseFlowPage.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const node = ast.statements.find((row) => ts.isFunctionDeclaration(row) && row.name?.text === 'WarehouseReconcileEditor');
 assert.ok(node);
-const code = ts.transpileModule(`${node.getText(ast)}\nreturn WarehouseReconcileEditor;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
+const code = ts.transpileModule(`${node.getText(ast).replace(/^export\s+/, '')}\nreturn WarehouseReconcileEditor;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
 const elements = (tree) => Array.isArray(tree) ? tree.flatMap(elements) : tree && typeof tree === 'object' ? [tree, ...Object.values(tree.props ?? {}).flatMap(elements)] : [];
 const find = (tree, type, id) => elements(tree).find((row) => row.type === type && (!id || row.props.id === id));
 const flush = () => new Promise((resolve) => setImmediate(resolve));

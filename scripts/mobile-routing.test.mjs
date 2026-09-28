@@ -92,6 +92,42 @@ test("聊天分析自定义路径后，手机入口与宽屏返回仍匹配同�
   }
 });
 
+test("系统首页在窄屏保留响应式 Dashboard，研发工作台仍进入移动驾驶舱", () => {
+  let location = { pathname: "/", search: "?home=management&month=2026-09", hash: "#overview" };
+  const routePath = (_code, fallback) => fallback;
+  const protectedLayout = sourceFunction(appSource, "ProtectedLayout", {
+    React, Root: "Root", Navigate: "Navigate", useAuth: () => ({ user: { id: "test" }, hydrated: true }),
+    useLocation: () => location, useIsMobileViewport: () => true, routePath, matchPath,
+    subRoutePath: sourceFunction(routePathsSource, "subRoutePath", { routePath }),
+    rdWorkspaceForPath: () => "rd",
+  });
+
+  for (const search of ["", "?home=management&month=2026-09", "?home=office", "?home=tasks"]) {
+    location = { pathname: "/", search, hash: "" };
+    assert.equal(protectedLayout().type, "Root", search || "default home");
+  }
+
+  location = { pathname: "/rd-my-workspace", search: "?view=mine", hash: "#task" };
+  const redirected = protectedLayout();
+  assert.equal(redirected.type, "Navigate");
+  assert.equal(redirected.props.to, "/m?view=mine#task");
+});
+
+
+test("生产总览在窄屏保留批次和风险页面，不跳入旧生产任务池", () => {
+  for (const pathname of ["/production-dashboard", "/rd-director-dashboard", "/production-execution"]) {
+    const location = { pathname, search: "?month=2026-09&view=risks", hash: "" };
+    const routePath = (_code, fallback) => fallback;
+    const protectedLayout = sourceFunction(appSource, "ProtectedLayout", {
+      React, Root: "Root", Navigate: "Navigate", useAuth: () => ({ user: { id: "test" }, hydrated: true }),
+      useLocation: () => location, useIsMobileViewport: () => true, routePath, matchPath,
+      subRoutePath: sourceFunction(routePathsSource, "subRoutePath", { routePath }),
+      rdWorkspaceForPath: () => "production",
+    });
+    assert.equal(protectedLayout().type, "Root", pathname);
+  }
+  assert.match(appSource, /path: "production-dashboard", element: makeLazyProtected\(<ProductionDashboardRoute \/>, "page:rd-director-dashboard"\)/);
+});
 
 test("移动端路由只在窗口尺寸稳定后切换", () => {
   assert.match(appSource, /MOBILE_VIEWPORT_DEBOUNCE_MS\s*=\s*250/);

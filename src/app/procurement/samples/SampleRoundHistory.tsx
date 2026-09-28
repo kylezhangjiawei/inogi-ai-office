@@ -1,3 +1,4 @@
+import { SampleValidationPanel } from './SampleValidationPanel';
 import type { ProcSampleCommercialConditions, ProcSampleTestAssignment, ProcSampleTestDetail } from '../../lib/procurementApi';
 import { i18nLocale, useI18n } from '../../lib/i18n';
 import { sampleOperationTime } from './sampleTimingModel';
@@ -33,6 +34,7 @@ function Round({ round, current, canReadCommercial }: { round: ProcSampleTestAss
       <p className="break-all text-xs text-muted-foreground">{t('轮次编号')}：{round.roundId}</p>
       <dl className="grid gap-3 text-xs sm:grid-cols-3">{[['实际到样', round.arrivedAt], ['实际开测', round.startedAt], ['实际结束', round.finishedAt], ['结论提交', round.confirmedAt], ['归档时间', round.archivedAt]].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{t(label!)}</dt><dd className="mt-1 tabular-nums">{time(value)}</dd></div>)}</dl>
       <p className="whitespace-pre-wrap break-words text-sm">{t(round.result === 'passed' ? '测试通过' : round.result === 'failed_resample' ? '未通过，重新送样' : round.result === 'failed_requote' ? '未通过，重新询价' : '未提交结论')}{round.note ? `：${round.note}` : ''}</p>
+      <details><summary className="cursor-pointer text-xs font-medium">{t("本轮验证依据")} · {t(round.validation?.kind === "transfer" ? "转产验证" : round.validation?.kind === "exploration" ? "研发探索" : "历史未分类")}</summary><div className="mt-3"><SampleValidationPanel value={round.validation ?? null} references={[]} readOnly /></div></details>
       {canReadCommercial && <SampleConditionsView conditions={round.commercial} />}
       <details><summary className="cursor-pointer text-xs text-muted-foreground">{t('登记与更正记录')}（{round.revisions?.length ?? 0}）</summary>
         {round.revisions?.length ? <ol className="mt-2 space-y-3">{round.revisions.map((revision, index) => <li key={`${revision.recordedAt}:${index}`} className="space-y-2 rounded bg-muted/50 p-3 text-xs">

@@ -31,6 +31,11 @@ function storageKey(userId: string, period: Period): string {
 
 const CHECK_INTERVAL = 5 * 60 * 1000; // 5 分钟检查一次（大多数情况仅本地判断，零网络）
 
+function shouldDeferReminder(): boolean {
+  return Boolean(document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"]')
+    || document.activeElement?.matches('input, textarea, select, [contenteditable="true"], [role="combobox"]'));
+}
+
 /**
  * MateChat 使用提醒弹窗：每天上/下午各弹一次，仅在「当天尚未使用」时提醒。
  * 全局挂载（Root）。性能：先做 localStorage + 时段本地判断，只有确需弹出时才请求接口
@@ -43,10 +48,9 @@ export function MateChatReminderModal() {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<MateChatStreak | null>(null);
   const checkingRef = useRef(false);
-  const isProcurementRoute =
-    location.pathname.startsWith('/proc-')
-    || location.pathname.startsWith('/purchase-orders')
-    || location.pathname.startsWith('/inventory-management');
+  const isReminderPreview = new URLSearchParams(location.search).get('matechatReminder') === 'preview';
+  const latestContext = useRef({ userId: user?.id, open, isReminderPreview });
+  latestContext.current = { userId: user?.id, open, isReminderPreview };
 
   // 切换账号（user.id 变化）时清掉共享缓存，避免读到上一个账号的连续数据
   useEffect(() => {
@@ -54,7 +58,9 @@ export function MateChatReminderModal() {
   }, [user?.id]);
 
   const maybeShow = useCallback(async () => {
-    if (!user || open || checkingRef.current || isProcurementRoute) return;
+    if (!user || open || checkingRef.current || isReminderPreview) return;
+    // 正在填写表单或操作其他弹窗时，延后使用提醒。
+    if (shouldDeferReminder()) return;
     const period = currentPeriod();
     if (!period) return;
     const key = storageKey(user.id, period);
@@ -62,6 +68,10 @@ export function MateChatReminderModal() {
     checkingRef.current = true;
     try {
       const streak = await chatStreakApi.getMyStreak(); // 命中 30s 共享缓存则零网络
+      // 读取期间用户可能已开始输入、打开弹窗或离开此账号/时段，延后且不消耗提醒次数。
+      const current = latestContext.current;
+      if (current.userId !== user.id || current.open || current.isReminderPreview
+        || currentPeriod() !== period || storageKey(user.id, period) !== key || shouldDeferReminder()) return;
       if (streak.todayDone) {
         localStorage.setItem(key, 'used'); // 今天已用过，本时段不再打扰、也不再请求
         return;
@@ -74,20 +84,12 @@ export function MateChatReminderModal() {
     } finally {
       checkingRef.current = false;
     }
-  }, [user, open, isProcurementRoute]);
-
-  // 采购工作台属于连续操作场景，不自动弹出使用提醒；用户仍可主动打开悬浮入口。
-  useEffect(() => {
-    if (isProcurementRoute) setOpen(false);
-  }, [isProcurementRoute]);
+  }, [user, open, isReminderPreview]);
 
   // 预览/测试：URL 带 ?matechatReminder=preview 时，无视时段/是否已用/是否已弹，强制弹出一次
   useEffect(() => {
     if (!user) return;
-    const preview =
-      typeof window !== 'undefined' &&
-      new URLSearchParams(window.location.search).get('matechatReminder') === 'preview';
-    if (!preview) return;
+    if (!isReminderPreview) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -103,7 +105,7 @@ export function MateChatReminderModal() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, isReminderPreview]);
 
   useEffect(() => {
     if (!user) return;
@@ -132,9 +134,9 @@ export function MateChatReminderModal() {
   return (
     <Dialog open={open && Boolean(data)} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
       {data && (
-        <DialogContent className="horizon-theme matechat-reminder-horizon gap-0 overflow-hidden border-[#e9edf7] bg-white p-0 shadow-xl sm:max-w-sm [&>button.absolute]:bg-white [&>button.absolute]:text-slate-600 [&>button.absolute]:opacity-100">
-          {/* 头图：复用当天吉祥物场景图；无图时使用 Klein Blue 纯色底。 */}
-          <div className="relative h-44 overflow-hidden border-b border-[#e9edf7] bg-primary">
+        <DialogContent className="horizon-theme matechat-reminder-horizon gap-0 overflow-y-auto overflow-x-hidden border-[#e9edf7] bg-white p-0 shadow-xl sm:max-w-sm [&>button.absolute]:bg-white [&>button.absolute]:text-slate-600 [&>button.absolute]:opacity-100">
+          {/* 保留线上提醒的每日吉祥物封面，与侧边打卡卡片共享素材。 */}
+          <div className="relative h-44 shrink-0 overflow-hidden border-b border-[#e9edf7] bg-primary">
             {data.mascotUrl ? (
               <img
                 src={data.mascotUrl}

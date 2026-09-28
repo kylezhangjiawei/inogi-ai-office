@@ -15,7 +15,7 @@ function fixture() {
     collaborators: [{ user_id: 'requester', name: '研发甲' }, { user_id: 'contact', name: '研发乙' }] };
   let task: any = { id: 'proc-1', code: 'PR-001', source: 'rd', status: 'testing', rdTaskId: 'RD/001', rdTaskTitle: '原研发任务',
     requesterUserId: 'requester', requester: '研发甲', rdContactUserId: 'contact', rdContact: '研发乙',
-    materialName: '传感器', quantity: 2, unit: '个', method: 'inquiry', buyer: '采购甲', buyerUserId: 'buyer', metadata: {} };
+    materialName: '传感器', spec: '受控规格 R1', needDate: new Date('2026-10-01'), quantity: 2, unit: '个', method: 'inquiry', buyer: '采购甲', buyerUserId: 'buyer', metadata: {} };
   const messages: any[] = [], logs: any[] = [];
   const match = (row: any, where: any): boolean => Object.entries(where).every(([key, value]: [string, any]) =>
     key === 'OR' ? value.some((clause: any) => match(row, clause)) : key === 'AND' ? value.every((clause: any) => match(row, clause)) : row[key] === value);

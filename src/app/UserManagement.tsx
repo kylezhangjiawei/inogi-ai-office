@@ -632,7 +632,7 @@ export function UserManagement() {
           )}
         />
 
-        <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+        <HorizonMetricGrid>
           <HorizonMetric Icon={Users} label={t("用户总数")} value={loading && users.length === 0 ? "—" : users.length} note={t("当前身份目录账号")} tone="brand" />
           <HorizonMetric Icon={UserCheck} label={t("启用用户")} value={loading && users.length === 0 ? "—" : activeCount} note={t("可正常访问系统")} tone={activeCount > 0 ? "success" : "neutral"} />
           <HorizonMetric Icon={UserX} label={t("停用用户")} value={loading && users.length === 0 ? "—" : disabledCount} note={t("已暂停访问权限")} tone={disabledCount > 0 ? "warning" : "neutral"} />
@@ -651,7 +651,7 @@ export function UserManagement() {
             )}
           />
 
-          <div className="grid gap-3 border-b border-slate-200 p-4 md:grid-cols-[minmax(260px,1fr)_190px_160px_auto] md:items-end">
+          <div className="hz-directory-filters grid gap-3 border-b border-border p-4">
             <div className="min-w-0">
               <Label htmlFor="user-search" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("搜索用户")}</Label>
               <div className="relative">
@@ -712,7 +712,7 @@ export function UserManagement() {
             <p role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError}</p>
           ) : null}
 
-          <div className="overflow-x-auto">
+          <div className="min-h-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto [scrollbar-gutter:stable]">
             <table className="w-full min-w-[1120px] table-fixed text-left">
               <caption className="sr-only">{t("用户姓名、角色、部门、状态、密码入口及可用操作")}</caption>
               <colgroup>
@@ -723,7 +723,7 @@ export function UserManagement() {
                 <col className="w-[160px]" />
                 <col className="w-[200px]" />
               </colgroup>
-              <thead className="bg-slate-50/90">
+              <thead className="sticky top-0 z-10 bg-slate-50/95">
                 <tr>
                   {[t("姓名 / 英文名 / 账号"), t("角色"), t("部门"), t("状态"), t("密码"), t("操作")].map((column) => (
                     <th key={column} scope="col" className={cn(TABLE_HEADER_CLASS, column === t("操作") && "text-right")}>{column}</th>

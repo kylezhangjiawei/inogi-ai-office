@@ -31,7 +31,7 @@ import { isImagePreviewSource } from "../../components/MobileZoomableImage";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
-import { BusinessLinePill, PROC_STATUS_META, PersonAvatar, StatusPill, rollbackTargetsOf, useProcCan } from "./common";
+import { BusinessLinePill, procurementNextAction, PersonAvatar, StatusPill, rollbackTargetsOf, useProcCan } from "./common";
 import { DECISION_STATUSES, nextPermissionOf, removalModeOf } from "./taskActions";
 import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 import { Button } from "../../components/ui/button";
@@ -56,7 +56,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
 }) {
   const { t } = useI18n();
   const can = useProcCan();
-  const meta = PROC_STATUS_META[task.status];
+  const nextAction = procurementNextAction(task);
   const requester = taskRequester(task);
   const mainDate = taskMainDate(task);
   const overdue = isProcurementTaskOverdue(task);
@@ -70,7 +70,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
   const previewAttachments = task.attachmentList.slice(0, 3);
   const allPreviewAttachments = task.attachmentList.map((attachment) => procurementAttachmentPreview(task.id, attachment));
   const hiddenAttachmentCount = Math.max(0, allPreviewAttachments.length - previewAttachments.length);
-  const canAdvance = Boolean(meta.next && can(nextPermissionOf(task)) && onNext);
+  const canAdvance = Boolean(nextAction && can(nextPermissionOf(task)) && onNext);
   const canRollback = Boolean(onRollback && can("proc-task:rollback") && rollbackTargetsOf(task.status, task.method, task).length > 0);
   const canConfigureCriticalMaterials = can("proc-task:create");
   // 菜单项文案跟着实际处置动作走：履约中是「取消任务」，其余是「删除」，待研发审核则不给入口
@@ -106,7 +106,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
         <div className="proc-horizon-task-card-head flex flex-wrap items-start gap-x-3 gap-y-2">
           <div className="proc-horizon-task-card-context flex min-w-0 flex-1 basis-28 flex-wrap items-center gap-2 overflow-hidden">
             <BusinessLinePill line={task.businessLine} />
-            <span className="proc-horizon-task-route truncate text-[11px] font-medium text-slate-500">
+            <span className="proc-horizon-task-route truncate text-xs font-medium text-slate-500">
               {t(task.source === "rd" ? "研发流转" : "采购自建")} <span aria-hidden="true">·</span> {t(task.method === "inquiry" ? "询价采购" : "电商直购")}
             </span>
           </div>
@@ -146,7 +146,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                 {canAdvance ? (
                   <DropdownMenuItem onSelect={() => onNext?.(task)}>
                     <ChevronRight className="size-4" />
-                    {t(meta.next!)}
+                    {t(nextAction!)}
                   </DropdownMenuItem>
                 ) : null}
                 {can("proc-task:reassign") && onReassign ? (
@@ -167,7 +167,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
         </div>
 
         <div className="proc-horizon-task-card-primary min-w-0">
-          <div className="proc-horizon-task-meta flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="proc-horizon-task-meta flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="proc-horizon-task-code font-semibold tabular-nums">{task.code}</span>
             <span className="proc-horizon-task-quantity inline-flex items-baseline gap-1.5 whitespace-nowrap">
               <span>{t("数量")}</span>
@@ -187,7 +187,8 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
           />
 
           {previewAttachments.length > 0 ? (
-            <section className="space-y-2" aria-label={t("任务附件")}>
+            <details className="space-y-2" onClick={(event) => event.stopPropagation()}>
+              <summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-2 focus-visible:outline-primary">{t("任务附件")} · {allPreviewAttachments.length}</summary>
               <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
                 <span>{t("附件")} <span className="tabular-nums">{allPreviewAttachments.length}</span></span>
                 {hiddenAttachmentCount > 0 && <Button variant="unstyled" type="button"
@@ -222,17 +223,17 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                     ) : (
                       <div className="flex h-24 items-center justify-center text-muted-foreground"><Paperclip className="size-6" /></div>
                     )}
-                    <p className="truncate border-t border-slate-200/70 px-2 py-1.5 text-[11px] text-slate-500 group-hover/attachment:text-primary">{attachment.fileName}</p>
+                    <p className="truncate border-t border-slate-200/70 px-2 py-1.5 text-xs text-slate-500 group-hover/attachment:text-primary">{attachment.fileName}</p>
                   </Button>
                 );
               })}
             </div>
-            </section>
+            </details>
           ) : null}
         </div>
 
         <div className="proc-horizon-task-card-secondary min-w-0">
-          <div className="proc-horizon-fulfillment flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+          <div className="proc-horizon-fulfillment flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-xs text-slate-500">
             <span className="proc-horizon-payment inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
               <span className="proc-horizon-payment-status" data-payment-status={task.paymentStatus}>
                 {task.paymentStatus === "paid" ? t("已付款") : task.paymentStatus === "partial" ? t("部分付款") : t("未付款")}
@@ -260,7 +261,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                   isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-primary text-white hover:bg-primary-hover",
                 )}
               >
-                {t(meta.next!)}
+                {t(nextAction!)}
                 {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
                 {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
               </Button>
@@ -278,14 +279,14 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
             ) : null}
 
             <div className="proc-horizon-task-progress-row flex items-center gap-2 pt-0.5">
-              <span className="shrink-0 text-[10px] font-semibold text-slate-500">{t("到货进度")}</span>
+              <span className="shrink-0 text-xs font-semibold text-slate-500">{t("到货进度")}</span>
               <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                 <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-primary")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
               </div>
               <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
             </div>
 
-            <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+            <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
               <span data-priority={task.priority} className={cn("proc-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
                 <Flame className="size-3" />
                 {t(priority.label)}
@@ -319,7 +320,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
               <Button variant="unstyled"
                 type="button"
                 onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
-                className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label={t("查看任务")}
               >
                 {t("查看")} <ArrowRight className="size-3" />

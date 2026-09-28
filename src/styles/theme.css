@@ -3,6 +3,18 @@
 :root {
   --font-sans: "Google Sans Flex", "Google Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-size: 16px;
+  --space-panel: 1rem;
+  --sidebar-width: 15rem;
+  --shell-header-height: 4rem;
+  --page-gutter: 1.5rem;
+  --radius-control: 0.625rem;
+  --radius-panel: 1rem;
+  --control-height: 2.25rem;
+  --font-size-caption: 0.75rem;
+  --font-size-body: 0.875rem;
+  --card-radius: var(--radius-panel);
+  --card-gap: var(--space-panel);
+  --button-radius: var(--radius-control);
   --app-min-width: 0px;
   --background: #f8faff;
   --foreground: #1b2559;
@@ -70,11 +82,11 @@
   --m3-shape-extra-large-increased: 28px;
   --m3-shape-extra-extra-large: 32px;
   --m3-shape-full: 9999px;
-  --m3-shape-field: var(--m3-shape-medium);
-  --m3-shape-card: var(--m3-shape-extra-large);
+  --m3-shape-field: var(--radius-control);
+  --m3-shape-card: var(--card-radius);
   --m3-shape-dialog: var(--m3-shape-extra-large);
   --m3-shape-chip: var(--m3-shape-small);
-  --m3-shape-button: var(--m3-shape-medium);
+  --m3-shape-button: var(--button-radius);
   --radius: var(--m3-shape-medium);
   --sidebar: var(--card);
   --sidebar-foreground: #1b2559;
@@ -84,10 +96,10 @@
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border-subtle);
   --sidebar-ring: var(--primary);
-  --shadow-card: 0 16px 32px -8px rgba(112, 144, 176, 0.22), 0 3px 10px rgba(112, 144, 176, 0.04);
-  --shadow-focal: 0 22px 44px -12px rgba(112, 144, 176, 0.28);
-  --shadow-chrome: 0 12px 36px -12px rgba(112, 144, 176, 0.18);
-  --shadow-primary: 0 6px 14px -5px rgba(var(--primary-rgb), 0.38);
+  --shadow-card: 0 1px 3px rgba(27, 37, 89, 0.035);
+  --shadow-focal: 0 8px 24px -8px rgba(27, 37, 89, 0.12);
+  --shadow-chrome: 0 4px 16px -8px rgba(27, 37, 89, 0.10);
+  --shadow-primary: 0 1px 2px rgba(var(--primary-rgb), 0.12);
   --m3-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
   --m3-elevation-2: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
   --m3-elevation-3: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
@@ -830,45 +842,47 @@
 
   .resume-screening-surface .material-neu-button,
   .resume-screening-surface.material-neu-button {
-    background: rgba(255, 255, 255, 0.96);
-    border: 1px solid rgba(148, 163, 184, 0.4);
-    color: var(--ai-ink);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.055), 0 8px 18px rgba(15, 23, 42, 0.045);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    color: var(--foreground);
+    box-shadow: none;
   }
 
   .resume-screening-surface .material-neu-button:hover,
   .resume-screening-surface.material-neu-button:hover {
-    background: #f0f9ff;
-    border-color: rgba(14, 165, 233, 0.56);
-    color: var(--ai-primary-strong);
-    box-shadow: 0 10px 22px rgba(3, 105, 161, 0.09);
+    background: var(--accent);
+    border-color: var(--border);
+    color: var(--accent-foreground);
+    box-shadow: none;
   }
 
   .resume-screening-surface .material-neu-button:active,
   .resume-screening-surface.material-neu-button:active {
-    box-shadow: inset 0 2px 6px rgba(15, 23, 42, 0.08);
+    box-shadow: none;
   }
 
   .resume-screening-surface .material-neu-button:focus-visible,
   .resume-screening-surface.material-neu-button:focus-visible,
   .resume-screening-surface .material-neu-primary:focus-visible,
   .resume-screening-surface.material-neu-primary:focus-visible {
-    outline: 2px solid rgba(14, 165, 233, 0.58);
+    outline: 2px solid var(--ring);
     outline-offset: 3px;
   }
 
   .resume-screening-surface .material-neu-primary,
   .resume-screening-surface.material-neu-primary {
-    background: linear-gradient(135deg, #0369a1 0%, #0284c7 58%, #16a34a 100%);
-    border: 1px solid rgba(3, 105, 161, 0.56);
-    color: #ffffff;
-    box-shadow: 0 12px 24px rgba(3, 105, 161, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-control);
+    color: var(--primary-foreground);
+    box-shadow: var(--shadow-primary);
   }
 
   .resume-screening-surface .material-neu-primary:hover,
   .resume-screening-surface.material-neu-primary:hover {
-    background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 58%, #15803d 100%);
-    box-shadow: 0 14px 28px rgba(3, 105, 161, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    background: var(--primary-hover);
+    box-shadow: var(--shadow-primary);
   }
 
   .resume-screening-surface .material-data-table {
@@ -1152,9 +1166,9 @@
   display: flex;
   flex-direction: column !important;
   align-items: stretch !important;
-  min-height: 5rem;
+  min-height: var(--shell-header-height);
   gap: 0.875rem !important;
-  padding: 1rem 1.5rem 0.75rem;
+  padding: 0.5rem var(--page-gutter);
 }
 
 .rd-horizon-global-header .rd-horizon-header-heading {
@@ -1289,7 +1303,7 @@
 
 .rd-horizon-global-header .rd-horizon-header-date-label {
   color: var(--rdh-subtle) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   line-height: 0.75rem;
 }
 
@@ -1341,7 +1355,7 @@
   top: 0.0625rem !important;
   height: 1rem !important;
   min-width: 1rem !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   box-shadow: 0 0 0 2px #ffffff;
 }
 
@@ -1391,7 +1405,7 @@
 
 .rd-horizon-global-header .rd-horizon-header-user-role {
   color: var(--rdh-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   line-height: 0.875rem;
 }
 
@@ -1794,7 +1808,7 @@
 
 .rd-horizon-cockpit .rd-horizon-kpi-filter-badge {
   color: var(--rd-primary) !important;
-  font-size: 0.625rem !important;
+  font-size: var(--font-size-caption) !important;
   background: var(--accent) !important;
 }
 
@@ -2146,6 +2160,25 @@
   border-color: rgba(var(--primary-rgb), 0.08) !important;
   box-shadow: 0 8px 22px rgba(112, 144, 176, 0.075) !important;
   transform: none !important;
+}
+
+.rd-native-task-hover .rd-horizon-task-card {
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.rd-native-task-hover .rd-horizon-task-card:focus-visible {
+  border-color: rgba(var(--primary-rgb), 0.36) !important;
+  background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface)) !important;
+  outline: 2px solid var(--rd-primary) !important;
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .rd-native-task-hover .rd-horizon-task-card:hover {
+    border-color: rgba(var(--primary-rgb), 0.36) !important;
+    background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface)) !important;
+    box-shadow: var(--rd-shadow-focal) !important;
+  }
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card h3 {
@@ -2895,6 +2928,34 @@
   background: var(--rd-canvas) !important;
 }
 
+.rd-native-task-hover.rd-horizon-board .rd-board-task-row:hover {
+  background: transparent !important;
+}
+
+.rd-native-task-hover.rd-horizon-board :is(.rd-board-task-main, .rd-board-subtask-row) {
+  border-radius: 10px;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.rd-native-task-hover.rd-horizon-board .rd-board-task-main {
+  margin: -0.375rem;
+  padding: 0.375rem;
+}
+
+@media (hover: hover) {
+  .rd-native-task-hover.rd-horizon-board :is(.rd-board-task-main, .rd-board-subtask-row):hover {
+    background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface));
+    box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.36), var(--rd-shadow-card);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-native-task-hover .rd-horizon-task-card,
+  .rd-native-task-hover.rd-horizon-board :is(.rd-board-task-main, .rd-board-subtask-row) {
+    transition: none !important;
+  }
+}
+
 .rd-horizon-board .rd-board-task-priority-rail {
   display: none !important;
 }
@@ -3174,7 +3235,7 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-context > dl dd:last-child {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-caption);
   color: var(--rd-muted);
 }
 
@@ -3350,11 +3411,11 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__progress {
-  font-size: 0.625rem !important;
+  font-size: var(--font-size-caption) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__header time {
-  font-size: 0.625rem !important;
+  font-size: var(--font-size-caption) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-timeline__line {
@@ -3881,7 +3942,7 @@
 
 .rd-horizon-issue-stat-label {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   line-height: 1rem !important;
   font-weight: 600;
 }
@@ -4221,7 +4282,7 @@
 
 .rd-horizon-issue-meta-cell dt {
   color: var(--rd-subtle) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 600;
 }
 
@@ -4499,7 +4560,7 @@
 
 .rd-horizon-issue-drawer-header p {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
 }
 
 .rd-horizon-issue-drawer-header > button {
@@ -5055,9 +5116,9 @@
 .rd-horizon-workspace .rd-horizon-workspace-title {
   margin-right: 0.25rem;
   color: var(--rd-ink) !important;
-  font-size: 1.05rem !important;
+  font-size: 1.5rem !important;
   font-weight: 700 !important;
-  letter-spacing: -0.012em;
+  line-height: 1.35;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-date {
@@ -5106,7 +5167,8 @@
 
 .rd-horizon-workspace .rd-horizon-workspace-primary-action {
   min-height: 2.5rem;
-  border-radius: 12px !important;
+  font-size: 0.875rem;
+  border-radius: 999px !important;
   padding: 0.625rem 0.875rem !important;
   background: var(--rd-primary) !important;
   box-shadow: none !important;
@@ -5815,7 +5877,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 .rd-horizon-people .rd-people-stat > div:last-child {
   margin-top: 0.5rem !important;
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 600 !important;
   letter-spacing: 0.04em;
 }
@@ -5900,7 +5962,8 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 
 .rd-horizon-people .rd-people-table-scroll {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: min(46rem, max(16rem, calc(100dvh - 23rem)));
+  overflow: auto;
   overscroll-behavior-inline: contain;
   scrollbar-gutter: stable;
 }
@@ -5919,7 +5982,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 .rd-horizon-people .rd-people-table th {
   height: 3rem;
   padding-block: 0.75rem !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 700 !important;
   letter-spacing: 0.055em !important;
 }
@@ -6326,7 +6389,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 
 .rd-horizon-ai-settings .rd-ai-kpi > div:first-child {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   font-weight: 700 !important;
 }
 
@@ -7127,7 +7190,10 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 .rd-horizon-audit .rd-horizon-audit-table-scroll {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  max-height: min(46rem, max(18rem, calc(100dvh - 25rem)));
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   scrollbar-color: var(--border) transparent;
 }
 
@@ -7139,7 +7205,9 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 }
 
 .rd-horizon-audit .rd-horizon-audit-table thead {
-  position: static;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .rd-horizon-audit .rd-horizon-audit-table th {
@@ -7332,6 +7400,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
   }
 
   .rd-horizon-audit .rd-horizon-audit-table-scroll {
+    max-height: none;
     overflow: visible;
   }
 
@@ -7385,7 +7454,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
     display: block;
     margin-bottom: 0.375rem;
     color: var(--muted-foreground);
-    font-size: 0.6875rem;
+    font-size: var(--font-size-caption);
     font-weight: 500;
     line-height: 1.4;
   }
@@ -7762,7 +7831,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
 
 .rd-horizon-approval .rd-approval-node-config label {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: var(--font-size-caption) !important;
   letter-spacing: 0.06em !important;
 }
 

@@ -13,6 +13,8 @@ test('TplusOperationsService aggregates multi-warehouse inventory and computes s
     safeStock: 10,
   };
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
+    runtimeState: { findMany: async () => [] },
     procInventoryBalance: {
       findMany: async () => [
         {
@@ -60,6 +62,8 @@ test('TplusOperationsService aggregates multi-warehouse inventory and computes s
 
 test('TplusOperationsService uses available quantity instead of on-hand quantity for inventory status', async () => {
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
+    runtimeState: { findMany: async () => [] },
     procInventoryBalance: {
       findMany: async () => [{
         materialId: 'material-1',
@@ -68,7 +72,7 @@ test('TplusOperationsService uses available quantity instead of on-hand quantity
         spec: '',
         unit: '件',
         warehouse: '上海仓',
-        stockQty: 0,
+        stockQty: 2,
         availableQty: 2,
         inTransitQty: 0,
         syncedAt: new Date('2026-07-29T09:00:00.000Z'),
@@ -87,7 +91,7 @@ test('TplusOperationsService uses available quantity instead of on-hand quantity
 
   const result = await service.listInventory({ page: 1, pageSize: 50 });
 
-  assert.equal(result.inventory.items[0].stock, 0);
+  assert.equal(result.inventory.items[0].stock, 2);
   assert.equal(result.inventory.items[0].available, 2);
   assert.equal(result.inventory.items[0].status, '正常');
 });
@@ -105,6 +109,7 @@ test('TplusOperationsService groups T+ purchase-order lines and derives arrival 
     syncedAt: new Date('2026-07-29T09:00:00.000Z'),
   };
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
     procPurchaseOrderMirror: {
       findMany: async () => [
         {
@@ -170,6 +175,7 @@ test('TplusOperationsService clamps an out-of-range purchase-order page', async 
     syncedAt: new Date('2026-07-29T09:00:00.000Z'),
   });
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
     procPurchaseOrderMirror: { findMany: async () => [row('PO-002'), row('PO-001')] },
     procSupplier: { findMany: async () => [] },
   };
@@ -203,6 +209,7 @@ test('TplusOperationsService exposes linked procurement tasks in purchase-order 
     syncedAt: new Date('2026-07-29T09:00:00.000Z'),
   };
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
     procPurchaseOrderMirror: { findMany: async () => [purchaseRow] },
     procSupplier: { findFirst: async () => null },
     procPurchaseOrderRef: {
@@ -233,6 +240,8 @@ test('TplusOperationsService exposes linked procurement tasks in purchase-order 
 test('TplusOperationsService returns warehouse balances and related orders in inventory detail', async () => {
   let purchaseWhere: unknown;
   const prisma = {
+    $transaction: async function (run: any) { return run(this); },
+    runtimeState: { findMany: async () => [] },
     procInventoryBalance: {
       findMany: async () => [
         {

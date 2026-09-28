@@ -102,6 +102,9 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  // Preview servers can share this package root; keep their optimizer caches
+  // from replacing dependencies used by the running application.
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite-app'),
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || packageVersion),
     'import.meta.env.VITE_GIT_SHA': JSON.stringify(resolveGitSha()),

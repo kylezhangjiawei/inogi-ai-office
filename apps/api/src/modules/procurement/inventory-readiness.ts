@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+
 export type InventoryReadinessStatus =
   | 'ready'
   | 'low'
@@ -34,7 +36,8 @@ export interface InventoryReadinessBomSourceLine {
 export interface InventoryReadinessBalance {
   code: string;
   stock: number;
-  available: number;
+  available: number | null;
+  issues?: string[];
   inTransit: number;
   safeStock: number;
   syncedAt: string | null;
@@ -49,27 +52,29 @@ export interface InventoryReadinessItem {
   spec: string;
   unit: string;
   qtyPer: number | null;
-  stock: number;
-  available: number;
+  stock: number | null;
+  available: number | null;
+  stockState: 'known' | 'unknown';
+  issues: string[];
   inTransit: number;
   safeStock: number;
-  currentSets: number;
-  withTransitSets: number;
+  currentSets: number | null;
+  withTransitSets: number | null;
   targetDemand: number;
-  gapAfterTransit: number;
+  gapAfterTransit: number | null;
   status: InventoryReadinessStatus;
-  issue: 'missing_code' | 'missing_qty' | 'inventory_unmatched' | null;
+  issue: 'missing_code' | 'missing_qty' | 'inventory_unmatched' | 'stock_unknown' | null;
   syncedAt: string | null;
   sourceLines?: InventoryReadinessBomSourceLine[];
 }
 
 export interface InventoryReadinessCalculation {
   summary: {
-    currentBuildableSets: number;
-    withTransitBuildableSets: number;
-    inTransitGainSets: number;
+    currentBuildableSets: number | null;
+    withTransitBuildableSets: number | null;
+    inTransitGainSets: number | null;
     targetSets: number;
-    targetGapAfterTransit: number;
+    targetGapAfterTransit: number | null;
     warningMaterials: number;
     bottleneckMaterials: number;
     inTransitMaterials: number;
@@ -128,7 +133,7 @@ export function calculateInventoryReadiness(
     aggregateByCode.set(code, current
       ? {
           ...current,
-          qtyPer: current.qtyPer + qtyPer,
+          qtyPer: new Prisma.Decimal(current.qtyPer).plus(qtyPer).toNumber(),
           ...((current.sourceLines || leaf.sourceLines)
             ? { sourceLines: [...(current.sourceLines ?? []), ...(leaf.sourceLines ?? [])] }
             : {}),
@@ -138,22 +143,24 @@ export function calculateInventoryReadiness(
 
   const validItems: InventoryReadinessItem[] = [...aggregateByCode.values()].map((leaf) => {
     const balance = balanceByCode.get(leaf.code!);
-    const stock = Math.max(0, balance?.stock ?? 0);
-    const available = Math.max(0, balance?.available ?? 0);
+    const stock = balance ? Math.max(0, balance.stock) : null;
+    const available = balance?.available ?? null;
     const inTransit = Math.max(0, balance?.inTransit ?? 0);
     const safeStock = Math.max(0, balance?.safeStock ?? 0);
-    const currentSets = safeFloor(available / leaf.qtyPer);
-    const withTransitSets = safeFloor((available + inTransit) / leaf.qtyPer);
+    const currentSets = available === null ? null : new Prisma.Decimal(available).div(leaf.qtyPer).floor().toNumber();
+    const withTransitSets = available === null ? null : new Prisma.Decimal(available).plus(inTransit).div(leaf.qtyPer).floor().toNumber();
     const targetDemand = normalizedTarget * leaf.qtyPer;
-    const gapAfterTransit = Math.max(0, targetDemand - available - inTransit);
+    const gapAfterTransit = available === null ? null : Prisma.Decimal.max(new Prisma.Decimal(targetDemand).minus(available).minus(inTransit), 0).toNumber();
     let status: InventoryReadinessStatus = 'ready';
     let issue: InventoryReadinessItem['issue'] = null;
     if (!balance) {
       status = 'unmatched';
       issue = 'inventory_unmatched';
+    } else if (available === null || balance.issues?.length) {
+      status = 'data_missing'; issue = 'stock_unknown';
     } else if (available <= 0) {
       status = 'shortage';
-    } else if (gapAfterTransit > 0) {
+    } else if (gapAfterTransit! > 0) {
       status = 'gap';
     } else if (safeStock > 0 && available < safeStock) {
       status = 'low';
@@ -163,6 +170,8 @@ export function calculateInventoryReadiness(
       ...(positionsByCode.has(leaf.code!) ? { bomPosition: [...positionsByCode.get(leaf.code!)!].join('、') } : {}),
       stock,
       available,
+      stockState: available === null ? 'unknown' : 'known',
+      issues: balance?.issues ?? (!balance ? ['在所选仓库范围内缺少库存快照'] : []),
       inTransit,
       safeStock,
       currentSets,
@@ -177,25 +186,24 @@ export function calculateInventoryReadiness(
 
   const invalidItems: InventoryReadinessItem[] = invalidLeaves.map((leaf) => ({
     ...leaf,
-    stock: 0,
-    available: 0,
+    stock: null,
+    available: null,
+    stockState: 'unknown',
+    issues: ['BOM 编码或用量待核对'],
     inTransit: 0,
     safeStock: 0,
-    currentSets: 0,
-    withTransitSets: 0,
+    currentSets: null,
+    withTransitSets: null,
     targetDemand: 0,
-    gapAfterTransit: 0,
+    gapAfterTransit: null,
     status: 'data_missing',
     issue: leaf.code ? 'missing_qty' : 'missing_code',
     syncedAt: null,
   }));
 
-  const currentBuildableSets = validItems.length > 0
-    ? Math.min(...validItems.map((item) => item.currentSets))
-    : 0;
-  const withTransitBuildableSets = validItems.length > 0
-    ? Math.min(...validItems.map((item) => item.withTransitSets))
-    : 0;
+  const complete = validItems.length > 0 && !invalidItems.length && validItems.every(item => item.available !== null && !item.issue);
+  const currentBuildableSets = complete ? Math.min(...validItems.map(item => item.currentSets!)) : null;
+  const withTransitBuildableSets = complete ? Math.min(...validItems.map(item => item.withTransitSets!)) : null;
   const bottleneckMaterials = validItems.filter((item) => item.currentSets === currentBuildableSets).length;
   const warningMaterials = [...validItems, ...invalidItems].filter((item) => item.status !== 'ready').length;
   const inventoryMatchedLines = leaves.filter((leaf) => {
@@ -214,7 +222,7 @@ export function calculateInventoryReadiness(
       ready: 5,
     };
     return rank[a.status] - rank[b.status]
-      || b.gapAfterTransit - a.gapAfterTransit
+      || (b.gapAfterTransit ?? 0) - (a.gapAfterTransit ?? 0)
       || a.category.localeCompare(b.category, 'zh-CN')
       || (a.code ?? '').localeCompare(b.code ?? '', 'zh-CN');
   });
@@ -223,9 +231,9 @@ export function calculateInventoryReadiness(
     summary: {
       currentBuildableSets,
       withTransitBuildableSets,
-      inTransitGainSets: Math.max(0, withTransitBuildableSets - currentBuildableSets),
+      inTransitGainSets: withTransitBuildableSets === null || currentBuildableSets === null ? null : Math.max(0, withTransitBuildableSets - currentBuildableSets),
       targetSets: normalizedTarget,
-      targetGapAfterTransit: Math.max(0, normalizedTarget - withTransitBuildableSets),
+      targetGapAfterTransit: withTransitBuildableSets === null ? null : Math.max(0, normalizedTarget - withTransitBuildableSets),
       warningMaterials,
       bottleneckMaterials,
       inTransitMaterials: validItems.filter((item) => item.inTransit > 0).length,
@@ -237,7 +245,7 @@ export function calculateInventoryReadiness(
       inventoryMatchedLines,
       bomCompleteness: totalBomLines > 0 ? usableBomLines / totalBomLines : 0,
       inventoryMatchRate: usableBomLines > 0 ? inventoryMatchedLines / usableBomLines : 0,
-      provisional: invalidItems.length > 0 || inventoryMatchedLines < usableBomLines,
+      provisional: !complete,
     },
     items,
   };

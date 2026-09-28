@@ -1,11 +1,14 @@
+import { PersonalOriginalRecords } from './dashboard/PersonalOriginalRecords';
 import { Button } from "./components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
+  ArrowLeft,
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   FileSearch,
   Folder,
@@ -19,7 +22,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { useAuth } from "./auth";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -42,6 +45,14 @@ import { cn } from "./components/ui/utils";
 import { fetchDashboardData, type DashboardData, type DashboardSource } from "./lib/dashboardApi";
 import { i18nLocale, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
+import { ManagementDashboard } from "./dashboard/ManagementDashboard";
+import { dashboardHomeView, managementDashboardAccess, managementQuery } from "./dashboard/managementDashboardModel";
 
 type TodoStatus = "待处理" | "处理中" | "待审批";
 type TodoPriority = "高" | "中" | "低";
@@ -167,6 +178,38 @@ function EmptyBlock({ title, helper, action }: { title: string; helper: string; 
 }
 
 export function Dashboard() {
+  const { user } = useAuth(), { t } = useI18n();
+  const [params, setParams] = useSearchParams();
+  const permissions = user?.permissions ?? [], access = managementDashboardAccess(permissions);
+  const canTasks = permissions.some(code => ['*', 'page:rd-my-workspace', 'page:production-execution', 'page:purchase-order-detail'].includes(code));
+  const view = canTasks && params.get('home') === 'tasks' ? 'tasks' : dashboardHomeView(params, permissions), identity = JSON.stringify([user?.id, [...permissions].sort()]);
+  const openView = (home: string) => setParams(current => managementQuery(current, { home }));
+  const returnToDashboard = () => setParams(current => managementQuery(current, {
+    home: 'management', homeSection: null, riskQuality: null, riskProduct: null, riskPage: null,
+  }));
+  if (!access.canManage && !canTasks) return <PersonalDashboard key={identity} />;
+  if (view === 'management') return <ManagementDashboard
+    key={identity}
+    permissions={permissions}
+    navigation={<DropdownMenu>
+      <DropdownMenuTrigger asChild><Button variant="outline" size="sm">{t('工作入口')}<ChevronDown className="size-3.5" aria-hidden="true" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => openView('office')}>{t('我的办公')}</DropdownMenuItem>
+        {canTasks && <DropdownMenuItem onSelect={() => openView('tasks')}>{t('跨岗位待办')}</DropdownMenuItem>}
+      </DropdownMenuContent>
+    </DropdownMenu>}
+  />;
+  return <div className="space-y-4">
+    <nav className="flex flex-wrap items-center gap-1" aria-label={t('首页工作入口')}>
+      {access.canManage && <Button variant="ghost" size="sm" onClick={returnToDashboard}><ArrowLeft className="size-3.5" aria-hidden="true" />{t('返回数据看板')}</Button>}
+      {view !== 'office' && <Button variant="ghost" size="sm" onClick={() => openView('office')}>{t('我的办公')}</Button>}
+      {canTasks && view !== 'tasks' && <Button variant="ghost" size="sm" onClick={() => openView('tasks')}>{t('跨岗位待办')}</Button>}
+    </nav>
+    {view === 'tasks' ? <PersonalOriginalRecords key={identity} /> : <PersonalDashboard key={identity} />}
+  </div>;
+}
+
+export function PersonalDashboard() {
   const { lang, t } = useI18n();
   const locale = i18nLocale();
   const { user } = useAuth();
@@ -499,7 +542,7 @@ export function Dashboard() {
   );
 
   return (
-    <div className="horizon-theme hz-page hz-dashboard mx-auto max-w-[1500px] space-y-6">
+    <div className="horizon-theme hz-page hz-dashboard mx-auto max-w-[1500px] space-y-4">
       <HorizonPageHeader
         Icon={Activity}
         titleLevel={2}
@@ -550,7 +593,7 @@ export function Dashboard() {
         </section>
       ) : null}
 
-      <div className="hz-dashboard-work grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="hz-dashboard-work grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="hz-surface hz-dashboard-todos min-w-0 overflow-hidden" aria-busy={loading && !data}>
           <HorizonSectionHeader
             Icon={Clock3}
@@ -679,10 +722,10 @@ export function Dashboard() {
         <section className="hz-surface hz-dashboard-quick min-w-0 overflow-hidden">
           <HorizonSectionHeader Icon={ArrowUpRight} title={t("快捷操作")} description={t("常用工作，一步进入。") } />
           {quickActions.length ? (
-            <div className="grid grid-cols-2 gap-3 p-5 xl:grid-cols-1">
+            <div className="grid grid-cols-2 gap-1 p-2 xl:grid-cols-1">
               {quickActions.map((action) => (
-                <Link key={action.title} to={action.path} className="group flex min-w-0 cursor-pointer flex-col items-start gap-3 rounded-2xl bg-muted/50 p-4 hover:bg-primary/5 xl:flex-row xl:items-center">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-card text-primary">
+                <Link key={action.title} to={action.path} className="group flex min-w-0 cursor-pointer flex-col items-start gap-3 rounded-xl p-3 hover:bg-muted xl:flex-row xl:items-center">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-primary">
                     <action.icon className="size-5" aria-hidden="true" />
                   </span>
                   <span className="min-w-0 flex-1 text-pretty text-sm font-semibold leading-6 text-foreground">{t(action.title)}</span>
@@ -714,15 +757,15 @@ export function Dashboard() {
                 </div>
               ))
             : moduleCards.map((card) => (
-                <Link key={card.title} to={card.path} className="hz-surface hz-dashboard-module group block min-w-0 cursor-pointer p-6">
+                <Link key={card.title} to={card.path} className="hz-surface hz-dashboard-module group block min-w-0 cursor-pointer p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><card.icon className="size-5" aria-hidden="true" /></span>
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><card.icon className="size-5" aria-hidden="true" /></span>
                     <ArrowUpRight className="size-4 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
                   </div>
-                  <h3 className="mt-4 text-balance text-sm font-medium text-muted-foreground">{card.title}</h3>
-                  <div className="mt-1 text-3xl font-bold tabular-nums text-foreground">{card.value}</div>
+                  <h3 className="mt-3 text-balance text-sm font-medium text-muted-foreground">{card.title}</h3>
+                  <div className="mt-1 text-2xl font-bold tabular-nums text-foreground">{card.value}</div>
                   <div className="mt-2 text-pretty text-sm tabular-nums text-muted-foreground">{card.helper}</div>
-                  <p className="mt-4 border-t border-border pt-4 text-pretty text-xs leading-5 tabular-nums text-muted-foreground">{card.description}</p>
+                  <p className="mt-3 border-t border-border pt-3 text-pretty text-xs leading-5 tabular-nums text-muted-foreground">{card.description}</p>
                 </Link>
               ))}
         </div>
@@ -731,7 +774,7 @@ export function Dashboard() {
         ) : null}
       </section>
 
-      <div className="hz-dashboard-insights grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="hz-dashboard-insights grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="hz-surface min-w-0 overflow-hidden">
           <HorizonSectionHeader
             Icon={BarChart3}

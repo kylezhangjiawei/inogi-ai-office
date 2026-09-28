@@ -441,7 +441,7 @@ export function DepartmentManagement() {
             </Button>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="min-h-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto [scrollbar-gutter:stable]">
             <table className="w-full min-w-[1040px] table-fixed text-left">
               <caption className="sr-only">部门名称、分类、负责人、用户数量、排序、状态及可用操作</caption>
               <colgroup>
@@ -453,7 +453,7 @@ export function DepartmentManagement() {
                 <col className="w-[110px]" />
                 <col className="w-[130px]" />
               </colgroup>
-              <thead className="bg-slate-50/90">
+              <thead className="sticky top-0 z-10 bg-slate-50/95">
                 <tr>
                   {["部门", "分类", "负责人", "用户数", "排序", "状态", "操作"].map((col) => (
                     <th key={col} scope="col" className={cn(TABLE_HEADER_CLASS, col === "操作" && "text-right")}>

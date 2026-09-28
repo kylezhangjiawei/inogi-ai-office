@@ -149,6 +149,8 @@ export class CreateProcTaskDto {
 
 /** 研发侧「转采购」：附带研发任务上下文，附件必填（无强制字段校验，有附件即可）。 */
 export class TransferFromRdDto extends CreateProcTaskDto {
+  @IsOptional() @IsString() @MaxLength(500) needDateNotApplicableReason?: string;
+  @IsOptional() @IsString() @MaxLength(500) specNotApplicableReason?: string;
   @IsString()
   @IsNotEmpty()
   @MaxLength(64)
@@ -226,6 +228,7 @@ export class UpdateProcTaskDto {
 
 /** 采购自建的备货总计划。 */
 export class CreateProcStockPlanDto {
+  @IsOptional() @IsString() @MaxLength(200) bomRevisionId?: string;
   @IsOptional()
   @IsIn(['material', 'machine', 'packaging'])
   planType?: 'material' | 'machine' | 'packaging';
@@ -287,6 +290,7 @@ export class CreateProcStockPlanDto {
 }
 
 export class UpdateProcStockPlanDto {
+  @IsOptional() @IsString() @MaxLength(200) bomRevisionId?: string;
   @IsOptional()
   @IsIn(['material', 'machine', 'packaging'])
   planType?: 'material' | 'machine' | 'packaging';
@@ -541,7 +545,27 @@ export class AssignSampleTestDto {
   baseUpdatedAt!: string;
 }
 
+export class SampleEvidenceFileDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) fileId!: string;
+}
+export class SampleEvidenceDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) roundId!: string;
+  @IsDateString({ strict: true }) baseUpdatedAt!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ValidateNested({ each: true }) @Type(() => SampleEvidenceFileDto) items!: SampleEvidenceFileDto[];
+}
+export class SampleValidationCheckDto {
+  @IsIn(['drawing', 'sip', 'sop', 'fixture', 'trial']) key!: 'drawing' | 'sip' | 'sop' | 'fixture' | 'trial';
+  @IsIn(['required', 'not_applicable']) applicability!: 'required' | 'not_applicable';
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsOptional() @IsString() @MaxLength(300) referenceId?: string;
+  @IsOptional() @IsIn(['passed', 'failed']) outcome?: 'passed' | 'failed';
+}
+export class SampleValidationDto {
+  @IsIn(['exploration', 'transfer']) kind!: 'exploration' | 'transfer';
+  @IsArray() @ArrayMaxSize(5) @ValidateNested({ each: true }) @Type(() => SampleValidationCheckDto) checks!: SampleValidationCheckDto[];
+}
 export class ConfirmSampleTestDto {
+  @IsOptional() @ValidateNested() @Type(() => SampleValidationDto) validation?: SampleValidationDto;
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -989,6 +1013,60 @@ export class CreateInventoryBomLineDto {
 export class InventoryBomLineVersionDto {
   @IsDateString()
   baseUpdatedAt!: string;
+}
+
+export class ConfirmStockPlanBomBasisDto {
+  @IsString() @IsNotEmpty() @MaxLength(200) revisionId!: string;
+  @IsDateString() expectedUpdatedAt!: string;
+  @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId!: string;
+  @IsString() @IsNotEmpty() @MaxLength(2000) reason!: string;
+}
+
+/** 设备 BOM 配置；物料节点只能引用现有物料主档。 */
+export class SaveBomNodeDto {
+  @IsIn(['device', 'group', 'material'])
+  kind!: 'device' | 'group' | 'material';
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  productLine!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  parentId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  materialId?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4, allowNaN: false, allowInfinity: false })
+  @Min(0.0001)
+  @Max(9999999999.9999)
+  qtyPer?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  remark?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(999999)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsDateString()
+  baseUpdatedAt?: string;
 }
 
 export class UpdateInventoryBomLineDto extends CreateInventoryBomLineDto {

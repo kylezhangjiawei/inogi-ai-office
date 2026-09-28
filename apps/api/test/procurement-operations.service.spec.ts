@@ -13,6 +13,66 @@ const d = (value: number) => new Prisma.Decimal(value);
 const reportInput: SaveProductionReportDto = { productId: 'product-1', treeNodeId: 'node-1', stockPlanId: 'plan-1', reportDate: '2026-09-04', shift: '白班', lineName: '总装线', unit: '套', plannedQty: 100, actualQty: 90, goodQty: 85, workHours: 16, capacityQty: 100 };
 const qualityInput: SaveQualityRecordDto = { productId: 'product-1', treeNodeId: 'node-1', stockPlanId: 'plan-1', source: 'production', batchNo: 'B-1', inspectionDate: '2026-09-04', unit: '套', inspectedQty: 90, defectiveQty: 3, issue: '外观划痕', disposition: 'pending', status: 'open' };
 
+const analysisData = { category: 'process', detail: '装配工艺偏差', evidence: '检验记录和现场复核一致', responsibility: { kind: 'internal', id: 'responsible', name: '客户端伪造姓名' }, phenomena: [{ name: '划痕', count: 6 }, { name: '偏位', count: 2 }], references: [{ source: 'warehouse', reference: '真实反馈单号', note: '同批原异常追踪' }], fileIds: ['real-file-1'], reason: '依据现场实测确认' };
+test('F04 四来源沿原异常登记，6件8次分离，责任人从账号读取且授权确认幂等', async () => {
+  const f=fixture();
+  for(const source of ['procurement','production','warehouse','after_sales'] as const)await f.service.saveQualityRecord(null,{...qualityInput,source,defectiveQty:6},actor);
+  const list=await f.service.list({productId:'product-1',month:'2026-09'});assert.equal(list.qualitySummary.length,4);
+  const record=list.qualityRecords[0],input={requestId:'quality-analysis-confirm-001',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:analysisData};
+  await f.service.saveQualityAnalysis(record.id,input,actor);await f.service.saveQualityAnalysis(record.id,input,actor);
+  const result=await f.service.qualityAnalysis(record.id,actor);
+  assert.equal(result.record.defectiveQty,6);assert.equal(result.analysis.phenomena.reduce((n,row)=>n+row.count,0),8);
+  assert.equal(result.analysis.responsibility.name,'责任人甲');assert.equal(result.analysis.confirmedBy,actor.id);
+  assert.equal(result.analysis.history.length,1);assert.equal(f.quality.length,4);assert.equal(result.analysis.references.length,1);
+  assert.equal((await f.service.qualityAttachment(record.id,'real-file-1',actor)).name,'证据.png');
+});
+test('F04 未知可以保存待分析但不能冒充确认，协同经办没有确认权限', async () => {
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+  const input={requestId:'quality-analysis-unknown-001',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:{...analysisData,category:'unknown'}};
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,input,actor),/未知|确认主因/);
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,{...input,data:analysisData},{...actor,permissions:['proc-quality:collaborate']}),/权限/);
+  await f.service.saveQualityAnalysis(record.id,{...input,action:'save'},actor);
+  const result=await f.service.qualityAnalysis(record.id,actor);assert.equal(result.analysis.state,'pending');assert.equal(result.analysis.category,'unknown');assert.equal(result.analysis.confirmedBy,undefined);
+});
+test('F04 伪造附件、他人上传、无效责任账号及重复现象不能保存', async () => {
+  for(const patch of [{fileIds:['made-up-id']},{responsibility:{kind:'internal',id:'disabled'}},{phenomena:[{name:'划痕',count:6},{name:'划痕',count:2}]},{phenomena:[{name:'划痕',count:1.5}]}]){
+    const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+    await assert.rejects(f.service.saveQualityAnalysis(record.id,{requestId:'quality-analysis-invalid-001',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:{...analysisData,...patch}},actor));
+    assert.equal(f.history.length,0);
+  }
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);f.files[0].uploadedBy='someone-else';
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,{requestId:'quality-analysis-other-file',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:analysisData},actor),/附件/);
+});
+test('F04 原异常或分析CAS失败都回滚历史，旧版本不能覆盖，已关闭须先重新打开', async () => {
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+  const input={requestId:'quality-analysis-conflict-01',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:analysisData};
+  const original=f.prisma.procQualityRecord.updateMany;
+  f.prisma.procQualityRecord.updateMany=async()=>({count:0});
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,input,actor),/已更新/);assert.equal(f.history.length,0);
+  f.prisma.procQualityRecord.updateMany=original;await f.service.saveQualityAnalysis(record.id,input,actor);
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,{...input,requestId:'quality-analysis-conflict-02'},actor),/已被更新|已更新/);
+  f.quality[0].status='closed';
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,{...input,requestId:'quality-analysis-closed-001'},actor),/已关闭/);
+});
+test('F04 仅本作业或协同经办可读现场证据，其他现场账号和别的异常附件均拒绝', async () => {
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+  await f.service.saveQualityAnalysis(record.id,{requestId:'quality-analysis-read-scope',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:analysisData},actor);
+  f.history.push({key:`procurement:execution:v1:quality:${record.id}`,value:JSON.stringify({planId:'ep',taskId:'et'})},{key:'procurement:execution:v1:plan:ep',value:JSON.stringify({tasks:[{id:'et',ownerId:'worker'}]})});
+  const worker={id:'worker',name:'现场人',permissions:['page:production-execution']};
+  assert.equal((await f.service.qualityAnalysis(record.id,worker)).analysis.files.length,1);
+  await assert.rejects(f.service.qualityAnalysis(record.id,{...worker,id:'other'}),/无权/);
+  await assert.rejects(f.service.qualityAttachment(record.id,'another-file',worker),/不属于/);
+});
+test('F04 实领批号待补可沿原记录补全，仅接受同作业已签收批号', async () => {
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+  f.history.push({key:`procurement:execution:v1:quality:${record.id}`,value:JSON.stringify({planId:'ep',taskId:'et',fieldIssueId:'field'})},{key:'procurement:warehouse-flow:v1:issue:et',value:JSON.stringify({lines:[{code:'M1',name:'阀',signedQty:10,signedBatches:[{batchNo:'LOT-A',quantity:10}]}]})});
+  const input={requestId:'quality-analysis-batch-001',version:0,baseUpdatedAt:record.updatedAt,action:'save',data:{...analysisData,materialBatches:[{code:'M1',batchNo:'foreign'}]}};
+  await assert.rejects(f.service.saveQualityAnalysis(record.id,input,actor),/已签收/);
+  await f.service.saveQualityAnalysis(record.id,{...input,data:{...input.data,materialBatches:[{code:'M1',batchNo:'LOT-A'}]}},actor);
+  assert.deepEqual((await f.service.qualityAnalysis(record.id,actor)).analysis.materialBatches,[{code:'M1',batchNo:'LOT-A'}]);
+});
+
+
 type Row = Record<string, any>;
 function fixture() {
   const reports: Row[] = [];
@@ -24,6 +84,8 @@ function fixture() {
   const tasks: Row[] = [{ id: 'task-1', productId: 'product-1', treeNodeId: 'node-1', materialId: 'material-1', code: 'PR-1', unit: '套' }, { id: 'task-2', productId: 'product-2', treeNodeId: 'node-2', materialId: 'material-2', code: 'PR-2', unit: '件' }];
   const materials: Row[] = [{ id: 'material-1', name: '主机', unit: '套' }, { id: 'material-2', name: '外部物料', unit: '件' }];
   const suppliers: Row[] = [{ id: 'supplier-1', name: '供应商甲' }];
+  const users: Row[] = [{ id: 'responsible', name: '责任人甲', status: 'ACTIVE' }, { id: 'operator', name: '质量甲', status: 'ACTIVE' }];
+  const files: Row[] = [{ id: 'real-file-1', status: 'active', uploadedBy: 'operator', businessType: 'assets', objectKey: 'assets/test-evidence.png', fileName: '证据.png', mimeType: 'image/png', fileSize: 100 }];
   let sequence = 0;
   let transactionOptions: unknown;
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([key, value]) => {
@@ -48,11 +110,12 @@ function fixture() {
     updateMany: async ({ where, data }: Row) => { const row = rows.find((item) => matches(item, where)); if (!row) return { count: 0 }; Object.assign(row, data, { updatedAt: new Date(baseTime.getTime() + ++sequence) }); return { count: 1 }; },
   });
   const prisma = {
+    user: delegate(users, 'user'), fileAsset: delegate(files, 'file'),
     runtimeState: delegate(history, 'history'), auditLog: delegate(audit, 'audit'),
     procTaskTreeNode: delegate(nodes, 'node'), procStockPlan: delegate(plans, 'plan'), procTask: delegate(tasks, 'task'), procMaterial: delegate(materials, 'material'), procSupplier: delegate(suppliers, 'supplier'), procProductionReport: delegate(reports, 'report'), procQualityRecord: delegate(quality, 'quality'),
-    $transaction: async (run: (db: unknown) => Promise<unknown>, options: unknown) => { transactionOptions = options; return run(prisma); },
+    $transaction: async (run: (db: unknown) => Promise<unknown>, options: unknown) => { transactionOptions = options; const collections = [reports, quality, history, audit]; const copies = collections.map(rows => rows.map(row => ({ ...row }))); try { return await run(prisma); } catch (error) { collections.forEach((rows,index) => rows.splice(0,rows.length,...copies[index])); throw error; } },
   };
-  return { service: new ProcurementOperationsService(prisma as never), verification: new QualityVerificationService(prisma as never), history, audit, reports, quality, nodes, plans, tasks, prisma, transactionOptions: () => transactionOptions };
+  return { service: new ProcurementOperationsService(prisma as never, { getReadUrl: () => ({ url: 'https://example.invalid/authorized-test-evidence' }) } as never), verification: new QualityVerificationService(prisma as never), files, history, audit, reports, quality, nodes, plans, tasks, prisma, transactionOptions: () => transactionOptions };
 }
 
 test('真实日期校验接受闰日并拒绝滚动日期和无效月份', () => {

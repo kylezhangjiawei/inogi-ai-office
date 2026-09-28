@@ -67,6 +67,57 @@ test('服务端拒绝把任务分配给采购部门外或缺少个人工作台�
   );
 });
 
+test('成员名录使用系统用户，支持跨部门添加、备注和持久移出，不修改账号或任务', async () => {
+  let value = JSON.stringify(['legacy']);
+  const users = [
+    { id: 'buyer', name: '采购甲', department: '采购部', status: 'ACTIVE' },
+    { id: 'legacy', name: '研发甲', department: '研发部', status: 'ACTIVE' },
+    { id: 'new', name: '研发甲', department: '研发部', status: 'ACTIVE' },
+    { id: 'inactive', name: '停用人员', department: '研发部', status: 'INACTIVE' },
+  ];
+  const service = createService({
+    department: { findUnique: async () => ({ name: '采购部' }) },
+    user: {
+      findUnique: async ({ where }: any) => users.find(user => user.id === where.id),
+      findMany: async ({ where }: any) => users.filter(user => {
+        if (!where.OR) return !where.status || user.status === where.status;
+        return !where.id.notIn.includes(user.id) && (
+          (user.status === where.OR[0].status && user.department === where.OR[0].department)
+          || where.OR[1].id.in.includes(user.id)
+        );
+      }),
+    },
+    runtimeState: {
+      findUnique: async () => ({ value }),
+      upsert: async ({ update }: any) => { value = update.value; },
+    },
+  });
+  const ids = async () => (await service.getBuyerRoster()).members.map(member => member.id).sort();
+  assert.deepEqual(await ids(), ['buyer', 'legacy']);
+  const candidates = await service.listBuyerCandidates('all');
+  assert.deepEqual(candidates.map(user => user.id).sort(), users.map(user => user.id).sort());
+  assert.equal(candidates.find(user => user.id === 'inactive')?.disabled, true);
+  assert.ok(!(await service.listBuyerCandidates('department')).some(user => user.id === 'inactive'));
+  await assert.rejects(() => service.addBuyerRosterMember('inactive'), /已启用/);
+  await assert.rejects(() => service.addBuyerRosterMember('missing'), /已启用/);
+  await service.addBuyerRosterMember('new');
+  await service.addBuyerRosterMember('new');
+  assert.deepEqual(await ids(), ['buyer', 'legacy', 'new']);
+  assert.equal(JSON.parse(value).filter((entry: any) => entry.userId === 'new').length, 1);
+  await service.updateBuyerRosterMember('new', '  物料协调  ');
+  assert.equal((await service.getBuyerRoster()).members.find(member => member.id === 'new')?.note, '物料协调');
+  await service.removeBuyerRosterMember('buyer');
+  await service.removeBuyerRosterMember('legacy');
+  assert.deepEqual(await ids(), ['new'], '部门默认成员和旧格式成员移出后均不重新出现');
+  await assert.rejects(() => service.updateBuyerRosterMember('buyer', '已移出'), /不在/);
+  await service.addBuyerRosterMember('buyer');
+  assert.deepEqual(await ids(), ['buyer', 'new']);
+  users.find(user => user.id === 'new')!.status = 'INACTIVE';
+  assert.equal((await service.getBuyerRoster()).members.find(member => member.id === 'new')?.disabled, true);
+  await service.removeBuyerRosterMember('new');
+  assert.deepEqual(await ids(), ['buyer']);
+});
+
 test('未分配采购任务按在制负载均衡分配并记录日志', async () => {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {

@@ -1,0 +1,9 @@
+{
+  "name": "inogi-direction-d-prototype",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {"dev": "node ../../node_modules/vite/bin/vite.js --host 0.0.0.0"},
+  "dependencies": {"@vitejs/plugin-react": "latest", "vite": "latest", "react": "^18.3.1", "react-dom": "^18.3.1", "lucide-react": "^0.468.0"},
+  "devDependencies": {}
+}

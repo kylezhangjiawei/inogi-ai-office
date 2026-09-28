@@ -119,7 +119,7 @@ export function ProcWorkspaceArrivals({ tasks, onSelect, disabled = false, open,
   const dated = visibleRows.filter((row) => row.etaDate);
   const undated = visibleRows.filter((row) => !row.etaDate);
   const renderRows = (rows: WorkspaceArrival[], title: string) => rows.length ? <section aria-label={title}>
-    <h3 className="border-y border-border bg-muted/40 px-4 py-2 text-balance text-xs font-semibold text-foreground">{title}</h3>
+    <h3 className="border-t border-border bg-muted/40 px-4 py-2 text-balance text-xs font-semibold text-foreground">{title}</h3>
     <ul className="divide-y divide-border">{rows.map((row) => {
       const date = dateByRef.get(row.orderId);
       // A stale/mismatched task reference never borrows an otherwise valid order line's navigation.
@@ -139,19 +139,19 @@ export function ProcWorkspaceArrivals({ tasks, onSelect, disabled = false, open,
     })}</ul>
   </section> : null;
 
-  return <Collapsible open={open} onOpenChange={onOpenChange} disabled={disabled} className="@container min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+  return <Collapsible open={open} onOpenChange={onOpenChange} disabled={disabled} className="proc-s01-arrivals @container">
     <CollapsibleTrigger asChild>
-      <Button type="button" variant="ghost" className="group h-auto min-h-14 w-full justify-between rounded-none px-4 py-3 text-sm">
-        <span className="inline-flex min-w-0 items-center gap-2"><CalendarClock className="size-4 text-primary" aria-hidden="true" /><span>{t("到货安排")}</span><span className="text-xs font-normal tabular-nums text-muted-foreground">{t("{count} 行", { count: allArrivals.length })}</span></span>
+      <Button type="button" variant="ghost" className="proc-s01-arrivals-trigger group h-auto w-full justify-between gap-3 whitespace-normal text-sm">
+        <span className="inline-flex min-w-0 items-center gap-3"><span className="proc-s01-arrivals-icon"><CalendarClock className="size-4" aria-hidden="true" /></span><span className="min-w-0"><span>{t("到货安排")}</span><span className="proc-s01-arrivals-count">{t("{count} 行", { count: allArrivals.length })}</span><span className="proc-s01-arrivals-hint">{t("跟踪当前筛选任务的关联订单。")}</span></span></span>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground group-data-[state=open]:rotate-180" aria-hidden="true" />
       </Button>
     </CollapsibleTrigger>
-    <CollapsibleContent className="border-t border-border">
-      {onViewChange && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+    <CollapsibleContent className="proc-s01-arrivals-body cockpit-scroll">
+      {onViewChange && <div className="proc-s01-arrivals-toolbar">
         <p className="text-xs text-muted-foreground">{t("到货日期视图独立于上方任务需求月份。")}</p>
-        <div role="group" aria-label={t("到货安排视图")} className="flex gap-1">
-          <Button type="button" size="sm" variant={view === "list" ? "default" : "outline"} aria-pressed={view === "list"} disabled={disabled} onClick={() => onViewChange({ view: "list", selection: "all" })}>{t("到货列表")}</Button>
-          <Button type="button" size="sm" variant={view === "calendar" ? "default" : "outline"} aria-pressed={view === "calendar"} disabled={disabled} onClick={() => onViewChange({ view: "calendar" })}>{t("到货日历")}</Button>
+        <div role="group" aria-label={t("到货安排视图")} className="proc-s01-arrivals-views">
+          <Button type="button" size="sm" variant="ghost" aria-pressed={view === "list"} disabled={disabled} onClick={() => onViewChange({ view: "list", selection: "all" })}>{t("到货列表")}</Button>
+          <Button type="button" size="sm" variant="ghost" aria-pressed={view === "calendar"} disabled={disabled} onClick={() => onViewChange({ view: "calendar" })}>{t("到货日历")}</Button>
         </div>
       </div>}
       {open && view === "calendar" && onViewChange && <ArrivalCalendar rows={allArrivals} month={calendarMonth} selection={selection} disabled={disabled}
@@ -176,7 +176,7 @@ export function ProcWorkspaceArrivals({ tasks, onSelect, disabled = false, open,
             : busy ? <p role="status" className="border-t border-border px-4 py-3 text-xs text-muted-foreground">{t("正在读取本页订单可用日期…")}</p> : null}
         {renderRows(dated, t("已填写预计到货日期"))}
         {renderRows(undated, t("日期待确认"))}
-      </div> : <p role="status" className="px-4 py-5 text-pretty text-sm leading-6 text-muted-foreground">{t(allArrivals.length
+      </div> : <p role="status" className="proc-s01-arrivals-empty text-pretty">{t(allArrivals.length
         ? "当前日期范围内没有关联订单，可选择其他日期或查看全部关联。" : "当前筛选下尚无关联订单。选择采购任务，在完整详情中核对下单安排。")}</p>}
     </CollapsibleContent>
   </Collapsible>;

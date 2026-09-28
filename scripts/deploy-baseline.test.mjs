@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -78,7 +77,11 @@ async function writeStub(binDir, name, body = "exit 0") {
 }
 
 async function createFakeDeployment() {
-  const root = await mkdtemp(join(tmpdir(), "inogi-deploy-baseline-"));
+  // Both Node and Git Bash must be able to traverse the disposable fixture.
+  // Windows sandbox permissions can differ for the user's system temp ancestors.
+  const tempRoot = fileURLToPath(new URL('../.tmp/deploy-tests/', import.meta.url));
+  await mkdir(tempRoot, { recursive: true });
+  const root = await mkdtemp(join(tempRoot, "inogi-deploy-baseline-"));
   const repoDir = join(root, "repo");
   const binDir = join(root, "bin");
   const webRoot = join(root, "web");
@@ -87,12 +90,14 @@ async function createFakeDeployment() {
     mkdir(join(repoDir, "apps", "api"), { recursive: true }),
     mkdir(join(repoDir, "dist"), { recursive: true }),
     mkdir(join(repoDir, "node_modules", ".pnpm"), { recursive: true }),
+    mkdir(join(repoDir, "scripts"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(webRoot, { recursive: true }),
     mkdir(metricsDir, { recursive: true }),
   ]);
   await Promise.all([
     writeFile(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8"),
+    writeFile(join(repoDir, "scripts", "test-postgres-release.sh"), "exit 0\n", "utf8"),
     writeStub(binDir, "pnpm"),
     writeStub(binDir, "npm"),
     writeStub(binDir, "npx"),
@@ -158,7 +163,9 @@ function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
     cwd: fixture.repoDir,
     env,
     encoding: "utf8",
-    timeout: 30_000,
+    // Git Bash process startup is slower under the parallel Windows suite.
+    // This bounds the harness, not DEPLOY_HEALTH_TIMEOUT_SECONDS (still 1–2s).
+    timeout: process.platform === "win32" ? 90_000 : 30_000,
   });
 }
 
@@ -180,6 +187,7 @@ skip_stage() { printf 'skip:%s\\n' "$*"; }
 die() { printf 'failure:%s\\n' "$*"; exit 1; }
 npx() { printf 'command:npx %s\\n' "$*"; }
 npm() { printf 'command:npm %s\\n' "$*"; [ "$*" != "\${DEPLOY_TEST_FAILURE:-}" ]; }
+bash() { printf 'command:bash %s\\n' "$*"; [ "\${DEPLOY_TEST_FAILURE:-}" != "postgres" ]; }
 node() { return 0; }
 ${deploySource.slice(start, end)}
 printf 'gate-complete\\n'
@@ -191,6 +199,8 @@ printf 'gate-complete\\n'
       DEPLOY_PLAN_FRONTEND: "0",
       DEPLOY_PLAN_API: "0",
       DEPLOY_PLAN_QUALITY: "0",
+      DEPLOY_PLAN_PRISMA: "0",
+      DEPLOY_PLAN_MIGRATIONS: "0",
       DEPLOY_RUN_TESTS: "1",
       DEPLOY_TEST_FAILURE: "",
       ...overrides,
@@ -204,15 +214,19 @@ const frontendTypecheck = "npx --no-install tsc --noEmit -p tsconfig.json";
 const apiTypecheck = "npx --no-install tsc --noEmit -p apps/api/tsconfig.json --tsBuildInfoFile unused-test-cache/tsbuildinfo-api";
 const frontendTests = "npm run test:dev-scripts";
 const apiTests = "npm --prefix apps/api run test";
+const postgresTests = "bash scripts/test-postgres-release.sh";
 for (const [name, env, commands, status = 0] of [
   ["frontend-only runs frontend regression tests", { DEPLOY_PLAN_FRONTEND: "1" }, [frontendTypecheck, frontendTests]],
-  ["API-only runs API tests", { DEPLOY_PLAN_API: "1" }, [apiTypecheck, apiTests]],
-  ["quality-only runs both suites", { DEPLOY_PLAN_QUALITY: "1" }, [apiTypecheck, frontendTests, apiTests]],
-  ["combined changes run both suites once", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1" }, [frontendTypecheck, apiTypecheck, frontendTests, apiTests]],
+  ["API-only runs API and isolated database tests", { DEPLOY_PLAN_API: "1" }, [apiTypecheck, apiTests, postgresTests]],
+  ["quality-only runs both suites and isolated database tests", { DEPLOY_PLAN_QUALITY: "1" }, [apiTypecheck, frontendTests, apiTests, postgresTests]],
+  ["combined changes run both suites once", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1" }, [frontendTypecheck, apiTypecheck, frontendTests, apiTests, postgresTests]],
+  ["schema-only runs isolated database tests", { DEPLOY_PLAN_PRISMA: "1" }, [postgresTests]],
+  ["migration-only runs isolated database tests", { DEPLOY_PLAN_MIGRATIONS: "1" }, [postgresTests]],
   ["unchanged inputs skip checks", {}, []],
   ["explicit disable skips checks", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1", DEPLOY_PLAN_QUALITY: "1", DEPLOY_RUN_TESTS: "0" }, []],
   ["frontend test failure blocks release", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_TEST_FAILURE: "run test:dev-scripts" }, [frontendTypecheck, frontendTests], 1],
   ["API test failure blocks release", { DEPLOY_PLAN_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test" }, [apiTypecheck, apiTests], 1],
+  ["isolated database failure blocks release", { DEPLOY_PLAN_API: "1", DEPLOY_TEST_FAILURE: "postgres" }, [apiTypecheck, apiTests, postgresTests], 1],
 ]) {
   test(`quality gate: ${name}`, { skip: !bash }, () => {
     const result = runQualityGate(env);
@@ -222,6 +236,73 @@ for (const [name, env, commands, status = 0] of [
     assert.equal(result.stdout.includes("gate-complete"), status === 0);
   });
 }
+
+test("isolated database failure prevents production migration and restart", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeFile(join(fixture.repoDir, "scripts", "test-postgres-release.sh"), "echo isolated-pg-failure\nexit 23\n");
+    await writeStub(fixture.binDir, "npx", 'if [[ "$*" == *"migrate deploy"* ]]; then touch "$REPO_DIR/migrated"; fi');
+    await writeStub(fixture.binDir, "pm2", 'touch "$REPO_DIR/restarted"');
+    const result = runFakeDeployment(bash, fixture);
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /isolated-pg-failure/);
+    await assert.rejects(readFile(join(fixture.repoDir, "migrated")));
+    await assert.rejects(readFile(join(fixture.repoDir, "restarted")));
+    const records = (await readdir(fixture.metricsDir)).filter((name) => name.endsWith(".json"));
+    const record = JSON.parse(await readFile(join(fixture.metricsDir, records[0]), "utf8"));
+    assert.equal(record.stages.find((stage) => stage.name === "tests")?.status, "failed");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+for (const selected of ["python3.11", "python3.9"]) {
+  test(`native dependency installation selects compatible ${selected} before postinstall`, { skip: !bash }, async () => {
+    const fixture = await createFakeDeployment();
+    try {
+      await writeStub(fixture.binDir, "python3", "exit 1"); // The server's default Python 3.6 cannot build node-gyp 11.
+      await writeStub(fixture.binDir, "python3.11", selected === "python3.11" ? "exit 0" : "exit 1");
+      await writeStub(fixture.binDir, "python3.9", "exit 0");
+      await writeStub(fixture.binDir, "pnpm", `
+printf '%s\\n' "\${PYTHON:-}" > "$REPO_DIR/install-python.txt"
+"\${PYTHON:-python3}" -c 'import sys; sys.exit(sys.version_info < (3, 8))'`);
+      const result = runFakeDeployment(bash, fixture, { PYTHON: "", DEPLOY_METRICS_ENABLED: "0" });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal((await readFile(join(fixture.repoDir, "install-python.txt"), "utf8")).trim(), bashPath(join(fixture.binDir, selected)));
+      assert.equal(JSON.parse(await readFile(join(fixture.repoDir, "app-health.json"), "utf8")).ok, true);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("explicit PYTHON is preserved for installation and argon2 source rebuild", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    const nativeDir = join(fixture.repoDir, "node_modules", ".pnpm", "argon2@0.44.0", "node_modules", "argon2");
+    await mkdir(nativeDir, { recursive: true });
+    await writeStub(fixture.binDir, "python3.11", "exit 0");
+    await writeStub(fixture.binDir, "custom-python", "exit 0");
+    await writeStub(fixture.binDir, "pnpm", `printf '%s\\n' "$PYTHON" > "$REPO_DIR/install-python.txt"`);
+    await writeStub(fixture.binDir, "node-gyp", `printf '%s\\n' "$*" > "$REPO_DIR/native-build-args.txt"\ntouch native-built`);
+    await writeStub(fixture.binDir, "node", `
+if [ "\${1:-}" = "--version" ]; then echo v22.22.1; exit 0; fi
+if [ "\${1:-}" = "-e" ] && [ "\${2:-}" = "require('.')" ]; then test -f native-built; exit $?; fi
+if [ "\${1:-}" = "-e" ]; then exec "${bashPath(process.execPath)}" "$@"; fi
+exit 0`);
+    const python = bashPath(join(fixture.binDir, "custom-python"));
+    const result = runFakeDeployment(bash, fixture, { PYTHON: python, DEPLOY_METRICS_ENABLED: "0" });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal((await readFile(join(fixture.repoDir, "install-python.txt"), "utf8")).trim(), python);
+    assert.equal((await readFile(join(fixture.repoDir, "native-build-args.txt"), "utf8")).trim(), `rebuild --python ${python}`);
+    await access(join(nativeDir, "native-built"));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
 test("failed frozen dependency installation blocks release instead of falling back", { skip: !bash }, async () => {
   const fixture = await createFakeDeployment();
@@ -594,6 +675,7 @@ test("unready, stale-version or invalid health responses cannot publish the fron
         DEPLOY_CHANGE_PLAN: "1",
         DEPLOY_HEALTH_TIMEOUT_SECONDS: "1",
       });
+      assert.equal(result.error, undefined, `fake deployment process failed: ${result.error?.message}`);
       assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
       assert.match(`${result.stdout}\n${result.stderr}`, /API 就绪检查失败/);
       assert.equal(await readFile(join(fixture.webRoot, "index.html"), "utf8"), "previous frontend");

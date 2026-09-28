@@ -8,7 +8,7 @@ function source(path) {
 
 const workspacePage = source("src/app/RDMyWorkspacePage.tsx");
 const aiSettingsPage = source("src/app/RDAiSettingsPage.tsx");
-const cockpitPage = source("src/app/RDTaskManagementPage.tsx");
+const cockpitPage = ["src/app/RDTaskManagementPage.tsx", "src/app/rd/PersonTaskCockpit.tsx"].map(source).join("\n");
 const appRoutes = source("src/app/App.tsx");
 const rdApi = source("src/app/lib/rdApi.ts");
 

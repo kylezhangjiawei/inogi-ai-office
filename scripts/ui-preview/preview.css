@@ -12,4 +12,9 @@
 .ui-preview-panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
 .ui-preview-panel > p { color: #536183; font-size: 13px; margin-bottom: 20px; }
 .ui-preview-frame button:focus-visible, .ui-preview-frame a:focus-visible { outline: 2px solid #4318ff; outline-offset: 3px; }
+.ui-preview-frame.ui-preview-workspace { display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden; }
+.ui-preview-workspace > .ui-preview-banner, .ui-preview-workspace > .ui-preview-nav { flex: none; }
+.ui-preview-workspace > .ui-preview-main { display: flex; flex: 1; flex-direction: column; width: 100%; max-width: none; min-height: 0; overflow: hidden; padding: 16px 24px; }
+.ui-preview-workspace > .ui-preview-main > .proc-s01-page { flex: 1; min-height: 0; }
 @media (max-width: 640px) { .ui-preview-banner, .ui-preview-nav { padding: 12px; } .ui-preview-main { padding: 16px 12px 32px; } .ui-preview-panel { padding: 16px; } }
+@media (max-width: 640px) { .ui-preview-workspace > .ui-preview-main { padding: 12px; } }

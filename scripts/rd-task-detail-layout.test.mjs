@@ -26,7 +26,8 @@ const {
 
 const detailSource = await readFile(new URL("../src/app/RDTaskDetailPage.tsx", import.meta.url), "utf8");
 const collabDetailSource = await readFile(new URL("../src/app/UsCollabTaskDetailPage.tsx", import.meta.url), "utf8");
-const managementSource = await readFile(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const managementSource = (await Promise.all(["RDTaskManagementPage.tsx", "rd/PersonTaskCockpit.tsx", "rd/TaskAttachmentGallery.tsx"]
+  .map((file) => readFile(new URL(`../src/app/${file}`, import.meta.url), "utf8")))).join("\n");
 const conversationSource = await readFile(new URL("../src/app/RDTaskConversation.tsx", import.meta.url), "utf8");
 const progressEvidenceSource = await readFile(new URL("../src/app/RDProgressEvidence.tsx", import.meta.url), "utf8");
 const auditTimelineSource = await readFile(new URL("../src/app/RDAuditTimeline.tsx", import.meta.url), "utf8");

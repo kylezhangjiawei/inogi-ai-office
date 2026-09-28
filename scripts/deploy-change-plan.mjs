@@ -39,6 +39,7 @@ const groups = {
   ],
   quality: [
     "apps/api/test",
+    "apps/api/scripts",
     "scripts",
   ],
   deployment: [

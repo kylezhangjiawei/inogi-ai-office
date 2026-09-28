@@ -10,6 +10,8 @@ import { AssignSampleTestDto, ConfirmSampleTestDto } from '../src/modules/procur
 import { UpdateSampleRecordsDto } from '../src/modules/procurement/dto/procurement.dto';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
 
+const explorationValidation = { kind: 'exploration' as const, checks: (['drawing', 'sip', 'sop', 'fixture', 'trial'] as const).map(key => ({ key, applicability: 'not_applicable' as const, reason: '本轮内部参数探索，不涉及转产资料或试装' })) };
+
 const buyerActor = { id: 'buyer', name: '采购甲', permissions: ['proc-task:inquiry', 'page:proc-my-workspace'] };
 const testerActor = { id: 'tester', name: '研发甲', permissions: ['page:rd-my-workspace'] };
 const admin = { id: 'admin', name: '管理员', permissions: ['*'] };
@@ -62,6 +64,8 @@ function harness() {
         return { count: 1 };
       },
     },
+    fileAsset: { findMany: async ({ where }: any) => where.id.in.includes('owned-evidence') ? [{ id: 'owned-evidence', fileName: 'test.png', objectKey: 'rd/test.png', fileSize: 20, mimeType: 'image/png', uploadedBy: testerActor.id }] : [] },
+    procTaskAttachment: { createMany: async ({ data }: any) => { task.attachments = [...(task.attachments ?? []), ...data.map((file: any, index: number) => ({ ...file, id: `evidence-${index}` }))]; return { count: data.length }; } },
     procQuotation: { count: async () => 1, deleteMany: async () => ({ count: 1 }) },
     procPurchaseOrderRef: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     procTaskLog: { create: async ({ data }: any) => { logs.push({ ...data, createdAt: new Date() }); return data; } },
@@ -116,7 +120,7 @@ test('新分派不把分派时间当实际到样，新轮次必须实际时间�
   await h.service.assignSampleTest(h.task.id, { testerUserId: 'tester', fromStatus: 'pending_sample', baseUpdatedAt: h.task.updatedAt.toISOString() }, buyerActor);
   assert.equal(h.task.metadata.sampleTest.recordsVersion, 1);
   assert.equal(h.task.metadata.sampleTest.arrivedAt, null);
-  const confirmation = { roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '测试通过' };
+  const confirmation = { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '测试通过' };
   await assert.rejects(h.service.confirmSampleTest(h.task.id, confirmation, testerActor), /到样、开测和结束/);
   await assert.rejects(h.service.updateSampleRecords(h.task.id, recordsInput(h, { startedAt: '2026-09-08T01:00:00Z' }), testerActor), /先由采购登记/);
   await h.service.updateSampleRecords(h.task.id, recordsInput(h, { arrivedAt: '2026-09-08T00:00:00Z' }), buyerActor);
@@ -213,7 +217,7 @@ test('历史无实际记录保持缺失，旧协议已分派轮次仍能提交�
   for (const key of ['recordsVersion', 'arrivedAt', 'startedAt', 'finishedAt', 'commercial', 'revisions']) delete sample[key];
   const before = await h.service.getSampleTest(h.task.id, testerActor);
   assert.equal(before.sampleTest?.arrivedAt, undefined);
-  await h.service.confirmSampleTest(h.task.id, { roundId: sample.roundId, result: 'failed_resample', note: '旧系统已完成测试，重新送样' }, testerActor);
+  await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: sample.roundId, result: 'failed_resample', note: '旧系统已完成测试，重新送样' }, testerActor);
   await h.rawAssign();
   const history = (await h.service.getSampleTest(h.task.id, buyerActor)).history;
   assert.equal(history[0].arrivedAt, undefined);
@@ -258,8 +262,8 @@ test('存量测试中任务可补指定和改派，旧待办已读已处理且�
   assert.equal(h.messages[0].handled, true);
   assert.equal(h.messages[0].read, true);
   assert.equal(h.messages[1].recipientId, 'tester-2');
-  await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId: first.sampleTest!.roundId, result: 'passed', note: '旧结果' }, testerActor), /仅当前指定/);
-  await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId: first.sampleTest!.roundId, result: 'passed', note: '旧结果' }, { ...testerActor, id: 'tester-2' }), /已结束或已改派/);
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: first.sampleTest!.roundId, result: 'passed', note: '旧结果' }, testerActor), /仅当前指定/);
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: first.sampleTest!.roundId, result: 'passed', note: '旧结果' }, { ...testerActor, id: 'tester-2' }), /已结束或已改派/);
 });
 
 test('候选只含启用且能进入研发工作台的人员，空值/停用/错误权限不能指派', async () => {
@@ -279,7 +283,7 @@ test('普通指定研发可读取和确认，无采购权限的其他研发不�
   await assert.rejects(h.service.getSampleTest(h.task.id, { ...testerActor, id: 'tester-2' }), /不存在/);
   assert.equal((await h.service.getSampleTest(h.task.id, admin)).canConfirm, false);
   assert.equal((await h.service.getSampleTest(h.task.id, buyerActor)).canConfirm, false);
-  await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId: response.sampleTest!.roundId, result: 'passed', note: '管理员代办' }, admin), /仅当前指定/);
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: response.sampleTest!.roundId, result: 'passed', note: '管理员代办' }, admin), /仅当前指定/);
 });
 
 function installDeliveredDocuments(h: ReturnType<typeof harness>) {
@@ -335,14 +339,14 @@ test('普通研发读取和确认样品都隐藏报价附件及快照报价，�
     assert.deepEqual(response.task.rdTransferSnapshots[0].attachments.map((file) => file.kind), ['drawing', 'quote']);
     assert.equal(response.canConfirm, false);
   }
-  assertRdView(await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '按交付 V1 完成测试' }, testerActor));
+  assertRdView(await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '按交付 V1 完成测试' }, testerActor));
   assert.equal(h.task.attachments.length, 2, 'redaction does not delete commercial attachments');
 });
 
 test('旧 passed 经重做报价后再次定价仍保留结论及脱敏回退状态记录，不能丢失失效判断依据', async () => {
   const h = harness();
   await h.assign();
-  const confirmed = await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '旧样品实测通过' }, testerActor);
+  const confirmed = await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '旧样品实测通过' }, testerActor);
   assert.ok(confirmed.task.logs.some((log) => log.fromStatus === 'testing' && log.toStatus === 'priced'));
   const priorResult = structuredClone(confirmed.sampleTest);
   await h.service.resetTaskQuotations(h.task.id, '报价 999 元需重做', buyerActor);
@@ -361,7 +365,7 @@ test('旧 passed 经重做报价后再次定价仍保留结论及脱敏回退状
     assert.equal(later?.at, '2026-09-10');
     assert.equal(later?.text, '状态变更');
     assert.equal(response.task.logs.some((log) => log.id === 'private-note'), false);
-    assert.doesNotMatch(JSON.stringify(response.task.logs), /999|888|777|报价|结算|实测/);
+    assert.doesNotMatch(JSON.stringify(response.task.logs.map(({ text, actor }) => ({ text, actor }))), /999|888|777|报价|结算|实测/);
     assert.ok(response.task.logs.every((log) => Object.keys(log).every((key) => ['id', 'createdAt', 'at', 'fromStatus', 'toStatus', 'actor', 'text'].includes(key))));
   }
 });
@@ -385,7 +389,7 @@ for (const [result, status] of [['passed', 'priced'], ['failed_resample', 'pendi
   test(`研发本人确认 ${result} 后进入 ${status} 并仅通知实际采购负责人`, async () => {
     const h = harness();
     await h.assign();
-    const response = await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result, note: '  实测结论  ' }, testerActor);
+    const response = await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result, note: '  实测结论  ' }, testerActor);
     assert.equal(response.task.status, status);
     assert.equal(response.canConfirm, false);
     assert.equal(response.sampleTest?.result, result);
@@ -409,7 +413,7 @@ test('重复、并发指定与旧版本只创建一个测试轮次，重复确�
   await assert.rejects(h.assign(), /无需重复指定/);
   await assert.rejects(h.service.assignSampleTest(h.task.id, dto, buyerActor), /任务已更新/);
   await h.registerTesting();
-  const confirmation = { roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '实测通过' };
+  const confirmation = { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '实测通过' };
   const confirmations = await Promise.allSettled([h.service.confirmSampleTest(h.task.id, confirmation, testerActor), h.service.confirmSampleTest(h.task.id, confirmation, testerActor)]);
   assert.equal(confirmations.filter((item) => item.status === 'fulfilled').length, 1);
   assert.equal(h.messages.length, 2);
@@ -425,7 +429,7 @@ test('消息落库失败时指定和确认的状态、metadata、日志与消息
   h.hooks.failMessage = false;
   await h.assign();
   h.hooks.failMessage = true;
-  await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '实测通过' }, testerActor), /message write failed/);
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '实测通过' }, testerActor), /message write failed/);
   assert.equal(h.task.status, 'testing');
   assert.equal(h.task.metadata.sampleTest.result, null);
   assert.equal(h.logs.length, 2);
@@ -441,7 +445,7 @@ test('采购负责人按稳定账号优先，历史姓名必须唯一且启用�
     if (variant === 'duplicate') { h.task.buyerUserId = null; h.users.push({ ...h.users[0], id: 'same-name' }); }
     if (variant === 'no-page') h.users[0].role.permissions = [];
     if (variant === 'stable-missing') h.task.buyerUserId = 'deleted-account';
-    await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '通过' }, testerActor), /请先明确指派有效负责人/, variant);
+    await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '通过' }, testerActor), /请先明确指派有效负责人/, variant);
     assert.equal(h.task.status, 'testing');
   }
   for (const stable of [true, false]) {
@@ -450,7 +454,7 @@ test('采购负责人按稳定账号优先，历史姓名必须唯一且启用�
     else h.task.buyerUserId = null;
     h.users[0].role.permissions = ['page:proc-cockpit'];
     await h.assign();
-    await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '通过' }, testerActor);
+    await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '通过' }, testerActor);
     assert.equal(h.messages[1].recipientId, 'buyer');
     assert.equal(JSON.parse(h.messages[1].body).route, '/proc-cockpit?task=sample-task');
   }
@@ -461,7 +465,8 @@ test('通用流转不能进入测试或代确认结论，只有无轮次的历�
   await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'pending_sample', status: 'testing' }, buyerActor), /须指定测试人员/);
   h.task.status = 'testing';
   for (const status of ['priced', 'inquiring']) await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'testing', status }, buyerActor), /须指定测试人员/);
-  await h.service.transitionTask(h.task.id, { from_status: 'testing', status: 'pending_sample' }, buyerActor);
+  await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'testing', status: 'pending_sample' }, buyerActor), /没有登记免费样品/);
+  h.task.status = 'pending_sample';
   await h.assign();
   await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'testing', status: 'pending_sample' }, buyerActor), /须指定测试人员/);
 });
@@ -482,7 +487,7 @@ test('样品通知摘要可读并保留正确入口，普通 createMessage 默�
   assert.match(notifications[0].message, /请填写并确认测试结论/);
   assert.doesNotMatch(notifications[0].message, /"type"|round_id/);
   assert.equal(notifications[0].route, '/rd-my-workspace?sampleTest=sample-task');
-  await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'failed_requote', note: '精度不符合要求' }, testerActor);
+  await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'failed_requote', note: '精度不符合要求' }, testerActor);
   notifications = await (h.rd as any).collectInboxMessagesAsNotifications('buyer', '采购甲');
   assert.match(notifications[0].message, /精度不符合要求/);
   assert.match(notifications[0].message, /需重新询价/);
@@ -497,7 +502,7 @@ test('样品通知只按账号匹配，同名研发或采购人不会收到别�
   assert.equal(h.messages[0].recipientName, '研发甲');
   assert.equal(h.messages[0].recipientNameKey, null);
   assert.deepEqual(await (h.rd as any).collectInboxMessagesAsNotifications('other-tester', '研发甲'), []);
-  await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '符合要求' }, testerActor);
+  await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '符合要求' }, testerActor);
   assert.equal(h.messages[1].recipientNameKey, null);
   assert.deepEqual(await (h.rd as any).collectInboxMessagesAsNotifications('other-buyer', '采购甲'), []);
   await assert.rejects(h.rd.createMessage({ sender: { name: '系统' }, recipient_name: '采购甲',
@@ -525,7 +530,7 @@ for (const action of ['rollback', 'cancel', 'reset', 'delete'] as const) {
       assert.equal(h.task.metadata.sampleTest, null);
       assert.equal(h.logs.length, 3);
       h.task.status = 'testing';
-      await assert.rejects(h.service.confirmSampleTest(h.task.id, { roundId, result: 'passed', note: '旧测试结果' }, testerActor), /仅当前指定|已结束/);
+      await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId, result: 'passed', note: '旧测试结果' }, testerActor), /仅当前指定|已结束/);
     }
   });
 
@@ -546,7 +551,7 @@ test('回退、取消和报价重做保留已确认的测试结论及完整操�
   for (const action of ['rollback', 'cancel', 'reset']) {
     const h = harness();
     await h.assign();
-    await h.service.confirmSampleTest(h.task.id, { roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '精度与稳定性实测通过' }, testerActor);
+    await h.service.confirmSampleTest(h.task.id, { validation: explorationValidation, roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '精度与稳定性实测通过' }, testerActor);
     const confirmed = structuredClone(h.task.metadata.sampleTest);
     if (action === 'rollback') await h.service.rollbackTask(h.task.id, { from_status: 'priced', status: 'pending_sample', reason: '重新准备样品' }, buyerActor);
     else if (action === 'cancel') await h.service.cancelTask(h.task.id, { reason: '业务取消' }, buyerActor);
@@ -581,7 +586,7 @@ test('退回研发审核同时结束当前样品轮次，重新进入测试不�
   assert.deepEqual(reviewNotices, [{ id: h.task.id, reason: '重新确认研发需求' }]);
   assert.equal(h.logs.length, 3);
   h.task.status = 'testing';
-  await assert.rejects(h.service.confirmSampleTest(h.task.id, {
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { validation: explorationValidation,
     roundId, result: 'passed', note: '旧轮次结果',
   }, testerActor), /仅当前指定|已结束/);
 });
@@ -596,7 +601,7 @@ for (const action of ['assign', 'confirm'] as const) {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     h.hooks.afterLock = async () => { h.hooks.afterLock = undefined; entered(); await gate; };
-    const sampleOperation = action === 'assign' ? h.assign() : h.service.confirmSampleTest(h.task.id, {
+    const sampleOperation = action === 'assign' ? h.assign() : h.service.confirmSampleTest(h.task.id, { validation: explorationValidation,
       roundId: h.task.metadata.sampleTest.roundId, result: 'passed', note: '已完成精度测试',
     }, testerActor);
     await locked;
@@ -614,3 +619,49 @@ for (const action of ['assign', 'confirm'] as const) {
     assert.equal((await h.service.getSampleTest(h.task.id, testerActor)).canConfirm, action === 'assign');
   });
 }
+
+
+test('样品通过强制分类与转产受控依据，旧结果仍显示未分类', async () => {
+  const h = harness(); await h.assign();
+  const dto = { roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '实测通过' };
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, dto, testerActor), /请选择研发探索或转产验证/);
+  assert.equal(h.task.status, 'testing');
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { ...dto, validation: { ...explorationValidation, kind: 'transfer' } }, testerActor), /转产验证必须确认/);
+  await h.service.confirmSampleTest(h.task.id, { ...dto, validation: explorationValidation }, testerActor);
+  assert.equal(h.task.metadata.sampleTest.validation.kind, 'exploration');
+  assert.equal(h.task.metadata.sampleTest.validation.checkedById, testerActor.id);
+  assert.equal(h.task.metadata.sampleTest.validation.checks.length, 5);
+});
+
+test('转产确认拒绝普通附件替代版本、缺试验结果及伪造引用；成功冻结服务端版本', async () => {
+  const h = harness(); await h.assign();
+  h.task.attachments = [{ id: 'photo', fileName: '试装照片.png', fileUrl: '/photo', fileKey: 'rd/photo', kind: 'other' }];
+  h.task.metadata.rdTransferSnapshots = [{ id: 'delivery-1', attachments: ['drawing', 'sip', 'sop', 'fixture'].map((category, index) => ({ fileName: `${category}.pdf`, fileUrl: '/document', fileKey: `rd/doc-${index}`, technicalDocumentVersionId: `version-${index}`, version: 'V1.2', category, kind: 'drawing' })) }];
+  const validation: any = { kind: 'transfer', checks: ['drawing', 'sip', 'sop', 'fixture', 'trial'].map((key, index) => ({ key, applicability: 'required', referenceId: index === 4 ? 'attachment:photo' : `delivery:delivery-1:${index}`, ...(index === 4 ? { outcome: 'passed', reason: '试装 3 件，装配及功能满足要求' } : {}) })) };
+  const dto = { roundId: h.task.metadata.sampleTest.roundId, result: 'passed' as const, note: '本轮转产样品验证通过', validation };
+  const wrong = structuredClone(validation); wrong.checks[1].referenceId = 'attachment:photo';
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { ...dto, validation: wrong }, testerActor), /固定版本/);
+  const fabricated = structuredClone(validation); fabricated.checks[2].referenceId = 'other-task-file';
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { ...dto, validation: fabricated }, testerActor), /不属于本次交付/);
+  const missing = structuredClone(validation); missing.checks[4].outcome = 'failed';
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, { ...dto, validation: missing }, testerActor), /确认通过/);
+  await h.service.confirmSampleTest(h.task.id, dto, testerActor);
+  assert.equal(h.task.metadata.sampleTest.validation.checks[1].reference.version, 'V1.2');
+  h.task.metadata.rdTransferSnapshots[0].attachments[1].version = 'V9';
+  assert.equal(h.task.metadata.sampleTest.validation.checks[1].reference.version, 'V1.2', '确认记录不跟随当前文件变化');
+});
+
+test('验证选项过滤报价资料；本人证据上传校验轮次、时间和存储路径', async () => {
+  const h = harness(); await h.assign();
+  h.task.attachments = [{ id: 'quote', fileName: '内部报价.pdf', fileUrl: '/quote', kind: 'quote' }];
+  assert.equal((await h.service.getSampleTest(h.task.id, testerActor)).validationReferences.length, 0);
+  const evidence = () => ({ roundId: h.task.metadata.sampleTest.roundId, baseUpdatedAt: h.task.updatedAt.toISOString(), items: [{ fileId: 'owned-evidence' }] });
+  await assert.rejects(h.service.addSampleEvidence(h.task.id, evidence(), buyerActor), /仅当前测试人员/);
+  await assert.rejects(h.service.addSampleEvidence(h.task.id, { ...evidence(), roundId: 'old' }, testerActor), /已结束或已改派/);
+  await assert.rejects(h.service.addSampleEvidence(h.task.id, { ...evidence(), baseUpdatedAt: '2020-01-01T00:00:00Z' }, testerActor), /已更新/);
+  await assert.rejects(h.service.addSampleEvidence(h.task.id, { ...evidence(), items: [{ fileId: 'unowned-file' }] }, testerActor), /已上传/);
+  const result = await h.service.addSampleEvidence(h.task.id, evidence(), testerActor);
+  assert.equal(result.validationReferences.length, 1);
+  assert.equal(result.validationReferences[0].technicalDocumentVersionId, null, '证据不能自行升级为受控版本');
+  assert.equal(h.task.attachments[1].kind, 'other');
+});

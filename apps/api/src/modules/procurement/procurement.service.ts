@@ -1,8 +1,15 @@
+import { assertRdTransferRequirements } from './rd-transfer-requirements';
+import { sampleValidationReferences, confirmSampleValidation } from './sample-validation';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { SaveBomNodeDto } from './dto/procurement.dto';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { BomRevisionsService } from './bom-revisions.service';
+import { InventoryStockService } from '../inventory-stock/inventory-stock.service';
+import { stockForCode, type StockSnapshot } from '../inventory-stock/inventory-stock.model';
+import { buildBomSnapshot, bomHash } from './bom-revisions.model';
 import { recalculateStockPlanFulfillment } from './purchase-fulfillment.service';
 import { ChatService } from '../chat/chat.service';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
@@ -40,6 +47,7 @@ import {
   SetProcCoreMaterialsDto,
   SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
+  SampleEvidenceDto,
   TransitionProcTaskDto,
   UpdateProcTaskTreeNodeDto,
   UpdateProcTaskDto,
@@ -133,6 +141,9 @@ function procurementPersonNameKey(value?: string | null): string {
 /** BOM 树出参节点。 */
 export interface BomTreeNode {
   id: string;
+  parentId: string | null;
+  updatedAt: string;
+  sortOrder: number;
   name: string;
   code: string | null;
   level: number;
@@ -245,6 +256,7 @@ const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
 });
 
 const PROC_STOCK_PLAN_VIEW_INCLUDE = Prisma.validator<Prisma.ProcStockPlanInclude>()({
+  bomRevision: { select: { version: true, retiredAt: true } },
   batches: { orderBy: [{ orderDate: 'asc' }, { createdAt: 'asc' }], include: { purchaseOrderMirror: true } },
   tasks: { orderBy: { createdAt: 'asc' }, select: { id: true, code: true, materialId: true, materialName: true, quantity: true, status: true, needDate: true } },
   _count: { select: { productionReports: true, qualityRecords: true } },
@@ -284,6 +296,8 @@ export class ProcurementService {
     private readonly chatService: ChatService,
     private readonly rdService: ResearchDevelopmentService,
     @Optional() private readonly technicalDocuments?: RdTechnicalDocumentsService,
+    @Optional() private readonly bomRevisions: BomRevisionsService = new BomRevisionsService(prisma),
+    @Optional() private readonly inventoryStock: InventoryStockService = new InventoryStockService(prisma),
   ) {}
 
   /**
@@ -365,6 +379,7 @@ export class ProcurementService {
         planType: current.planType as CreateProcStockPlanDto['planType'],
         productId: current.productId ?? '', treeNodeId: current.treeNodeId ?? '',
         productLine: current.productLine ?? '', productionTaskId: current.productionTaskId ?? '',
+        bomRevisionId: current.bomRevisionId ?? undefined,
         materialId: current.materialId ?? '', materialName: current.materialName,
         spec: current.spec, unit: current.unit, targetQty: num(current.targetQty),
         targetDate: day(current.targetDate), note: current.note ?? '', ...dto,
@@ -380,7 +395,8 @@ export class ProcurementService {
           throw new BadRequestException('计划已有采购批次、任务或生产质量记录，不能修改已使用的物料、单位或归属；已生成采购任务的目标也不可修改，请另建计划');
         }
       }
-      const data = await this.stockPlanData(next, tx);
+      if (dto.bomRevisionId !== undefined && dto.bomRevisionId !== current.bomRevisionId) throw new BadRequestException('不能直接更换原计划 BOM，请通过执行依据核对入口办理');
+      const data = await this.stockPlanData(next, tx, current);
       await tx.procStockPlan.update({ where: { id }, data });
       return this.getStockPlanView(id, tx);
     });
@@ -472,15 +488,19 @@ export class ProcurementService {
     return `${prefix}${String(Number.isFinite(seq) ? seq : 1).padStart(3, '0')}`;
   }
 
-  private async stockPlanData(dto: CreateProcStockPlanDto, tx: Prisma.TransactionClient) {
+  private async stockPlanData(dto: CreateProcStockPlanDto, tx: Prisma.TransactionClient, current?: ProcStockPlanView) {
     const planType = dto.planType ?? 'material';
     if (!['material', 'machine', 'packaging'].includes(planType)) throw new BadRequestException('未知的备货计划类型');
     if (!dto.materialName?.trim()) throw new BadRequestException('请填写备货对象名称');
     if (!Number.isFinite(dto.targetQty) || dto.targetQty <= 0) throw new BadRequestException('目标数量必须大于 0');
-    const productLine = dto.productLine?.trim() || null;
+    let productLine = dto.productLine?.trim() || null;
+    let bomRevisionId = current?.bomRevisionId ?? null;
     const materialId = dto.materialId?.trim() || null;
     const treeNodeId = dto.treeNodeId?.trim() || null;
     let productId = dto.productId?.trim() || null;
+    if (current?.planType === 'machine' && (planType !== current.planType || productLine !== current.productLine || productId !== current.productId)) {
+      throw new BadRequestException('原整机计划的产品与 BOM 身份不能直接更改');
+    }
     const material = materialId ? await tx.procMaterial.findUnique({ where: { id: materialId }, select: { id: true, unit: true } }) : null;
     if (materialId && !material) throw new BadRequestException('所选物料不存在');
     let unit = dto.unit?.trim() ?? '';
@@ -504,11 +524,20 @@ export class ProcurementService {
       if (materialId && nodes.some((node) => node.materialId === materialId && !parents.has(node.id))) {
         throw new BadRequestException('整机计划的物料必须是整机本身，不能选择 BOM 零部件作为整机');
       }
+      if (!current) {
+        if (!dto.bomRevisionId || !productId) throw new BadRequestException('整机计划必须选择产品及 BOM 发布版本');
+        const revision = await tx.procBomRevision.findUnique({ where: { id: dto.bomRevisionId } });
+        if (!revision) throw new BadRequestException('BOM 发布版本不存在');
+        const root = await tx.procTaskTreeNode.findUnique({ where: { id: revision.productRootId } });
+        if (!root || root.parentId || root.productId !== productId) throw new BadRequestException('BOM 发布版本不属于所选产品');
+        const selected = await this.bomRevisions.requireRevision(tx, { revisionId: revision.id, deviceId: revision.deviceId, productRootId: root.id });
+        productLine = selected.productLine; bomRevisionId = selected.id;
+      } else if (current.productId !== productId || current.productLine !== productLine || current.planType !== planType) throw new BadRequestException('原整机计划的产品与 BOM 身份不能直接更改');
     }
     const productionTaskId = dto.productionTaskId?.trim() || null;
     if (productionTaskId) await this.requireProductionStockPlanSource(tx, productionTaskId, productId);
     return {
-      planType, productId, treeNodeId, productLine, productionTaskId, materialId,
+      planType, productId, treeNodeId, productLine, productionTaskId, materialId, bomRevisionId,
       materialName: dto.materialName.trim(), spec: dto.spec?.trim() ?? '', unit,
       targetQty: new Prisma.Decimal(dto.targetQty), targetDate: parseDay(dto.targetDate), note: dto.note?.trim() || null,
     };
@@ -596,7 +625,7 @@ export class ProcurementService {
     const plans = await this.prisma.procStockPlan.findMany({
       where: {
         planType: anchor.planType, productId: anchor.productId, unit: anchor.unit, targetDate,
-        ...(anchor.planType === 'machine' ? { productLine: anchor.productLine } : { materialId: anchor.materialId }),
+        ...(anchor.planType === 'machine' ? { productLine: anchor.productLine, bomRevisionId: anchor.bomRevisionId ?? null } : { materialId: anchor.materialId }),
       },
       include: PROC_STOCK_PLAN_VIEW_INCLUDE,
     });
@@ -605,26 +634,29 @@ export class ProcurementService {
     return { ...result, scopePlanCount: plans.length, scopeTargetQty: num(targetQty) };
   }
 
-  private async stockPlanReadiness(plan: ProcStockPlanView) {
-    const unresolvedOrders = await this.unresolvedStockPlanOrders([plan]);
+  private async stockPlanReadiness(plan: ProcStockPlanView, db?: Prisma.TransactionClient) {
+    if (!db) return this.prisma.$transaction(tx => this.stockPlanReadiness(plan, tx), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const unresolvedOrders = await this.unresolvedStockPlanOrders([plan], db);
     const view = this.serializeStockPlan(plan, unresolvedOrders);
-    const fulfillmentSummary = await recalculateStockPlanFulfillment(this.prisma, plan);
+    const fulfillmentSummary = await recalculateStockPlanFulfillment(db, plan);
     const orderIssues = view.batches.filter((batch) => batch.orderDataIssue).map((batch) => ({ batchId: batch.id, code: batch.orderIssueCode!, message: batch.orderIssue! }));
     if (plan.planType === 'machine') {
       const purchasedQty = fulfillmentSummary.orderedQty;
       if (purchasedQty === null) throw new BadRequestException('订单履约数量尚未核对，请先处理取消、退货或冲销的 ERP 覆盖后再核算整机计划');
       if (!plan.productLine || !Number.isInteger(num(plan.targetQty)) || num(plan.targetQty) > 1_000_000 || !Number.isInteger(purchasedQty)) throw new BadRequestException('整机计划缺少有效的 BOM 型号或整数目标、采购套数');
       const targetSets = Math.max(0, num(plan.targetQty) - purchasedQty);
-      const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets });
+      const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets, ...(plan.bomRevisionId ? { revisionId: plan.bomRevisionId } : {}) }, db);
       if (result.productLine !== plan.productLine || result.items.length === 0) throw new BadRequestException('所选型号没有有效 BOM');
       return { ...result, orderIssues, fulfillmentSummary, dataQuality: { ...result.dataQuality, provisional: result.dataQuality.provisional || unresolvedOrders.size > 0 || fulfillmentSummary.hasAdjustments } };
     }
-    const material = plan.materialId ? await this.prisma.procMaterial.findUnique({ where: { id: plan.materialId } }) : null;
+    const material = plan.materialId ? await db.procMaterial.findUnique({ where: { id: plan.materialId } }) : null;
     if (!material?.tpInventoryCode?.trim()) throw new BadRequestException('请先将备货物料关联到有效的 ERP 存货编码');
     if (!material.unit.trim() || (plan.unit.trim() && plan.unit.trim() !== material.unit.trim())) {
       throw new BadRequestException('计划单位与物料计量单位不一致或未维护，请先编辑计划或物料，不能直接扣减库存');
     }
-    const candidates = await this.prisma.procInventoryBalance.findMany({ where: { tpInventoryCode: material.tpInventoryCode }, orderBy: { syncedAt: 'desc' } });
+    const candidates = await db.procInventoryBalance.findMany({ where: { tpInventoryCode: material.tpInventoryCode }, orderBy: { syncedAt: 'desc' } });
+    const snapshot = await this.inventoryStock.read({ codes: [material.tpInventoryCode], scope: { kind: 'production' } }, db);
+    const base = stockForCode(snapshot, material.tpInventoryCode, material.unit);
     const rows = candidates.filter((row) => isProductionWarehouse(row.warehouse));
     const latest = rows.map((row) => row.syncedAt?.toISOString()).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
     // ERP 已出现同单号的历史手工行不能再加一次；行身份未确认前只认 ERP 库存里的供给。
@@ -632,7 +664,7 @@ export class ProcurementService {
       .reduce((sum, batch) => sum + batch.inTransitQty, 0);
     const balances = rows.length > 0 ? [{
       code: material.tpInventoryCode, stock: rows.reduce((sum, row) => sum + num(row.stockQty), 0),
-      available: rows.reduce((sum, row) => sum + num(row.availableQty), 0),
+      available: base.available, issues: base.issues,
       inTransit: rows.reduce((sum, row) => sum + num(row.inTransitQty), 0) + manualInTransit,
       safeStock: num(material.safeStock), syncedAt: latest,
     }] : [];
@@ -643,14 +675,14 @@ export class ProcurementService {
     // 单物料允许小数采购量，不把整数“套数”算法的向上取整带进实际采购需求。
     for (const item of calculation.items) {
       item.targetDemand = num(plan.targetQty);
-      item.gapAfterTransit = Math.max(0, num(plan.targetQty) - item.available - item.inTransit);
+      item.gapAfterTransit = item.available === null ? null : Prisma.Decimal.max(new Prisma.Decimal(plan.targetQty).minus(item.available).minus(item.inTransit), 0).toNumber();
       item.currentSets = item.available;
-      item.withTransitSets = item.available + item.inTransit;
-      if (!item.issue) item.status = item.available <= 0 ? 'shortage' : item.gapAfterTransit > 0 ? 'gap' : item.safeStock > item.available ? 'low' : 'ready';
+      item.withTransitSets = item.available === null ? null : new Prisma.Decimal(item.available).plus(item.inTransit).toNumber();
+      if (!item.issue && item.available !== null) item.status = item.available <= 0 ? 'shortage' : item.gapAfterTransit! > 0 ? 'gap' : item.safeStock > item.available ? 'low' : 'ready';
     }
     calculation.summary.currentBuildableSets = calculation.items[0].currentSets;
     calculation.summary.withTransitBuildableSets = calculation.items[0].withTransitSets;
-    calculation.summary.inTransitGainSets = calculation.items[0].inTransit;
+    calculation.summary.inTransitGainSets = calculation.items[0].available === null ? null : calculation.items[0].inTransit;
     calculation.summary.warningMaterials = calculation.items.filter((item) => item.status !== 'ready').length;
     calculation.summary.targetSets = num(plan.targetQty);
     calculation.summary.targetGapAfterTransit = calculation.items[0].gapAfterTransit;
@@ -658,7 +690,7 @@ export class ProcurementService {
       source: 'tplus' as const, readOnly: true, productLine: plan.productLine || material.productLine,
       models: [{ id: plan.productLine || material.id, label: material.name, bomLines: 1 }],
       warehouse: { keyword: '量产', label: '量产仓库', matchedNames: [...new Set(rows.map((row) => row.warehouse))] },
-      syncedAt: latest, ...calculation, orderIssues, fulfillmentSummary,
+      syncedAt: latest, stockScope: snapshot.scope, stockReadAt: snapshot.readAt, stockRows: snapshot.rows, ...calculation, orderIssues, fulfillmentSummary,
       dataQuality: { ...calculation.dataQuality, provisional: calculation.dataQuality.provisional || unresolvedOrders.size > 0 || fulfillmentSummary.hasAdjustments || fulfillmentSummary.orderedQty === null },
     };
   }
@@ -672,6 +704,7 @@ export class ProcurementService {
       await this.lockStockPlan(tx, id);
       const plan = await this.requireStockPlan(id, tx);
       if (plan.tasks.length > 0) return { plan: await this.getStockPlanView(id, tx), createdCount: 0, existingCount: plan.tasks.length };
+      if (plan.planType === 'machine' && !plan.bomRevisionId) throw new BadRequestException('请先确认本计划的 BOM 执行依据及发布版本，再首次生成采购任务');
       const productId = plan.productId?.trim();
       if (!productId) throw new BadRequestException('请先编辑备货计划并选择所属产品，再生成采购任务');
       const products = await tx.systemSetting.findUnique({ where: { key: 'rd.products' }, select: { value: true } });
@@ -680,14 +713,14 @@ export class ProcurementService {
         ? catalog.some((product) => product && typeof product === 'object' && !Array.isArray(product) && product.id === productId)
         : productId === DEFAULT_PROC_PRODUCT_ID || Boolean(await tx.procTaskTreeNode.findFirst({ where: { productId }, select: { id: true } }));
       if (!productExists) throw new BadRequestException('所属产品不存在，请先编辑备货计划并重新选择产品');
-      const readiness = await this.stockPlanReadiness(plan);
+      const readiness = await this.stockPlanReadiness(plan, tx);
       if (readiness.orderIssues.some((issue) => issue.code === 'unlinked')) {
         throw new BadRequestException('存在已同步 ERP 但未明确关联订单行的手工批次，请先关联后再生成采购任务');
       }
       if (readiness.dataQuality.provisional || readiness.dataQuality.totalBomLines === 0) {
         throw new BadRequestException('BOM 用量、ERP 编码或量产库存映射不完整，请补齐后再生成采购任务');
       }
-      const needed = readiness.items.filter((item) => item.gapAfterTransit > 0);
+      const needed = readiness.items.filter((item) => item.gapAfterTransit !== null && item.gapAfterTransit > 0);
       const materials = await tx.procMaterial.findMany({ where: { tpInventoryCode: { in: needed.map((item) => item.code!).filter(Boolean) } } });
       const byCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
       if (needed.some((item) => !item.code || !byCode.has(item.code))) throw new BadRequestException('BOM 缺口物料尚未映射到采购物料主数据');
@@ -700,7 +733,7 @@ export class ProcurementService {
             code: `PR-${plan.code}-${suffix}`, stockPlanId: plan.id,
             productId, treeNodeId: plan.treeNodeId,
             materialId: material.id, materialName: material.name, spec: material.spec, unit: material.unit,
-            quantity: new Prisma.Decimal(Math.ceil(item.gapAfterTransit * 1000) / 1000),
+            quantity: new Prisma.Decimal(item.gapAfterTransit!).toDecimalPlaces(3, Prisma.Decimal.ROUND_CEIL),
             source: 'self', businessLine: 'production', method: 'inquiry', status: 'pending_confirm', needSample: false,
             needDate: plan.targetDate, deadline: plan.targetDate,
             buyer: buyer?.name ?? '', buyerUserId: buyer?.id ?? null,
@@ -711,7 +744,7 @@ export class ProcurementService {
         });
       }
       return { plan: await this.getStockPlanView(id, tx), createdCount: needed.length, existingCount: 0 };
-    }, { timeout: 30_000 });
+    }, { timeout: 30_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -725,8 +758,22 @@ export class ProcurementService {
     if (query.priority) where.priority = query.priority;
     if (query.buyerUserId) where.buyerUserId = query.buyerUserId;
     if (query.materialId) where.materialId = query.materialId;
+    if (query.rdTaskId !== undefined && typeof query.rdTaskId !== 'string') {
+      throw new BadRequestException('研发任务 ID 格式不正确');
+    }
     const rdTaskId = query.rdTaskId?.trim();
-    if (rdTaskId) where.rdTaskId = rdTaskId;
+    let linkedRdTaskIds = rdTaskId ? [rdTaskId] : [];
+    if (query.rdTaskIds !== undefined) {
+      if (query.rdLink !== 'true') throw new BadRequestException('批量研发任务查询仅支持关联采购读取');
+      if (typeof query.rdTaskIds !== 'string') throw new BadRequestException('研发任务 ID 列表格式不正确');
+      linkedRdTaskIds = [...new Set([...linkedRdTaskIds, ...query.rdTaskIds.split(',').map((id) => id.trim()).filter(Boolean)])];
+      if (!linkedRdTaskIds.length || linkedRdTaskIds.length > 50) {
+        throw new BadRequestException('请提供 1 至 50 个研发任务 ID');
+      }
+      where.rdTaskId = { in: linkedRdTaskIds };
+    } else if (rdTaskId) {
+      where.rdTaskId = rdTaskId;
+    }
     const canReviewRdTransfer = actor?.permissions.includes('*')
       || actor?.permissions.includes('rd-procurement:review');
     const canReadAllProcurementTasks = actor?.permissions.includes('*')
@@ -735,13 +782,15 @@ export class ProcurementService {
     const canReadOwnProcurementTasks = actor?.permissions.includes('page:proc-my-workspace');
     if (query.rdLink === 'true') {
       // 指定任务的关联读取与继续转采购共用参与权限；无任务 ID 时仍限制原有列表范围。
-      if (rdTaskId) {
+      if (linkedRdTaskIds.length) {
         if (!actor) throw new ForbiddenException('请登录后查看研发任务的采购关联');
-        await this.rdService.requireTaskReadAccess(rdTaskId, {
-          userId: actor.id,
-          userName: actor.name,
-          permissions: actor.permissions,
-        });
+        for (const linkedRdTaskId of linkedRdTaskIds) {
+          await this.rdService.requireTaskReadAccess(linkedRdTaskId, {
+            userId: actor.id,
+            userName: actor.name,
+            permissions: actor.permissions,
+          });
+        }
       } else if (!canReviewRdTransfer) {
         const actorId = actor?.id || '__missing_actor__';
         where.AND = [{ OR: [{ requesterUserId: actorId }, { rdContactUserId: actorId }] }];
@@ -1012,14 +1061,12 @@ export class ProcurementService {
       where: { rdTaskId },
       include: PROC_TASK_VIEW_INCLUDE,
     });
-    if (existing?.status === 'pending_rd_review') {
-      return this.continueRdTransfer(existing.id, actor);
-    }
-    if (existing && existing.status !== 'cancelled') {
+    if (existing && !['cancelled', 'pending_rd_review'].includes(existing.status)) {
       return { ...this.rdLinkedTaskView(this.serializeTask(existing)), alreadyTransferred: true };
     }
     if (!dto.attachments?.length) throw new BadRequestException('转采购需至少选择 1 个本次交付附件');
     const prepared = await this.prepareRdTransferAttachments(dto, actor);
+    assertRdTransferRequirements(dto, prepared.snapshots);
     dto = { ...dto, productId: normalizeProcProductId(dto.productId ?? existing?.productId), attachments: prepared.inputs };
     const metadata = appendRdTransferSnapshot(existing?.metadata, dto, actor, rdTask.title, prepared.snapshots, {
       id: randomUUID(), submittedAt: new Date().toISOString(),
@@ -1053,7 +1100,7 @@ export class ProcurementService {
       const buyer = await this.requireAutomaticRdBuyer();
       const updated = await this.prisma.procTask.update({
         // 同一次条件更新写入状态、附件与日志，阻止并发重提覆盖已进入采购处理的任务。
-        where: { id: existing.id, status: 'cancelled', updatedAt: existing.updatedAt },
+        where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
         data: {
           productId: normalizeProcProductId(dto.productId ?? existing.productId),
           materialName: dto.materialName,
@@ -1085,7 +1132,7 @@ export class ProcurementService {
             create: {
               kind: 'action',
               text: `研发修改后重新提交转采购，自动分配给采购负责人 ${buyer.name}`,
-              fromStatus: 'cancelled',
+              fromStatus: existing.status,
               toStatus: 'pending_confirm',
               actor: actor.name,
               actorUserId: actor.id,
@@ -1099,6 +1146,7 @@ export class ProcurementService {
         }
         throw error;
       });
+      if (existing.status === 'pending_rd_review') await this.markRdTransferReviewMessagesHandled(existing.id).catch((error) => new Logger(ProcurementService.name).warn(`转采购待审消息置为已处理失败（${existing.code}）: ${(error as Error).message}`));
       await this.notifyBuyerOfRdTransferAssignment(updated, buyer, actor).catch((error) =>
         new Logger(ProcurementService.name).warn(`转采购分配通知失败（${updated.code}）: ${(error as Error).message}`),
       );
@@ -1591,10 +1639,13 @@ export class ProcurementService {
 
   private async activateLegacyRdTransfer(task: ProcReviewNoticeTask, actor: ProcActor, legacyReview: boolean) {
     const id = task.id;
+    const saved = await this.prisma.procTask.findUniqueOrThrow({ where: { id } });
+    const delivery = rdTransferSnapshotsOf(saved.metadata).at(-1);
+    assertRdTransferRequirements({ rdTaskId: saved.rdTaskId!, materialName: saved.materialName, quantity: num(saved.quantity), unit: saved.unit, spec: saved.spec, needDate: day(saved.needDate), needDateNotApplicableReason: delivery?.requirement.needDateNotApplicableReason ?? undefined, specNotApplicableReason: delivery?.requirement.specNotApplicableReason ?? undefined }, delivery?.attachments ?? []);
     const buyer = await this.requireAutomaticRdBuyer();
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.procTask.updateMany({
-        where: { id, source: 'rd', status: 'pending_rd_review' },
+        where: { id, source: 'rd', status: 'pending_rd_review', updatedAt: saved.updatedAt },
         data: {
           status: 'pending_confirm',
           buyer: buyer.name,
@@ -2020,6 +2071,7 @@ export class ProcurementService {
         logs: serialized.logs.filter((log) => log.fromStatus && log.toStatus && log.fromStatus !== log.toStatus)
           .map((log) => ({ id: log.id, createdAt: log.createdAt, at: log.at, fromStatus: log.fromStatus,
             toStatus: log.toStatus, actor: log.actor, text: '状态变更' })) },
+      validationReferences: sampleValidationReferences(task),
       sampleTest: canReadProcurement ? sampleTest : sampleTestWithoutCommercial(sampleTest),
       history: history.map((round) => canReadProcurement ? round : sampleTestWithoutCommercial(round)!),
       historyIncomplete: Array.isArray(rawHistory) && rawHistory.length !== history.length,
@@ -2129,7 +2181,7 @@ export class ProcurementService {
     if (!hasArrival && !hasTesting && !hasCommercial) throw new BadRequestException('请填写需要登记的时间或采购条件');
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
-      const task = await tx.procTask.findUnique({ where: { id } });
+      const task = await tx.procTask.findUnique({ where: { id }, include: { attachments: true } });
       if (!task) throw new NotFoundException('样品测试任务不存在');
       const current = sampleTestOf(task.metadata);
       const buyer = this.sampleTestBuyer(task, await this.sampleTestUsers(tx));
@@ -2177,12 +2229,38 @@ export class ProcurementService {
     return this.sampleTestResponse(updated.task, actor, updated.canReadProcurement);
   }
 
+  async addSampleEvidence(id: string, dto: SampleEvidenceDto, actor: ProcActor) {
+    const task = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const currentTask = await tx.procTask.findUnique({ where: { id } });
+      if (!currentTask) throw new NotFoundException('样品测试任务不存在');
+      const round = sampleTestOf(currentTask.metadata);
+      if (!round || round.testerUserId !== actor.id) throw new ForbiddenException('仅当前测试人员本人可以上传本轮验证证据');
+      if (currentTask.status !== 'testing' || round.result !== null || round.roundId !== dto.roundId) throw new ConflictException('该轮测试已结束或已改派，请刷新任务');
+      if (currentTask.updatedAt.toISOString() !== sampleTimestamp(dto.baseUpdatedAt)) throw new ConflictException('样品记录已更新，请刷新后重试');
+      if (!Array.isArray(dto.items) || !dto.items.length || dto.items.length > 10) throw new BadRequestException('每次请选择 1–10 份证据');
+      const assets = await tx.fileAsset.findMany({ where: { id: { in: dto.items.map((item) => item.fileId) }, status: 'active', deletedAt: null } });
+      const items = dto.items.map((item) => {
+        const asset = assets.find((file) => file.id === item.fileId);
+        if (!asset || asset.uploadedBy !== actor.id || asset.fileSize <= 0 || !this.isAllowedAttachmentFileKey(asset.objectKey)) throw new BadRequestException('请使用本人已上传且有效的本轮证据文件');
+        return this.attachmentData({ fileName: asset.fileName, fileUrl: this.ossService.buildInlinePreviewUrl(asset.objectKey) || '', fileKey: asset.objectKey, fileSize: asset.fileSize, mimeType: asset.mimeType, kind: 'other' }, actor);
+      });
+      const changed = await tx.procTask.updateMany({ where: { id, status: 'testing', updatedAt: currentTask.updatedAt }, data: { updatedAt: new Date(Math.max(Date.now(), currentTask.updatedAt.getTime() + 1)) } });
+      if (changed.count !== 1) throw new ConflictException('样品记录已更新，请刷新后重试');
+      await tx.procTaskAttachment.createMany({ data: items.map((item) => ({ ...item, taskId: id })) });
+      await tx.procTaskLog.create({ data: { taskId: id, kind: 'action', text: `上传本轮样品验证证据 ${items.length} 份`, actor: actor.name, actorUserId: actor.id } });
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    // Reuse the normal per-task read policy after the write.
+    return this.getSampleTest(task.id, actor);
+  }
+
   async confirmSampleTest(id: string, dto: ConfirmSampleTestDto, actor: ProcActor) {
     const note = typeof dto.note === 'string' ? dto.note.trim() : '';
     if (!note || note.length > 500 || !SAMPLE_TEST_RESULTS.includes(dto.result)) throw new BadRequestException('请选择测试结果并填写 1–500 字测试结论');
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
-      const task = await tx.procTask.findUnique({ where: { id } });
+      const task = await tx.procTask.findUnique({ where: { id }, include: { attachments: true } });
       if (!task) throw new NotFoundException('样品测试任务不存在');
       const current = sampleTestOf(task.metadata);
       if (!current || current.testerUserId !== actor.id) throw new ForbiddenException('仅当前指定的测试人员本人可以确认测试结论');
@@ -2193,7 +2271,8 @@ export class ProcurementService {
       const buyer = this.sampleTestBuyer(task, await this.sampleTestUsers(tx));
       if (!buyer) throw new BadRequestException('采购负责人未指派、已停用、同名不唯一或无采购工作台权限，请先明确指派有效负责人');
       const confirmedAt = new Date().toISOString();
-      const sampleTest: ProcurementSampleTest = { ...current, result: dto.result, note, confirmedAt, confirmedByName: actor.name };
+      const validation = confirmSampleValidation(dto.validation, dto.result, sampleValidationReferences(task), actor, confirmedAt);
+      const sampleTest: ProcurementSampleTest = { ...current, validation, result: dto.result, note, confirmedAt, confirmedByName: actor.name };
       const next = dto.result === 'passed' ? 'priced' : dto.result === 'failed_resample' ? 'pending_sample' : 'inquiring';
       const metadata = task.metadata as Prisma.JsonObject;
       const claimed = await tx.procTask.updateMany({ where: { id, status: 'testing', updatedAt: task.updatedAt,
@@ -2237,7 +2316,7 @@ export class ProcurementService {
         `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
       );
     }
-    return this.applyTransition(id, dto.status as ProcStatus, actor, dto.note, task.status as ProcStatus);
+    return this.applyTransition(id, dto.status as ProcStatus, actor, dto.note, task.status as ProcStatus, true);
   }
 
   private async applyTransition(
@@ -2246,6 +2325,7 @@ export class ProcurementService {
     actor: ProcActor,
     note: string | undefined,
     expectedStatus: ProcStatus,
+    correctionOnly = false,
   ) {
     const updated = await this.prisma.$transaction(async (tx) => {
       // 与样品登记/解除共用任务行锁，校验和写入必须基于调用方已确认的来源状态。
@@ -2263,15 +2343,19 @@ export class ProcurementService {
       if (next === 'testing' || (expectedStatus === 'testing' && !(next === 'pending_sample' && !sampleTestOf(task.metadata)))) {
         throw new BadRequestException('样品测试须指定测试人员，并由该人员在样品测试入口确认结论');
       }
+      // 对外的通用接口只纠正历史免费样品；正式推进必须经过各业务入口及其权限、依据校验。
+      if (correctionOnly && next !== 'pending_sample') {
+        throw new BadRequestException('请通过确认需求、确认报价、完成询价、采购单或到货登记入口推进任务，不能直接修改状态');
+      }
       // 待询价直达待到样只用于已有免费样品登记的纠正，不放开普通任务跳过询价。
-      if (expectedStatus === 'pending_inquiry' && next === 'pending_sample') {
+      if ((expectedStatus === 'pending_inquiry' || correctionOnly) && next === 'pending_sample') {
         const freeSamples = await tx.procPurchaseOrderRef.findMany({
           where: { taskId: id, metadata: { path: ['freeSample'], equals: true } },
           select: { id: true },
           take: 1,
         });
         if (freeSamples.length === 0) {
-          throw new BadRequestException('该任务没有登记免费样品，不能从「待询价」直接进入「待到样」');
+          throw new BadRequestException('该任务没有登记免费样品，不能直接纠正到「待到样」');
         }
       }
       const claimed = await tx.procTask.updateMany({
@@ -3083,6 +3167,12 @@ export class ProcurementService {
     // 一次操作只前进一个节点，避免用户看到状态跨越式跳变。
     const next: ProcStatus = 'inquiring';
     await this.prisma.$transaction(async (tx) => {
+      // 先原子占用来源状态，再创建报价；并发/过期保存整笔拒绝，失败由事务恢复状态。
+      const claimed = await tx.procTask.updateMany({
+        where: { id: taskId, status: 'pending_inquiry', updatedAt: task.updatedAt },
+        data: { status: next },
+      });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重新确认报价');
       const snapshots: Prisma.ProcQuotationGetPayload<object>[] = [];
       for (const row of selectedRows) {
         const { quote } = row;
@@ -3653,10 +3743,11 @@ export class ProcurementService {
       }),
     ]);
 
-    let items = rows.map((r) => this.serializeMaterial(r));
+    const snapshot = await this.inventoryStock.read({ codes: rows.flatMap(row => row.tpInventoryCode?.trim() ? [row.tpInventoryCode] : []), scope: { kind: 'all' } });
+    let items = rows.map((r) => this.serializeMaterial(r, snapshot));
     // 缺料筛选：库存 < 安全库存。阈值本地维护，库存来自 T+ 镜像。
     if (query.shortageOnly === 'true') {
-      items = items.filter((m) => m.safeStock > 0 && m.stockQty < m.safeStock);
+      items = items.filter((m) => m.safeStock > 0 && m.stockQty !== null && m.stockQty < m.safeStock);
     }
     return { total, page, pageSize, items };
   }
@@ -4154,6 +4245,10 @@ export class ProcurementService {
       if (current.taskCount > 0) {
         throw new ConflictException(`节点下已有 ${current.taskCount} 个采购任务，不能删除`);
       }
+      if (!current.parentId && (await tx.procBomNode.findFirst({ where: { productRootId: id }, select: { id: true } })
+        || await tx.procBomRevision.findFirst({ where: { productRootId: id }, select: { id: true } }))) {
+        throw new ConflictException('该产品已作为 BOM 设备或发布版本的归属，不能删除；请保留历史身份');
+      }
       await tx.procTaskTreeNode.delete({ where: { id } });
       return { deleted: 1 };
     });
@@ -4228,7 +4323,23 @@ export class ProcurementService {
    * 出现在单一机型 → 该机型；跨机型共用 → 「通用」。
    */
   async importBom(dto: ImportBomDto) {
-    if (dto.replace) await this.prisma.procBomNode.deleteMany({});
+    return this.mutateInventoryBomLine(async (tx) => {
+    // 校验在替换前完成，失败时保留原 BOM；所有写入同一事务提交。
+    const validateNode = async (node: BomNodeInputDto): Promise<void> => {
+      if (!node.children?.length && (node.code || node.qtyPer !== undefined)) {
+        const material = node.code?.trim() ? await tx.procMaterial.findUnique({ where: { tpInventoryCode: node.code.trim() }, select: { id: true } }) : null;
+        if (!material) throw new BadRequestException(`物料库中不存在「${node.name}」的编码，请先建立物料档案`);
+        if (!Number.isFinite(node.qtyPer) || node.qtyPer! <= 0 || node.qtyPer! > 9999999999.9999 || new Prisma.Decimal(node.qtyPer!).decimalPlaces() > 4) {
+          throw new BadRequestException(`「${node.name}」的单机用量必须大于 0，最多保留 4 位小数`);
+        }
+      }
+      for (const child of node.children ?? []) await validateNode(child);
+    };
+    for (const root of dto.roots) await validateNode(root);
+    if (dto.replace) {
+      if (await tx.procBomRevision.findFirst({ select: { id: true } })) throw new ConflictException('存在已发布设备，不能全量替换；请编辑工作稿并发布新版本');
+      await tx.procBomNode.deleteMany({});
+    }
     // 物料编码 → { productLines, systems }（systems=所属组件/部件名，供物料详情展示）
     const usage = new Map<string, { lines: Set<string>; systems: Set<string> }>();
     let nodeCount = 0;
@@ -4244,9 +4355,9 @@ export class ProcurementService {
       const line = node.productLine?.trim() || productLine;
       const code = node.code?.trim() || null;
       const material = code
-        ? await this.prisma.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } })
+        ? await tx.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } })
         : null;
-      const row = await this.prisma.procBomNode.create({
+      const row = await tx.procBomNode.create({
         data: {
           parentId,
           name: node.name,
@@ -4278,7 +4389,7 @@ export class ProcurementService {
     // 回填物料产品线与 BOM 归属
     let touchedMaterials = 0;
     for (const [code, u] of usage) {
-      const material = await this.prisma.procMaterial.findUnique({
+      const material = await tx.procMaterial.findUnique({
         where: { tpInventoryCode: code },
         select: { id: true, metadata: true },
       });
@@ -4286,7 +4397,7 @@ export class ProcurementService {
       const lines = [...u.lines].filter(Boolean);
       const productLine = lines.length === 1 ? lines[0] : lines.length > 1 ? '通用' : '';
       const meta = (material.metadata ?? {}) as Record<string, unknown>;
-      await this.prisma.procMaterial.update({
+      await tx.procMaterial.update({
         where: { id: material.id },
         data: {
           ...(productLine ? { productLine } : {}),
@@ -4296,26 +4407,35 @@ export class ProcurementService {
       touchedMaterials += 1;
     }
     return { nodes: nodeCount, matchedMaterials: usage.size, touchedMaterials };
+    });
   }
 
   /** BOM 树查询：全量返回（数据量为部件×原料级，数百节点）。 */
   async getBomTree() {
     const rows = await this.prisma.procBomNode.findMany({
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
-      include: { material: { select: { id: true, name: true, spec: true, unit: true } } },
     });
+    // 与齐套中心使用相同的当前编码匹配，旧导入的空关联或过时关联不冒充最新主档。
+    const codes = [...new Set(rows.map((row) => row.code?.trim()).filter((code): code is string => Boolean(code)))];
+    const materials = codes.length ? await this.prisma.procMaterial.findMany({
+      where: { tpInventoryCode: { in: codes } }, select: { id: true, tpInventoryCode: true, name: true, spec: true, unit: true },
+    }) : [];
+    const materialByCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
     const byId = new Map<string, BomTreeNode>();
     const roots: BomTreeNode[] = [];
     for (const r of rows) {
       byId.set(r.id, {
         id: r.id,
+        parentId: r.parentId,
+        updatedAt: r.updatedAt.toISOString(),
+        sortOrder: r.sortOrder,
         name: r.name,
         code: r.code,
         level: r.level,
         productLine: r.productLine,
         qtyPer: numOrNull(r.qtyPer),
         remark: r.remark,
-        material: r.material,
+        material: materialByCode.get(r.code?.trim() || '') ?? null,
         children: [],
       });
     }
@@ -4327,12 +4447,113 @@ export class ProcurementService {
     return { roots };
   }
 
+  async confirmStockPlanBomBasis(id: string, input: { revisionId: string; expectedUpdatedAt: string; requestId: string; reason: string }, actor: ProcActor) {
+    if (!actor.id || (!actor.permissions.includes('*') && !['page:proc-cockpit', 'proc-task:create', 'bom:publish'].every(p => actor.permissions.includes(p)))) throw new ForbiddenException('需要备货页面、备货办理及 BOM 发布权限');
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId) || !input.reason?.trim() || input.reason.length > 2000) throw new BadRequestException('请填写有效提交标识和核对依据');
+    const signature = bomHash([actor.id, id, input]), key = `procurement:bom-revisions:v1:request:${input.requestId}`;
+    try {
+      return await this.prisma.$transaction(async tx => {
+        await this.lockStockPlan(tx, id);
+        const previous = await tx.runtimeState.findUnique({ where: { key } });
+        if (previous) { const saved = JSON.parse(previous.value); if (saved.signature !== signature) throw new ConflictException('提交标识已用于其他内容'); return saved.result; }
+        const plan = await this.requireStockPlan(id, tx);
+        if (plan.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new ConflictException('备货计划已更新，请保留填写内容并刷新');
+        if (plan.planType !== 'machine' || plan.bomRevisionId) throw new BadRequestException('仅未确认 BOM 依据的历史整机计划可办理；已确认版本不能替换');
+        const revision = await tx.procBomRevision.findUnique({ where: { id: input.revisionId } });
+        if (!revision) throw new BadRequestException('请选择有效发布版本');
+        const root = await tx.procTaskTreeNode.findUnique({ where: { id: revision.productRootId } });
+        if (!root || root.parentId || root.productId !== plan.productId) throw new BadRequestException('BOM 不属于本计划产品');
+        const selected = await this.bomRevisions.requireRevision(tx, { productRootId: root.id, deviceId: revision.deviceId, revisionId: revision.id });
+        if (selected.productLine !== plan.productLine) throw new BadRequestException('发布版本型号与原计划不一致，请先核对原计划');
+        const basis = { origin: 'confirmed-current', revisionId: selected.id, fingerprint: selected.fingerprint, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), reason: input.reason.trim() };
+        await tx.procStockPlan.update({ where: { id }, data: { bomRevisionId: selected.id, bomBasis: basis } });
+        const result = { id, bomRevisionId: selected.id };
+        await tx.runtimeState.create({ data: { key, value: JSON.stringify({ signature, result }) } });
+        await tx.auditLog.create({ data: { module: 'procurement', source: 'web', action: 'stock-plan.confirm-bom-basis', resource: 'stock-plan', resourceId: id, userId: actor.id, actorName: actor.name, summary: basis.reason, meta: basis } });
+        return result;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) { if (['P2002', 'P2034'].includes((error as { code?: string }).code ?? '')) throw new ConflictException('备货依据正在更新，请刷新后重试'); throw error; }
+  }
+
+  async saveBomNode(dto: SaveBomNodeDto, id?: string) {
+    return this.mutateInventoryBomLine(async (tx) => {
+      const current = id ? await tx.procBomNode.findUnique({ where: { id }, include: { _count: { select: { children: true } } } }) : null;
+      if (id && !current) throw new NotFoundException('该 BOM 节点已不存在，请刷新');
+      if (current && (!dto.baseUpdatedAt || new Date(dto.baseUpdatedAt).getTime() !== current.updatedAt.getTime())) {
+        throw new ConflictException('BOM 已被其他操作更新，请刷新后重试');
+      }
+      const productLine = dto.productLine.trim();
+      if (!productLine) throw new BadRequestException('请填写设备型号');
+      if (current && current.productLine !== productLine) throw new BadRequestException('不能将 BOM 节点转移到其他设备');
+      const parentId = dto.parentId?.trim() || null;
+      if (current && !current.parentId && parentId && await tx.procBomRevision.findFirst({ where: { deviceId: id }, select: { id: true } })) {
+        throw new ConflictException('已发布设备根身份不能改为子节点，请保留历史并另建设备');
+      }
+      const parent = parentId ? await tx.procBomNode.findUnique({ where: { id: parentId } }) : null;
+      if (parentId && (!parent || parent.productLine !== productLine || isInventoryBomMaterial(parent))) {
+        throw new BadRequestException('请选择当前设备下的组件分类');
+      }
+      if (id && parentId === id) throw new BadRequestException('节点不能归入自身');
+      if (current && current._count.children > 0 && parentId !== current.parentId) {
+        throw new BadRequestException('包含子项的分类不能移动，请先移动其物料');
+      }
+      if (current && isInventoryBomMaterial(current) !== (dto.kind === 'material')) {
+        throw new BadRequestException('物料与结构分类不能相互转换');
+      }
+      if (dto.kind === 'device') {
+        if (parentId || current?.parentId) throw new BadRequestException('设备必须是 BOM 根节点');
+        if (!current && await tx.procBomNode.findFirst({ where: { productLine: { equals: productLine, mode: 'insensitive' } } })) {
+          throw new ConflictException('设备型号已存在，请在对应 BOM 中添加物料');
+        }
+      } else if (!await tx.procBomNode.findFirst({ where: { productLine } })) {
+        throw new BadRequestException('请先创建设备');
+      }
+      let name = dto.name?.trim() || '';
+      let code: string | null = null;
+      let materialId: string | null = null;
+      let qtyPer: Prisma.Decimal | null = null;
+      if (dto.kind === 'material') {
+        const material = dto.materialId ? await tx.procMaterial.findUnique({ where: { id: dto.materialId } }) : null;
+        if (!material) throw new BadRequestException('请选择物料库中已有的物料');
+        if (!material.tpInventoryCode?.trim()) throw new BadRequestException('该物料缺少库存编码，请先在物料库完善后再加入 BOM');
+        if (!Number.isFinite(dto.qtyPer) || dto.qtyPer! <= 0 || dto.qtyPer! > 9999999999.9999 || new Prisma.Decimal(dto.qtyPer!).decimalPlaces() > 4) {
+          throw new BadRequestException('单机用量必须大于 0，最多保留 4 位小数');
+        }
+        name = material.name;
+        code = material.tpInventoryCode;
+        materialId = material.id;
+        qtyPer = new Prisma.Decimal(dto.qtyPer!);
+      } else if (!name) throw new BadRequestException('请填写设备或分类名称');
+      const data = { name, code, materialId, qtyPer, productLine, parentId, level: parent ? parent.level + 1 : 0,
+        remark: dto.remark?.trim() || null, sortOrder: dto.sortOrder ?? current?.sortOrder ?? 0 };
+      if (current) {
+        const result = await tx.procBomNode.updateMany({ where: { id, updatedAt: current.updatedAt }, data });
+        if (result.count !== 1) throw new ConflictException('BOM 已被其他操作更新，请刷新后重试');
+        return tx.procBomNode.findUniqueOrThrow({ where: { id } });
+      }
+      return tx.procBomNode.create({ data });
+    });
+  }
+
+  async deleteBomNode(id: string, baseUpdatedAt: string) {
+    return this.mutateInventoryBomLine(async (tx) => {
+      const row = await tx.procBomNode.findUnique({ where: { id }, include: { _count: { select: { children: true } } } });
+      if (!row) throw new NotFoundException('该 BOM 节点已不存在，请刷新');
+      if (new Date(baseUpdatedAt).getTime() !== row.updatedAt.getTime()) throw new ConflictException('BOM 已被其他操作更新，请刷新后重试');
+      if (row._count.children) throw new BadRequestException('请先移除分类或设备下的所有子项');
+      if (!row.parentId && await tx.procBomRevision.findFirst({ where: { deviceId: id }, select: { id: true } })) throw new ConflictException('设备已有发布版本，不能删除；请停用版本并保留历史');
+      const result = await tx.procBomNode.deleteMany({ where: { id, updatedAt: row.updatedAt, children: { none: {} } } });
+      if (result.count !== 1) throw new ConflictException('BOM 已变更，请刷新后重试');
+      return { id, deleted: true };
+    });
+  }
+
   private async mutateInventoryBomLine<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('procurement-common-bom-lines'))::text`;
         return work(tx);
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
     } catch (error) {
       if ((error as { code?: string }).code === 'P2034') {
         throw new ConflictException('BOM 物料已被其他操作更新，请刷新后重试');
@@ -4393,6 +4614,7 @@ export class ProcurementService {
       level = parent.level + 1;
     }
     const material = await tx.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } });
+    if (!material) throw new BadRequestException('物料库中不存在该编码，请先建立物料档案');
     const remark = dto.remark?.trim() || null;
     if (remark && remark.length > 1000) throw new BadRequestException('规格备注最多 1000 字');
     return { name, code, qtyPer: new Prisma.Decimal(qtyPer), parentId, level, productLine: isQ5Update ? current.productLine : '通用', materialId: material?.id ?? null, remark };
@@ -4442,11 +4664,20 @@ export class ProcurementService {
    * 按编码读取全仓镜像用于解释未匹配原因，数量仍精确限定「量产仓 / 量产仓库」，
    * 避免把「研发量产仓」、样品仓或售后备件仓计入可齐套量。
    */
-  async getInventoryReadiness(query: Record<string, unknown>) {
+  async getInventoryReadiness(query: Record<string, unknown>, db?: Prisma.TransactionClient) {
+    if (!db) return this.prisma.$transaction(tx => this.getInventoryReadiness(query, tx), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const targetSets = Math.min(1_000_000, Math.max(0, Math.floor(Number(query.targetSets) || 0)));
-    const requestedProductLine = typeof query.productLine === 'string' ? query.productLine.trim() : '';
+    let requestedProductLine = typeof query.productLine === 'string' ? query.productLine.trim() : '';
+    const revision = typeof query.revisionId === 'string' && query.revisionId ? await db.procBomRevision.findUnique({ where: { id: query.revisionId }, include: { device: true } }) : null;
+    if (query.revisionId && !revision) throw new NotFoundException('BOM 发布版本不存在');
+    const frozen = revision ? buildBomSnapshot(revision.snapshot as unknown as Parameters<typeof buildBomSnapshot>[0]) : null;
+    if (revision && frozen) {
+      if (revision.fingerprint !== frozen.fingerprint) throw new ConflictException('BOM 快照校验失败');
+      if (requestedProductLine && requestedProductLine !== revision.device.productLine) throw new BadRequestException('所选版本不属于当前型号');
+      requestedProductLine = revision.device.productLine;
+    }
     const warehouseKeyword = '量产';
-    const bomRows = await this.prisma.procBomNode.findMany({
+    let bomRows = await db.procBomNode.findMany({
       orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
       select: {
         id: true,
@@ -4461,6 +4692,14 @@ export class ProcurementService {
         material: { select: { name: true, spec: true, unit: true } },
       },
     });
+    if (frozen && revision) {
+      bomRows = frozen.structure.map(node => {
+        const leaf = frozen.leaves.find(row => row.nodeId === node.id);
+        return { id: node.id, parentId: node.parentId, name: leaf?.name ?? node.name, code: leaf?.code ?? null, level: 0,
+          productLine: revision.device.productLine, qtyPer: leaf ? new Prisma.Decimal(leaf.qtyPer) : null, remark: null, updatedAt: revision.publishedAt,
+          material: leaf ? { name: leaf.name, spec: '', unit: leaf.unit } : null };
+      });
+    }
     const byId = new Map(bomRows.map((row) => [row.id, row]));
     const parentIds = new Set(bomRows.map((row) => row.parentId).filter((id): id is string => Boolean(id)));
     const modelMap = new Map<string, { id: string; label: string; bomLines: number }>();
@@ -4468,7 +4707,7 @@ export class ProcurementService {
       const line = row.productLine.trim();
       if (!line) continue;
       const current = modelMap.get(line) ?? { id: line, label: line, bomLines: 0 };
-      if (!parentIds.has(row.id) && (line !== '通用' || isInventoryBomMaterial(row))) current.bomLines += 1;
+      if (!parentIds.has(row.id) && isInventoryBomMaterial(row)) current.bomLines += 1;
       modelMap.set(line, current);
     }
     for (const [line, model] of modelMap) {
@@ -4478,25 +4717,15 @@ export class ProcurementService {
       model.label = rootName && rootName !== line ? `${line} · ${rootName}` : line;
     }
     const models = [...modelMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-    if (!modelMap.has('通用')) {
-      const commonModel = { id: '通用', label: '通用', bomLines: 0 };
-      modelMap.set('通用', commonModel);
-      models.push(commonModel);
-    }
     // 整机齐套默认使用 Q5 清单；缺少所选型号时保留空态，不能拿其他 BOM 代算。
     const productLine = requestedProductLine || 'Q5';
-    if (!modelMap.has(productLine)) {
-      const selectedModel = { id: productLine, label: productLine, bomLines: 0 };
-      modelMap.set(productLine, selectedModel);
-      models.push(selectedModel);
-    }
-    const materialRows = bomRows.filter((row) => row.productLine === productLine && !parentIds.has(row.id) && (productLine !== '通用' || isInventoryBomMaterial(row)));
+    const materialRows = bomRows.filter((row) => row.productLine === productLine && !parentIds.has(row.id) && isInventoryBomMaterial(row));
     const codes = [...new Set([
       ...materialRows.map((row) => row.code?.trim()).filter((code): code is string => Boolean(code)),
       ...(productLine === 'Q5' ? Q5_PACKAGING_REFERENCE_SOURCE.items.map((row) => row.code) : []),
     ])];
     // 以当前编码匹配物料库，不能依赖导入时可能缺失或已过时的 materialId。
-    const materials = codes.length > 0 ? await this.prisma.procMaterial.findMany({
+    const materials = codes.length > 0 ? await db.procMaterial.findMany({
       where: { tpInventoryCode: { in: codes } },
       select: { tpInventoryCode: true, category: true, unit: true },
     }) : [];
@@ -4506,7 +4735,7 @@ export class ProcurementService {
       const parentName = row.parentId ? byId.get(row.parentId)?.name : undefined;
       const category = productLine === 'Q5' ? parentName?.trim() || '未分类' : material?.category?.trim() || '未分类';
       const bomPosition = parentName ?? '未指定位置';
-      const unit = material?.unit?.trim() || '件';
+      const unit = frozen ? row.material?.unit ?? '' : material?.unit?.trim() || '';
       return {
         id: row.id,
         category,
@@ -4534,13 +4763,14 @@ export class ProcurementService {
       };
     });
     const inventoryCandidates = codes.length > 0
-      ? await this.prisma.procInventoryBalance.findMany({
+      ? await db.procInventoryBalance.findMany({
           where: {
             tpInventoryCode: { in: codes },
           },
           select: {
             tpInventoryCode: true,
             warehouse: true,
+            unit: true,
             stockQty: true,
             availableQty: true,
             inTransitQty: true,
@@ -4551,6 +4781,7 @@ export class ProcurementService {
         })
       : [];
     const inventoryRows = inventoryCandidates.filter((row) => isProductionWarehouse(row.warehouse));
+    const snapshot = await this.inventoryStock.read({ codes, scope: { kind: 'production' } }, db);
     const balanceMap = new Map<string, InventoryReadinessBalance>();
     for (const row of inventoryRows) {
       const current = balanceMap.get(row.tpInventoryCode) ?? {
@@ -4562,7 +4793,9 @@ export class ProcurementService {
         syncedAt: null,
       };
       current.stock += num(row.stockQty);
-      current.available += num(row.availableQty);
+      const base = stockForCode(snapshot, row.tpInventoryCode, leaves.find(leaf => leaf.code === row.tpInventoryCode)?.unit);
+      current.available = base.available;
+      current.issues = base.issues;
       current.inTransit += num(row.inTransitQty);
       current.safeStock = Math.max(current.safeStock, num(row.material?.safeStock));
       const syncedAt = row.syncedAt?.toISOString() ?? null;
@@ -4586,6 +4819,8 @@ export class ProcurementService {
     return {
       source: 'tplus',
       readOnly: true,
+      stockScope: snapshot.scope, stockReadAt: snapshot.readAt, stockRows: snapshot.rows,
+      bomBasis: revision ? { kind: 'published' as const, revisionId: revision.id, version: revision.version, retiredAt: revision.retiredAt } : { kind: 'draft' as const },
       productLine,
       models,
       bomPositions: productLine === '通用'
@@ -4626,8 +4861,8 @@ export class ProcurementService {
   async listBuyerCandidates(scope: 'eligible' | 'all' | 'department' = 'eligible') {
     const [users, roster, purchasingDepartmentName] = await Promise.all([
       this.prisma.user.findMany({
-        where: { status: 'ACTIVE' },
-        select: { id: true, name: true, department: true, role: { select: { permissions: true } } },
+        where: scope === 'all' ? {} : { status: 'ACTIVE' },
+        select: { id: true, name: true, department: true, status: true, role: { select: { permissions: true } } },
         orderBy: { name: 'asc' },
       }),
       this.readBuyerRoster(),
@@ -4656,6 +4891,7 @@ export class ProcurementService {
         id: u.id,
         name: u.name,
         department: u.department ?? undefined,
+        disabled: u.status !== undefined && u.status !== 'ACTIVE',
         inRoster: rosterSet.has(u.id) || isProc(u.department),
         canReceiveTasks: canReceiveTasks(u),
       }));
@@ -4698,7 +4934,7 @@ export class ProcurementService {
   private static readonly BUYER_ROSTER_KEY = 'procurement:buyer-roster:v1';
 
   /** 名录条目：兼容早期纯 userId 字符串数组格式。 */
-  private async readBuyerRosterEntries(): Promise<Array<{ userId: string; note?: string }>> {
+  private async readBuyerRosterEntries(): Promise<Array<{ userId: string; note?: string; excluded?: boolean }>> {
     const row = await this.prisma.runtimeState.findUnique({
       where: { key: ProcurementService.BUYER_ROSTER_KEY },
     });
@@ -4707,22 +4943,22 @@ export class ProcurementService {
       const parsed = JSON.parse(row.value) as unknown;
       if (!Array.isArray(parsed)) return [];
       return parsed
-        .map((x) => {
+        .map((x): { userId: string; note?: string; excluded?: boolean } | null => {
           if (typeof x === 'string') return { userId: x };
           if (x && typeof x === 'object' && typeof (x as { userId?: unknown }).userId === 'string') {
             const note = (x as { note?: unknown }).note;
-            return { userId: (x as { userId: string }).userId, note: typeof note === 'string' ? note : undefined };
+            return { userId: (x as { userId: string }).userId, note: typeof note === 'string' ? note : undefined, excluded: (x as { excluded?: unknown }).excluded === true };
           }
           return null;
         })
-        .filter((x): x is { userId: string; note?: string } => Boolean(x));
+        .filter((x): x is { userId: string; note?: string; excluded?: boolean } => Boolean(x));
     } catch {
       return [];
     }
   }
 
   private async readBuyerRoster(): Promise<string[]> {
-    return (await this.readBuyerRosterEntries()).map((e) => e.userId);
+    return (await this.readBuyerRosterEntries()).filter(e => !e.excluded).map((e) => e.userId);
   }
 
   private async getPurchasingDepartmentName(): Promise<string> {
@@ -4733,7 +4969,7 @@ export class ProcurementService {
     return department?.name.trim() || '采购部';
   }
 
-  private async writeBuyerRosterEntries(entries: Array<{ userId: string; note?: string }>) {
+  private async writeBuyerRosterEntries(entries: Array<{ userId: string; note?: string; excluded?: boolean }>) {
     const seen = new Set<string>();
     const unique = entries.filter((e) => (seen.has(e.userId) ? false : (seen.add(e.userId), true)));
     await this.prisma.runtimeState.upsert({
@@ -4751,8 +4987,11 @@ export class ProcurementService {
     ]);
     const procurementUsers = await this.prisma.user.findMany({
       where: {
-        status: 'ACTIVE',
-        department: purchasingDepartmentName,
+        OR: [
+          { status: 'ACTIVE', department: purchasingDepartmentName },
+          { id: { in: entries.filter(entry => !entry.excluded).map(entry => entry.userId) } },
+        ],
+        id: { notIn: entries.filter(entry => entry.excluded).map(entry => entry.userId) },
       },
       select: { id: true, name: true, department: true, status: true, role: { select: { permissions: true } } },
       orderBy: { name: 'asc' },
@@ -4768,8 +5007,8 @@ export class ProcurementService {
           name: user.name,
           department: user.department ?? undefined,
           note: notes.get(user.id),
-          disabled: false,
-          managedByDepartment: true,
+          disabled: user.status !== 'ACTIVE',
+          managedByDepartment: false,
           canReceiveTasks: permissions.includes('*') || permissions.includes('page:proc-my-workspace'),
         };
       }),
@@ -4777,15 +5016,16 @@ export class ProcurementService {
   }
 
   async addBuyerRosterMember(userId: string) {
-    const [user, purchasingDepartmentName] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true, department: true } }),
-      this.getPurchasingDepartmentName(),
-    ]);
-    if (!user || user.status !== 'ACTIVE' || user.department?.trim() !== purchasingDepartmentName) {
-      throw new NotFoundException('仅可维护采购部门内的在职人员');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
+    if (!user || user.status !== 'ACTIVE') {
+      throw new NotFoundException('请选择用户管理中已启用的用户');
     }
     const entries = await this.readBuyerRosterEntries();
-    if (!entries.some((e) => e.userId === userId)) {
+    const existing = entries.find(e => e.userId === userId);
+    if (existing?.excluded) {
+      existing.excluded = false;
+      await this.writeBuyerRosterEntries(entries);
+    } else if (!existing) {
       entries.push({ userId });
       await this.writeBuyerRosterEntries(entries);
     }
@@ -4796,6 +5036,7 @@ export class ProcurementService {
   async updateBuyerRosterMember(userId: string, note: string) {
     const entries = await this.readBuyerRosterEntries();
     let entry = entries.find((e) => e.userId === userId);
+    if (entry?.excluded) throw new NotFoundException('该用户不在采购成员名录中');
     if (!entry) {
       const [user, purchasingDepartmentName] = await Promise.all([
         this.prisma.user.findUnique({
@@ -4816,18 +5057,12 @@ export class ProcurementService {
   }
 
   async removeBuyerRosterMember(userId: string) {
-    const [user, purchasingDepartmentName] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { department: true, status: true },
-      }),
-      this.getPurchasingDepartmentName(),
-    ]);
-    if (user?.status === 'ACTIVE' && user.department?.trim() === purchasingDepartmentName) {
-      throw new BadRequestException('采购部门在职成员由系统自动维护，请先在部门管理中调整该人员所属部门');
-    }
     const entries = await this.readBuyerRosterEntries();
-    await this.writeBuyerRosterEntries(entries.filter((e) => e.userId !== userId));
+    // 保留排除标记，避免原部门默认成员在下次读取时被重新加入；不改用户或任务。
+    const entry = entries.find(e => e.userId === userId);
+    if (entry) entry.excluded = true;
+    else entries.push({ userId, excluded: true });
+    await this.writeBuyerRosterEntries(entries);
     return this.getBuyerRoster();
   }
 
@@ -4950,6 +5185,8 @@ export class ProcurementService {
       contextLocked, materialLocked: contextLocked || plan.batches.length > 0,
       productId: plan.productId ?? undefined, treeNodeId: plan.treeNodeId ?? undefined,
       productLine: plan.productLine ?? undefined, productionTaskId: plan.productionTaskId ?? undefined,
+      bomRevisionId: plan.bomRevisionId ?? undefined, bomBasis: plan.bomBasis ?? undefined,
+      bomVersion: plan.bomRevision?.version, bomRetiredAt: plan.bomRevision?.retiredAt?.toISOString() ?? null,
       materialId: plan.materialId ?? undefined,
       materialName: plan.materialName,
       spec: plan.spec,
@@ -5142,16 +5379,19 @@ export class ProcurementService {
         syncedAt: Date | null;
       }[];
     },
+    snapshot?: StockSnapshot,
   ) {
-    const stockQty = m.balances.reduce((sum, b) => sum + num(b.stockQty), 0);
-    const availableQty = m.balances.reduce((sum, b) => sum + num(b.availableQty), 0);
+    const base = snapshot ? stockForCode(snapshot, m.tpInventoryCode ?? '', m.unit) : null;
+    const stockQty = base && base.stockState === 'known' ? base.rows.reduce((sum, row) => sum.plus(row.bookQty!), new Prisma.Decimal(0)).toNumber() : null;
+    const availableQty = base?.available ?? null;
     const inTransitQty = m.balances.reduce((sum, b) => sum + num(b.inTransitQty), 0);
     // stockQty 是各仓存量的累加值，详情页要能看清它由哪几个仓库、各多少构成。
     const warehouses = m.balances
       .map((b) => ({
         name: b.warehouse || '未指定仓库',
         stock: num(b.stockQty),
-        available: num(b.availableQty),
+        available: base?.rows.find(row => row.warehouse === b.warehouse)?.available ?? null,
+        syncedAt: base?.rows.find(row => row.warehouse === b.warehouse)?.syncedAt ?? null,
       }))
       .sort((a, b) => b.stock - a.stock);
     const inventorySyncedAt = m.balances.reduce<string | undefined>((latest, balance) => {
@@ -5172,6 +5412,7 @@ export class ProcurementService {
       safeStock: num(m.safeStock),
       stockQty,
       availableQty,
+      stockState: base?.stockState ?? 'unknown', stockIssues: base?.issues ?? ['缺少 ERP 库存依据'], stockScope: snapshot?.scope ?? { kind: 'all' }, stockReadAt: snapshot?.readAt ?? null,
       inTransitQty,
       warehouses,
       inventorySyncedAt,

@@ -48,7 +48,7 @@ function fixture({ rows = [material('one'), material('two')], query = '', canWri
     byType(type) { return nodes(api.render()).find((n) => n.type === type); },
     rows() { return nodes(api.render()).filter((n) => typeof n.type === 'function' && n.type.name === 'QuoteBookMaterialRows').map((n) => n.props.row); },
     directory() { return api.byType('QuoteBookSupplierView'); },
-    changeView(value) { api.byType('Tabs').props.onValueChange(value); return api.render(); },
+    changeView(value) { params.set('view',value); return api.render(); },
     search(value) { api.byType('Input').props.onChange({ target: { value } }); return api.render(); },
     button(label) { return nodes(api.render()).find((n) => ['button', 'Button'].includes(n.type) && (n.props['aria-label'] === label || text(n).trim() === label)); },
     query: () => params, reads: () => reads,
@@ -58,11 +58,25 @@ function fixture({ rows = [material('one'), material('two')], query = '', canWri
   api.render(); return api;
 }
 
-test('供应商视图链接可打开，非法视图回退物料比价；切换保留其他URL上下文', async () => {
-  const page = fixture({ query: 'view=suppliers&search=阀' }); await page.settle();
-  assert.equal(page.byType('Tabs').props.value, 'suppliers');
-  page.changeView('materials'); assert.equal(page.query().get('search'), '阀');
-  assert.equal(fixture({ query: 'view=invalid' }).byType('Tabs').props.value, 'materials');
+test('默认直接展示供应商目录，没有视图 Tab；旧物料入口只打开详情抽屉', async () => {
+  const page = fixture(); await page.settle();
+  assert.ok(page.directory());
+  assert.equal(page.byType('Tabs'),undefined);assert.equal(page.byType('TabsList'),undefined);
+  assert.ok(nodes(page.render()).filter(n=>n.type==='Sheet').every(n=>!n.props.open));
+  page.changeView('materials');assert.ok(page.directory());assert.equal(page.byType('Sheet').props.open,true);
+  page.byType('Sheet').props.onOpenChange(false);
+  assert.equal(page.query().get('view'),null);assert.ok(page.directory());
+  assert.ok(nodes(fixture({query:'view=invalid'}).render()).filter(n=>n.type==='Sheet').every(n=>!n.props.open));
+});
+
+test('供货资格从对应物料打开抽屉，关闭回到原目录并保留无关 URL 参数', async () => {
+  const page = fixture({query:'from=task'});await page.settle();
+  page.directory().props.onQualifications('two','supplier-A');
+  const sheet = nodes(page.render()).filter(n=>n.type==='Sheet')[1];
+  assert.equal(sheet.props.open,true);assert.ok(page.directory());
+  const panel=page.byType('SupplierQualificationsPanel');assert.equal(panel.props.materialId,'two');assert.equal(panel.props.supplierId,'supplier-A');
+  sheet.props.onOpenChange(false);assert.equal(page.query().has('materialId'),false);assert.equal(page.query().has('supplierId'),false);
+  assert.equal(page.query().get('from'),'task');
 });
 
 test('从厂家跳转比价使用物料ID，清除旧分类/过期筛选且展开全部厂家；同名物料不混入', async () => {
@@ -79,7 +93,7 @@ test('从厂家跳转比价使用物料ID，清除旧分类/过期筛选且展�
   page.button('清除筛选').props.onClick(); assert.equal(page.rows().length, 2);
 });
 
-test('两种视图切换保留物料筛选，供应商视图始终使用全库报价', async () => {
+test('报价详情打开关闭保留筛选，主页面目录始终使用全库报价', async () => {
   const page = fixture(); await page.settle(); page.search('T-one');
   assert.deepEqual(page.rows().map((r) => r.id), ['one']);
   page.changeView('suppliers'); assert.equal(page.directory().props.rows.length, 2);
@@ -130,12 +144,12 @@ test('从精确物料再进入搜索深链时解除旧ID范围', async () => {
 
 test('读取失败隐藏旧供应商操作，可重试恢复；并行旧读取不能覆盖新结果', async () => {
   const page = fixture({ query: 'view=suppliers' }); await page.settle();
-  page.setResponse(async () => { throw new Error('报价读取失败'); }); page.button('刷新报价库').props.onClick(); await page.settle();
+  page.setResponse(async () => { throw new Error('报价读取失败'); }); page.directory().props.onReload(); await page.settle();
   assert.ok(nodes(page.render()).find((n) => n.type === 'div' && n.props.hidden && nodes(n).some((child) => child.type === 'QuoteBookSupplierView')));
   page.setResponse(async () => [material('new')]); page.button('重新加载').props.onClick(); await page.settle();
   assert.deepEqual(page.directory().props.rows.map((r) => r.id), ['new']);
-  let finishOld; page.setResponse(() => new Promise((r) => { finishOld = r; })); page.button('刷新报价库').props.onClick();
-  page.setResponse(async () => [material('latest')]); page.button('刷新报价库').props.onClick(); await page.settle();
+  let finishOld; page.setResponse(() => new Promise((r) => { finishOld = r; })); page.directory().props.onReload();
+  page.setResponse(async () => [material('latest')]); page.directory().props.onReload(); await page.settle();
   finishOld([material('old')]); await page.settle();
   assert.deepEqual(page.directory().props.rows.map((r) => r.id), ['latest']);
 });

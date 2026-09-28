@@ -4,6 +4,7 @@ export type InventoryReadinessViewStatus = "all" | "warning" | "ready" | "low" |
 
 export interface InventoryReadinessViewState {
   productLine: string;
+  revisionId?: string;
   targetSets: number;
   q: string;
   category: string;
@@ -14,8 +15,8 @@ export interface InventoryReadinessViewState {
 }
 
 const STATUSES = new Set<InventoryReadinessViewStatus>(["all", "warning", "ready", "low", "gap", "shortage", "unmatched", "data_missing"]);
-const FIELD_LIMITS = { productLine: 64, q: 200, category: 128, itemId: 128 } as const;
-const FIELDS = new Set(["productLine", "targetSets", "q", "category", "status", "page", "pageSize", "itemId"]);
+const FIELD_LIMITS = { productLine: 64, revisionId: 200, q: 200, category: 128, itemId: 128 } as const;
+const FIELDS = new Set(["productLine", "revisionId", "targetSets", "q", "category", "status", "page", "pageSize", "itemId"]);
 const UNSAFE_TEXT = /[\\\u0000-\u001f\u007f]/;
 
 function safeText(value: string | null, limit: number, fallback = "") {
@@ -35,6 +36,7 @@ export function parseInventoryReadinessViewState(input: URLSearchParams | string
   const status = params.get("status") as InventoryReadinessViewStatus;
   const pageSize = Number(params.get("pageSize"));
   const itemId = safeText(params.get("itemId"), FIELD_LIMITS.itemId);
+  const revisionId = safeText(params.get("revisionId"), FIELD_LIMITS.revisionId);
   return {
     productLine: safeText(params.get("productLine"), FIELD_LIMITS.productLine, "Q5"),
     targetSets: boundedInteger(params.get("targetSets"), 100, 0, 1_000_000),
@@ -44,6 +46,7 @@ export function parseInventoryReadinessViewState(input: URLSearchParams | string
     page: boundedInteger(params.get("page"), 1, 1, 1_000_000),
     pageSize: pageSize === 50 || pageSize === 100 ? pageSize : 20,
     ...(itemId ? { itemId } : {}),
+    ...(revisionId ? { revisionId } : {}),
   };
 }
 
@@ -62,6 +65,7 @@ export function buildInventoryReadinessPath(state: InventoryReadinessViewState):
   if (view.page !== 1) params.set("page", String(view.page));
   if (view.pageSize !== 20) params.set("pageSize", String(view.pageSize));
   if (view.itemId) params.set("itemId", view.itemId);
+  if (view.revisionId) params.set("revisionId", view.revisionId);
   return `${routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")}?${params.toString()}`;
 }
 

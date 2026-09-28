@@ -17,12 +17,13 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { Button } from "../components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { Pagination, PaginationContent, PaginationItem } from "../components/ui/pagination";
 import { ImageLightbox, useConfirmDialog, useProcCan } from "./components/common";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { QuoteFormDrawer } from "./components/QuoteFormDrawer";
 import { QuoteImportModal } from "./components/QuoteImportModal";
+import { SupplierQualificationsPanel } from "./components/SupplierQualificationsPanel";
 import { QuoteBookSupplierView } from "./components/QuoteBookSupplierView";
 import { MaterialFormModal } from "./components/modals";
 import { downloadQuoteBookTemplate, exportQuoteBookXlsx } from "./quoteBookXlsx";
@@ -100,13 +101,21 @@ function TierChips({ quote, bestPrice, today }: { quote: SupplierQuote; bestPric
 export function QuoteBookPage() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get("view") === "suppliers" ? "suppliers" : "materials";
+  const view = searchParams.get("view") === "qualifications" ? "qualifications" : searchParams.get("view") === "materials" || (!searchParams.get("view") && (searchParams.has("materialId") || searchParams.has("materialName") || searchParams.has("search"))) ? "materials" : "suppliers";
   const changeView = (next: string) => {
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
-      params.set("view", next === "suppliers" ? "suppliers" : "materials");
+      params.set("view", next === "qualifications" ? "qualifications" : next === "suppliers" ? "suppliers" : "materials");
       return params;
     }, { replace: true });
+  };
+  const closeDetails = () => {
+    setSearchParams(current => {
+      const params = new URLSearchParams(current);
+      for (const key of ["view", "materialId", "materialName", "supplierId", "search", "action"]) params.delete(key);
+      return params;
+    }, { replace: true });
+    focusHandledRef.current = "";
   };
   const focusedMaterialId = searchParams.get("materialId");
   const focusedMaterialName = searchParams.get("materialName");
@@ -132,7 +141,7 @@ export function QuoteBookPage() {
   const [historyFor, setHistoryFor] = useState<Pick<QuoteBookRow, "id" | "name"> | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   // 抽屉：material 必有；quote 有则编辑、无则新增
-  const [drawer, setDrawer] = useState<{ material: QuoteBookRow; quote?: SupplierQuote } | null>(null);
+  const [drawer, setDrawer] = useState<{ material: QuoteBookRow; quote?: SupplierQuote; supplierName?: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const can = useProcCan();
@@ -315,9 +324,13 @@ export function QuoteBookPage() {
   };
 
   return (
-    <div className="proc-horizon proc-quote-book mx-auto flex min-h-full w-full max-w-[1600px] flex-col pb-4">
-      <section className="proc-horizon-surface proc-quote-command material-card mb-3 grid shrink-0 items-center gap-3 px-4 py-3">
-        <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t(view === "suppliers" ? "按供应商核对已报价物料、编码与报价条款；供货资质需另行确认。" : "同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
+    <div className="proc-horizon proc-quote-book mx-auto flex min-h-full w-full flex-col pb-4">
+      <Sheet open={view === "materials"} onOpenChange={open => { if (!open) closeDetails(); }}>
+        <SheetContent className="proc-horizon proc-quote-book w-full gap-0 sm:max-w-[min(1440px,95vw)]">
+          <SheetHeader><SheetTitle>{t("物料报价详情")}</SheetTitle><SheetDescription>{t("查看当前物料的厂家报价、阶梯价和历史记录。")}</SheetDescription></SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      {view === "materials" && <section className="proc-horizon-surface proc-quote-command material-card mb-3 grid shrink-0 items-center gap-3 px-4 py-3">
+        <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
             {can("proc-task:create") && (
               <Button variant="unstyled" type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
@@ -349,9 +362,9 @@ export function QuoteBookPage() {
             )}
             <Button type="button" variant="outline" size="sm" disabled={loading} onClick={reload} aria-label={t("刷新报价库")}><RefreshCw className="size-4" />{t("刷新")}</Button>
         </div>
-      </section>
+      </section>}
 
-      <div className="proc-quote-metrics mb-3 grid shrink-0 grid-cols-2 gap-2">
+      {view === "materials" && <div className="proc-quote-metrics mb-3 grid shrink-0 grid-cols-2 gap-2">
         {[
           { icon: CircleDollarSign, label: t("已报价商品"), value: quoteSummary.quoted, detail: t("可进入供应商比价") },
           { icon: Users, label: t("有效供应商报价"), value: quoteSummary.activeSuppliers, detail: t("当前参与最优价计算") },
@@ -371,14 +384,8 @@ export function QuoteBookPage() {
             </div>
           </div>
         ))}
-      </div>
+      </div>}
 
-      <Tabs value={view} onValueChange={changeView} className="min-w-0 gap-3">
-      <TabsList aria-label={t("报价库查看方式")}>
-        <TabsTrigger value="materials"><PackageSearch className="size-4" />{t("按物料比价")}</TabsTrigger>
-        <TabsTrigger value="suppliers"><Users className="size-4" />{t("按供应商查看")}</TabsTrigger>
-      </TabsList>
-      <TabsContent forceMount value="materials" className={view === "materials" ? "min-w-0" : "hidden"}>
       {/* 工具条：搜索 + 分类 + 缺报价/过期过滤 */}
       <div className="proc-horizon-surface material-card mb-3 shrink-0 space-y-3 px-4 py-3">
         <div className="proc-quote-search-fields grid min-w-0 gap-3">
@@ -525,23 +532,34 @@ export function QuoteBookPage() {
           </div>}
         </div>
       )}
-      </TabsContent>
-      <TabsContent forceMount value="suppliers" className={view === "suppliers" ? "min-w-0" : "hidden"}>
+      </div></SheetContent></Sheet>
+      <section aria-label={t("供应商报价库")} className="min-w-0">
         {error ? <div role="alert" className="material-card flex flex-col items-center gap-3 p-8 text-center text-sm text-rose-600"><span className="break-words">{error}</span><Button type="button" variant="outline" onClick={reload}>{t("重新加载")}</Button></div>
           : loading ? <div role="status" className="material-card p-8 text-center text-sm text-slate-500">{t("加载中")}…</div> : null}
         <div hidden={loading || Boolean(error)}>
           <QuoteBookSupplierView rows={rows} today={today} canWrite={canWrite}
-            onCompare={compareMaterial} onEdit={(material, quote) => setDrawer({ material, quote })}
+            onQualifications={(materialId, supplierId) => setSearchParams(current => {
+              const params = new URLSearchParams(current);
+              params.set("view", "qualifications"); params.set("materialId", materialId); params.set("supplierId", supplierId);
+              params.delete("action");
+              return params;
+            })}
+            onCompare={compareMaterial} onEdit={(material, quote, supplierName) => setDrawer({ material, quote, supplierName })} onCreate={can("proc-task:create") ? () => setCreateOpen(true) : undefined} onImport={() => setImportOpen(true)} onReload={reload}
             onShowMaterials={() => { clearFilters(); setShowAll(true); changeView("materials"); }} />
         </div>
-      </TabsContent>
-      </Tabs>
+      </section>
+      <Sheet open={view === "qualifications"} onOpenChange={open => { if (!open) closeDetails(); }}>
+        <SheetContent className="proc-horizon w-full gap-0 sm:max-w-[min(1200px,95vw)]">
+          <SheetHeader><SheetTitle>{t("供货资格")}</SheetTitle><SheetDescription>{t("查看和维护当前物料的供应商供货资格。")}</SheetDescription></SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4"><SupplierQualificationsPanel materialId={focusedMaterialId || undefined} supplierId={searchParams.get("supplierId") || undefined} /></div>
+        </SheetContent>
+      </Sheet>
 
       <PriceHistoryModal materialId={historyFor?.id} materialName={historyFor?.name ?? ""} open={historyFor != null} onClose={() => setHistoryFor(null)} />
       {drawer && (
         <QuoteFormDrawer
           material={{ id: drawer.material.id, name: drawer.material.name, unit: drawer.material.unit }}
-          quote={drawer.quote}
+          quote={drawer.quote} supplierName={drawer.supplierName}
           onClose={() => setDrawer(null)}
           onSaved={reload}
         />

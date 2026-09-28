@@ -10,7 +10,6 @@ import {
   Loader2,
   LockKeyhole,
   Package,
-  PackageSearch,
   Pencil,
   Plus,
   Search,
@@ -53,7 +52,6 @@ import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
 import { DEFAULT_PROCUREMENT_PRODUCT_ID, useProcurementProducts } from "../data";
 import { ProcurementModuleDetail } from "./ProcurementModuleDetail";
-import { CoreMaterialsPanorama } from "./CoreMaterialsPanorama";
 import {
   createProcTaskTreeNode,
   deleteProcTaskTreeNode,
@@ -362,14 +360,6 @@ export function ProcurementSystemTree({
   onCloseModule,
   onOpenModule,
   onProductChange,
-  coreMode,
-  coreMaterialsByProduct,
-  coreMaterialLimit,
-  coreConfigLoading,
-  coreConfigError,
-  onRetryCoreConfig,
-  onCoreModeChange,
-  onSaveCoreMaterials,
 }: {
   tasks: ProcurementTask[];
   materials: Material[];
@@ -381,14 +371,6 @@ export function ProcurementSystemTree({
   onCloseModule?: () => void;
   onOpenModule?: (node: ProcTaskTreeNode, productId: string) => void;
   onProductChange?: (productId: string) => void;
-  coreMode: boolean;
-  coreMaterialsByProduct: Record<string, string[]>;
-  coreMaterialLimit: number;
-  coreConfigLoading: boolean;
-  coreConfigError: string | null;
-  onRetryCoreConfig: () => void;
-  onCoreModeChange: (active: boolean) => void;
-  onSaveCoreMaterials: (productId: string, materialIds: string[]) => Promise<void>;
 }) {
   const { t } = useI18n();
   const products = useProcurementProducts();
@@ -524,11 +506,11 @@ export function ProcurementSystemTree({
     const observer = new ResizeObserver(updateCategoryNavEdges);
     observer.observe(nav);
     return () => observer.disconnect();
-  }, [updateCategoryNavEdges, visibleRoots, coreMode, detailNodeId]);
+  }, [updateCategoryNavEdges, visibleRoots, detailNodeId]);
 
   useLayoutEffect(() => {
     if (panoramaScrollRef.current) panoramaScrollRef.current.scrollTop = 0;
-  }, [activeProductId, activeRootId, normalizedKeyword, coreMode, detailNodeId]);
+  }, [activeProductId, activeRootId, normalizedKeyword, detailNodeId]);
 
   const scrollCategoryNav = (direction: -1 | 1) => {
     const nav = categoryNavRef.current;
@@ -627,22 +609,10 @@ export function ProcurementSystemTree({
               {t("返回任务驾驶舱")}
             </Button>
           )}
-          <Tabs value={coreMode ? "core" : "panorama"} onValueChange={(value) => onCoreModeChange(value === "core")}>
-            <TabsList aria-label={t("子系统全景视图")} className="h-9 rounded-lg bg-slate-100 p-1">
-            <TabsTrigger value="panorama" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-primary">
-              <Layers3 className="size-3.5" />
-              {t("分类全景")}
-            </TabsTrigger>
-            <TabsTrigger value="core" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-primary">
-              <PackageSearch className="size-3.5" />
-              {t("核心配件")}
-            </TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
 
         <div className="proc-horizon-system-tools flex min-w-0 flex-wrap items-center gap-2">
-          {!coreMode && <div className="proc-horizon-system-search flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 focus-within:border-primary/40 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/15">
+          <div className="proc-horizon-system-search flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 focus-within:border-primary/40 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/15">
             <Search className="size-3.5 text-muted-foreground" />
             <Input
               value={keyword}
@@ -656,8 +626,8 @@ export function ProcurementSystemTree({
                 <X className="size-3" />
               </Button>
             )}
-          </div>}
-          {!coreMode && canManage && (
+          </div>
+          {canManage && (
             <>
               {manageMode && canEdit && (
                 <Button variant="unstyled" type="button" onClick={() => setEditor({ mode: "add-root" })} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
@@ -679,7 +649,7 @@ export function ProcurementSystemTree({
             </>
           )}
         </div>
-          {!coreMode && !loading && !error && visibleNodes.length > 0 && (
+          {!loading && !error && visibleNodes.length > 0 && (
             <div className="proc-horizon-system-legend flex flex-wrap items-center gap-1.5">
               {legend.filter(({ count }) => count > 0).map(({ count, health }) => {
                 const style = NODE_HEALTH_STYLE[health];
@@ -726,7 +696,7 @@ export function ProcurementSystemTree({
         </ScrollArea>
       </Tabs>
 
-      {!coreMode && <div className="relative min-w-0 shrink-0 border-b border-slate-100 bg-slate-50/80 px-11 py-2">
+      <div className="relative min-w-0 shrink-0 border-b border-slate-100 bg-slate-50/80 px-11 py-2">
         <Button variant="unstyled"
           type="button"
           onClick={() => scrollCategoryNav(-1)}
@@ -805,25 +775,9 @@ export function ProcurementSystemTree({
         >
           <ChevronRight className="size-4" />
         </Button>
-      </div>}
+      </div>
 
-      <div ref={panoramaScrollRef} className={cn("proc-horizon-system-body min-h-0 flex-1", coreMode ? "flex" : "overflow-y-auto p-4")}>
-        {coreMode ? (
-          <CoreMaterialsPanorama
-            productId={activeProductId}
-            productName={activeProduct?.name ?? activeProductId}
-            roots={roots}
-            materials={materials}
-            configuredIds={coreMaterialsByProduct[activeProductId] ?? []}
-            maxItems={coreMaterialLimit}
-            configLoading={coreConfigLoading}
-            configError={coreConfigError}
-            canManage={canEdit}
-            onRetryConfig={onRetryCoreConfig}
-            onBrowseCategories={() => onCoreModeChange(false)}
-            onSave={onSaveCoreMaterials}
-          />
-        ) : <>
+      <div ref={panoramaScrollRef} className="proc-horizon-system-body min-h-0 flex-1 overflow-y-auto p-4">
         {activeRoot && canManage && manageMode && (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-2">
             <div className="min-w-0">
@@ -914,12 +868,11 @@ export function ProcurementSystemTree({
             ))}
           </div>
         )}
-        </>}
       </div>
 
       <div className="proc-horizon-system-footer flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-4 py-2 text-[11px] leading-4 text-slate-500">
-        <span className="text-pretty">{t(coreMode ? "核心配件按 T+ 物料去重，仅展示具体数量，不汇总分类节点库存。" : "选择分类查看名称节点，点击名称节点打开模块详情。")}{!coreMode && manageMode ? ` ${t("已有任务的节点无法修改或删除。")}` : ""}</span>
-        {!coreMode && selected && (
+        <span className="text-pretty">{t("选择分类查看名称节点，点击名称节点打开模块详情。")}{manageMode ? ` ${t("已有任务的节点无法修改或删除。")}` : ""}</span>
+        {selected && (
           <div className="flex items-center gap-3">
             {onShowTasks && (
               <Button type="button" onClick={() => onShowTasks(activeProductId)} className="cursor-pointer rounded-md px-2.5 py-1 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { matchPath } from 'react-router';
@@ -14,65 +14,59 @@ const role = (...codes) => ({ id: 'worker-a', permissions: codes });
 const warehouse = role('page:purchase-order-detail', 'proc-purchase-order:receive');
 const quality = role('page:purchase-order-detail', 'proc-purchase-order:inspect');
 const manager = role('page:purchase-order-detail', 'page:proc-cockpit', 'proc-operations:assign');
-function navigation(user, hidden = []) {
-  const { navGroups } = load('src/app/routesConfig.tsx', { 'lucide-react': new Proxy({}, { get: (_, key) => key }), './lib/routePaths': { routePath: (code, fallback) => code === 'page:purchase-order-detail' ? '/orders/:id' : fallback } });
-  const { useVisibleNavigation } = load('src/app/lib/useVisibleNavigation.ts', { react: { useMemo: (fn) => fn() }, '../auth': { useAuth: () => ({ user }) }, '../routesConfig': { navGroups }, './permissions': permissions, './permissionCatalogApi': { useNavHiddenCodes: () => new Set(hidden) } });
+function routes(overrides = {}) {
+  const routePath = (code, fallback) => overrides[code] ?? (code === 'page:purchase-order-detail' ? '/orders/:id' : fallback);
+  return load('src/app/routesConfig.tsx', { 'lucide-react': new Proxy({}, { get: (_, key) => key }), './lib/routePaths': { routePath, subRoutePath: (code, fallback, suffix) => `${routePath(code, fallback)}/${suffix}` } });
+}
+function navigation(user, hidden = [], overrides = {}) {
+  const { navGroups } = routes(overrides);
+  const { useVisibleNavigation } = load('src/app/lib/useVisibleNavigation.ts', { react: { useMemo: (fn) => fn() }, '../auth': { useAuth: () => ({ user }) }, '../routesConfig': { navGroups }, './permissions': permissions, './permissionCatalogApi': { useNavMeta: () => hidden.map(code => ({ code, navHidden: true })) } });
   return useVisibleNavigation().flatMap(group => group.items);
 }
-function page(user) {
-  const { OperationalTasksPage } = load('src/app/procurement/people/OperationalTasksPage.tsx', { 'react/jsx-runtime': jsxRuntime, '../../auth': { useAuth: () => ({ user }) }, '../../lib/permissions': permissions, '../../lib/i18n': { useI18n: () => ({ t: value => value }) }, './OperationalTasksPanel': { OperationalTasksPanel: 'OperationalTasksPanel' }, '../horizon.css': {} });
-  return OperationalTasksPage();
-}
-function find(tree, predicate) { if (!tree || typeof tree !== 'object') return undefined; if (predicate(tree)) return tree; const children = tree.props?.children; for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) { const result = find(child, predicate); if (result) return result; } }
-
-test('仓管和质量普通人员具有可见独立入口，详情主路径改名不覆盖岗位入口', () => {
-  for (const user of [warehouse, quality, manager, role('*')]) assert.ok(navigation(user).some(item => item.path === path));
-  assert.ok(navigation(warehouse, ['page:purchase-order-detail']).some(item => item.path === path), '详情不是侧栏主入口，其隐藏配置不吞掉岗位任务入口');
+test('供应链导航保留独立权限与路径，所有角色均移除仓管质量任务入口', () => {
+  for (const user of [warehouse, quality, manager, role('*')]) assert.equal(navigation(user).some(item => item.path === path), false);
+  assert.equal(navigation(warehouse, ['page:purchase-order-detail']).some(item => item.path === path), false);
+  const expected = [
+    ['供应链管理', 'page:proc-cockpit', '/proc-cockpit', '供应链任务驾驶舱'],
+    ['供应链管理', 'page:proc-my-workspace', '/proc-my-workspace', '个人工作台'],
+    ['研发任务管理', 'page:rd-my-workspace', '/rd-my-workspace', '个人工作台'],
+  ];
+  const { DEFAULT_PERMISSION_CATALOG } = load('apps/api/src/modules/permission-catalog/permission-catalog.defaults.ts');
+  for (const overrides of [{}, { 'page:proc-cockpit': '/supply/tasks', 'page:proc-my-workspace': '/supply/mine', 'page:rd-my-workspace': '/research/mine' }]) {
+    const { navGroups, routeTitleMap, routePermissionMap } = routes(overrides);
+    for (const [group, code, fallback, label] of expected) {
+      const target = overrides[code] ?? fallback;
+      const item = navGroups.find(entry => entry.label === group).items.find(entry => entry.requiredPermission === code);
+      assert.deepEqual([item.label, item.path, routeTitleMap[target], routePermissionMap[target]], [label, target, label, code]);
+      assert.equal(navigation(role(code), [], overrides).find(entry => entry.requiredPermission === code)?.path, target);
+      assert.equal(navigation(role(code), [code], overrides).some(entry => entry.requiredPermission === code), false);
+      const catalog = DEFAULT_PERMISSION_CATALOG.find(entry => entry.code === code);
+      assert.deepEqual([catalog.label, catalog.routePath], [label, fallback]);
+    }
+    assert.deepEqual(navigation(role('page:proc-my-workspace'), [], overrides).filter(item => item.label === '个人工作台').map(item => item.requiredPermission), ['page:proc-my-workspace']);
+    assert.deepEqual(navigation(role('page:rd-my-workspace'), [], overrides).filter(item => item.label === '个人工作台').map(item => item.requiredPermission), ['page:rd-my-workspace']);
+  }
 });
 test('缺任一权限前提时菜单隐藏，既有知识库任一权限规则保留', () => {
   for (const user of [null, role(), role('page:purchase-order-detail'), role('proc-purchase-order:receive'), role('proc-purchase-order:inspect'), role('page:proc-cockpit'), role('proc-operations:assign')]) assert.equal(navigation(user).some(item => item.path === path), false);
   assert.ok(navigation(role('page:dept-kb-quality')).some(item => item.requiredPermissionAny?.includes('page:dept-kb-quality')));
 });
-test('直接打开独立页仍组合校验权限，仅渲染本人任务；不挂团队页', () => {
-  for (const user of [warehouse, quality, manager, role('*')]) assert.equal(find(page(user), node => node.type === 'OperationalTasksPanel')?.props.personal, true);
-  for (const user of [null, role(), role('page:purchase-order-detail'), role('proc-purchase-order:receive'), role('page:proc-cockpit')]) assert.equal(find(page(user), node => node.type === 'OperationalTasksPanel'), undefined);
-});
-test('App 独立岗位路由保留详情外门，团队管理仍只归驾驶舱权限', () => {
+test('岗位页面与专用面板已删除，人员管理仍保留', () => {
   const app = read('src/app/App.tsx');
-  assert.match(app, /path:\s*"proc-operational-tasks",\s*element:\s*makeLazyProtected\(<OperationalTasksPage\s*\/>,\s*"page:purchase-order-detail"\)/);
+  assert.doesNotMatch(app, /OperationalTasksPage|path:\s*"proc-operational-tasks"/);
+  for (const file of ['OperationalTasksPage.tsx', 'OperationalTasksPanel.tsx']) {
+    assert.equal(existsSync(new URL('../src/app/procurement/people/' + file, import.meta.url)), false);
+  }
   assert.match(app, /path:\s*"proc-people-management",\s*element:\s*makeLazyProtected\(<ProcPeopleManagementPage\s*\/>,\s*"page:proc-cockpit"\)/);
 });
-test('手机访问岗位任务保留原入口，未登录仍进登录页', () => {
+
+test('电脑和手机打开已删除页面均回首页，未登录仍进登录页', () => {
   const app = read('src/app/App.tsx'); const start = app.indexOf('function ProtectedLayout()'); const end = app.indexOf('/** Guards a route', start);
   const exported = compile('export ' + app.slice(start, end));
-  for (const user of [warehouse, null]) {
+  for (const isMobile of [false, true]) for (const user of [warehouse, quality, manager, role('*'), null]) {
     const out = {}; new Function('exports', 'require', 'useAuth', 'useLocation', 'useIsMobileViewport', 'routePath', 'subRoutePath', 'matchPath', 'Root', 'Navigate', exported)(out, () => jsxRuntime,
-      () => ({ user, hydrated: true }), () => ({ pathname: path, search: '', hash: '', state: null }), () => true, (_, fallback) => fallback,
+      () => ({ user, hydrated: true }), () => ({ pathname: path, search: '', hash: '', state: null }), () => isMobile, (_, fallback) => fallback,
       (_, fallback, suffix) => `${fallback}/${suffix}`, matchPath, 'Root', 'Navigate');
-    const view = out.ProtectedLayout(); assert.equal(view.type, user ? 'Root' : 'Navigate'); if (!user) assert.equal(view.props.to, '/login');
-  }
-});
-
-test('真实面板个人模式按本人查询，经理也不显示团队分派；质量人员默认进入质量任务', async () => {
-  for (const [user, personal, expectedOwner, expectedKind, canViewAll = true] of [[warehouse, true, 'worker-a', 'warehouse'], [quality, true, 'worker-a', 'quality'], [manager, true, 'worker-a', 'warehouse'], [manager, false, 'all', 'warehouse'], [warehouse, false, 'worker-a', 'warehouse', false]]) {
-    const slots = [], effects = [], queries = []; let cursor = 0, changed = false, candidateReads = 0;
-    const hooks = {
-      useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
-      useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], next => { const value = typeof next === 'function' ? next(slots[index]) : next; if (!Object.is(value, slots[index])) { slots[index] = value; changed = true; } }]; },
-      useEffect(fn, deps) { const index = cursor++, previous = slots[index]; if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) { const effect = { deps }; slots[index] = effect; effects.push(() => { previous?.cleanup?.(); effect.cleanup = fn(); }); } },
-    };
-    const response = { items: [{ id: 'line-a', lineId: 'line-a', kind: expectedKind, orderNo: 'PO', lineNo: '1', materialName: '零件', state: '待处理', dueDate: null, quantity: 3, unit: '件', assignment: { userId: user.id, name: '本人', history: [] } }], people: [{ id: 'someone-else', name: '其他员工' }], nextCursor: null, canViewAll, canAssign: true };
-    const mod = load('src/app/procurement/people/OperationalTasksPanel.tsx', { react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-router': { useNavigate: () => () => {} }, '../../auth': { useAuth: () => ({ user }) }, '../../hooks/usePermission': { usePermission: code => permissions.hasPermission(user.permissions, code) }, '../../lib/purchaseOrderLineNavigation': { buildPurchaseOrderLinePath: () => '/orders/PO?line=line-a' }, '../../lib/operationalTasksApi': {
-      fetchOperationalTasks: async query => { queries.push(query); return response; }, fetchOperationalCandidates: async () => { candidateReads++; return []; }, assignOperationalTask: () => { throw new Error('read-only test'); },
-    }, '../../components/ui/dialog': new Proxy({}, { get: (_, key) => key }) });
-    const render = () => { let tree; for (let i = 0; i < 20; i++) { changed = false; cursor = 0; const element = mod.OperationalTasksPanel({ personal }); tree = element.type(element.props); while (effects.length) effects.shift()(); if (!changed) return tree; } assert.fail('render loop'); };
-    render(); await new Promise(resolve => setImmediate(resolve)); const tree = render();
-    assert.equal(queries.length, 2); assert.ok(queries.every(query => query.owner === expectedOwner && query.kind === expectedKind));
-    const management = !personal && user === manager;
-    assert.equal(candidateReads, management ? 1 : 0);
-    const owner = find(tree, node => node.props?.['aria-label'] === '任务负责人');
-    assert.equal(Boolean(find(owner, node => node.type === 'option' && node.props.value === 'all')), !personal && canViewAll);
-    assert.equal(Boolean(find(owner, node => node.type === 'option' && node.props.value === 'someone-else')), !personal && canViewAll);
-    assert.equal(Boolean(find(tree, node => node.type === "Button" && node.props.children === '保存分派')), management);
+    const view = out.ProtectedLayout(); assert.equal(view.type, 'Navigate'); assert.equal(view.props.to, user ? '/' : '/login'); assert.equal(view.props.replace, true);
   }
 });

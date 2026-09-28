@@ -73,13 +73,14 @@ export function Root() {
       <LayoutChromeStateContext.Provider value={state}>
         <Sheet open={mobileNavigationOpen && !immersive} onOpenChange={setMobileNavigationOpen}>
           <div data-immersive={immersive} className="rd-horizon-app h-dvh min-w-0 bg-transparent">
+            <a href="#main-content" className="app-skip-link" onClick={() => document.getElementById('main-content')?.focus()}>{t("跳到主内容")}</a>
             <div className="material-shell flex h-full min-w-0 overflow-hidden">
               <div className="rd-horizon-desktop-navigation hidden h-full shrink-0 lg:block">
                 <Sidebar />
               </div>
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <Header />
-                <main className="rd-horizon-main min-w-0 flex-1 overflow-y-auto overflow-x-auto px-4 py-4 md:px-6 md:py-6">
+                <main id="main-content" tabIndex={-1} className="rd-horizon-main min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto px-4 py-4 md:px-6 md:py-6">
                   <Outlet />
                 </main>
                 <SiteRecordFooter tone="horizon" className="backdrop-blur-none" />

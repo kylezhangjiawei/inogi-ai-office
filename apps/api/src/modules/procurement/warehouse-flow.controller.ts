@@ -7,7 +7,7 @@ class WarehouseCommandDto {
   @IsInt() @Min(1) version!: number;
   @IsIn(['issue', 'sign']) action!: string;
   @IsString() @MaxLength(2000) reason!: string;
-  @IsArray() @ArrayMaxSize(2000) lines!: Array<{ code: string; quantity: number; warehouse?: string }>;
+  @IsArray() @ArrayMaxSize(2000) lines!: Array<{ code: string; quantity: number; warehouse?: string; batches?: { batchNo: string; quantity: number }[]; batchPendingQty?: number }>;
 }
 class WarehouseReconcileDto {
   @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId!: string;

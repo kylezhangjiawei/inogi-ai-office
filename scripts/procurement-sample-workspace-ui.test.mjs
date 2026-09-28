@@ -127,6 +127,7 @@ function fixture(props = {}, { width = 1200, deferSelection = false } = {}) {
     './TaskDetailDrawer': { TaskDetailDrawer: 'TaskDetailDrawer' },
     '../sampleWorkspace.css': {},
     '../samples/SampleCommercialSummary': { SampleCommercialSummary: 'SampleCommercialSummary' },
+    '../samples/SampleProductImage': { SampleProductImage: 'SampleProductImage' },
   }, { ResizeObserver: MockResizeObserver });
   const onSelect = (id) => {
     calls.selections.push(id);

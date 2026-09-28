@@ -868,10 +868,10 @@ function LibraryUsagePanel({
 
             {entries.length > 0 ? (
               <>
-                <div className="overflow-x-auto">
+                <div className="min-h-0 max-h-[min(42rem,max(16rem,calc(100dvh-28rem)))] overflow-auto [scrollbar-gutter:stable]">
                   <table className="w-full min-w-[760px] text-left text-xs">
                     <caption className="sr-only">图像生成上游调用明细</caption>
-                    <thead className="bg-slate-50 text-slate-600">
+                    <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600">
                       <tr>
                         <th scope="col" className="px-4 py-2.5 font-semibold">时间</th>
                         <th scope="col" className="px-3 py-2.5 font-semibold">操作</th>

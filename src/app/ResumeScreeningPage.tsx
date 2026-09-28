@@ -2325,7 +2325,6 @@ export function ResumeScreeningPage() {
         Icon={Briefcase}
         eyebrow="人事招聘 · AI 初筛"
         title="简历筛选工作台"
-        description="汇总企业邮箱与本地上传简历，通过岗位规则和 AI 评分完成筛选、复核与候选人跟进。"
         meta={(
           <>
             <span>邮箱 {health?.mail_configured ? "已连接" : "待配置"}</span>
@@ -2379,12 +2378,11 @@ export function ResumeScreeningPage() {
         <HorizonSectionHeader
           Icon={Sparkles}
           title="筛选与导入控制"
-          description="选择岗位、企业邮箱和 AI 模型，执行同步或上传简历。"
           trailing={hasPendingBackgroundAnalysis ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 tabular-nums">处理中 {pendingBackgroundCount}</span> : null}
         />
         <div className="p-4 sm:px-5">
-        <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)] xl:items-end">
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="resume-import-layout grid items-start gap-4">
+          <div className="grid min-w-0 gap-3">
             <MaterialSelect
               label="当前岗位"
               value={selectedJobRuleId}
@@ -2399,17 +2397,17 @@ export function ResumeScreeningPage() {
               options={[{ label: "全部岗位 / 自动匹配", value: "" }, ...jobRules.map((item) => ({ label: item.name, value: item.id }))]}
               placeholder={loadingRules ? "正在加载岗位..." : "全部岗位 / 自动匹配"}
             />
-            <Button variant="unstyled"
+            <Button variant="ghost" size="sm"
               type="button"
               onClick={() => setShowJobRuleManager(true)}
-              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
+              className="w-fit text-muted-foreground"
             >
               <Database className="h-4 w-4" />
               管理规则
             </Button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 xl:items-end 2xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_96px_96px_auto_auto_auto]">
+          <div className="resume-import-controls grid min-w-0 gap-3 sm:grid-cols-2">
             <MaterialSelect
               label="企业邮箱"
               value={selectedMailConfigId}
@@ -2457,21 +2455,20 @@ export function ResumeScreeningPage() {
                 }));
               }}
             />
-            <Button variant="unstyled"
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-2 resume-import-actions">
+            <Button size="lg"
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="material-neu-primary inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               同步
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="unstyled"
+                <Button variant="outline" size="lg"
                   type="button"
                   disabled={uploadingFolder}
-                  className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
                 >
                   {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   上传
@@ -2488,14 +2485,15 @@ export function ResumeScreeningPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="unstyled"
+            <Button variant="ghost" size="lg"
               type="button"
               onClick={() => setShowSyncSettings(true)}
-              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
+              className="text-muted-foreground"
             >
               <Clock3 className="h-4 w-4" />
               设置
             </Button>
+            </div>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
@@ -2972,7 +2970,6 @@ export function ResumeScreeningPage() {
           <HorizonSectionHeader
             Icon={UserRoundSearch}
             title="候选人清单"
-            description="按结论、岗位与分数收拢候选人，进入详情后完成 AI 评估复核。"
             trailing={(
               <div className="flex flex-wrap items-center justify-end gap-2">
               {checkedCandidateIds.size > 0 && canDeleteCandidate ? (

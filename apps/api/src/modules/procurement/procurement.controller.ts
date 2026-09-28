@@ -17,7 +17,9 @@ import {
   CreateInventoryBomLineDto,
   UpdateInventoryBomLineDto,
   InventoryBomLineVersionDto,
+  SaveBomNodeDto,
   CreateProcStockPlanDto,
+  ConfirmStockPlanBomBasisDto,
   CreateProcTaskTreeNodeDto,
   ImportBomDto,
   CreateProcTaskDto,
@@ -25,6 +27,7 @@ import {
   LinkPurchaseOrderDto,
   ListProcStockPlansQueryDto,
   ProcAttachmentInputDto,
+  SampleEvidenceDto,
   ReassignProcTaskDto,
   ResetTaskQuotationsDto,
   ReceiveGoodsDto,
@@ -44,7 +47,6 @@ import {
 import { getApplyJob, startApplyJob } from './apply-job.store';
 import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
-import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementService } from './procurement.service';
 import type { ProcActor, ProcMaterialListQuery, ProcTaskListQuery } from './procurement.types';
 
@@ -62,7 +64,6 @@ export class ProcurementController {
   constructor(
     private readonly service: ProcurementService,
     private readonly classify: MaterialClassifyService,
-    private readonly safeStock: MaterialSafeStockService,
     private readonly replenish: MaterialReplenishService,
   ) {}
 
@@ -165,6 +166,12 @@ export class ProcurementController {
   @Permissions('proc-task:create')
   generateStockPlanTasks(@Param('id') id: string, @Request() req: AuthedRequest) {
     return this.service.generateStockPlanTasks(id, this.actor(req));
+  }
+
+  @Post('stock-plans/:id/confirm-bom-basis')
+  @Permissions('bom:publish')
+  confirmStockPlanBomBasis(@Param('id') id: string, @Body() dto: ConfirmStockPlanBomBasisDto, @Request() req: AuthedRequest) {
+    return this.service.confirmStockPlanBomBasis(id, dto, this.actor(req));
   }
 
   @Post('stock-plans')
@@ -314,6 +321,11 @@ export class ProcurementController {
   @Get('tasks/:id/sample-test')
   getSampleTest(@Param('id') id: string, @Request() req: AuthedRequest) {
     return this.service.getSampleTest(id, this.actor(req));
+  }
+
+  @Post('tasks/:id/sample-test/evidence')
+  addSampleEvidence(@Param('id') id: string, @Body() dto: SampleEvidenceDto, @Request() req: AuthedRequest) {
+    return this.service.addSampleEvidence(id, dto, this.actor(req));
   }
 
   @Post('tasks/:id/sample-test/confirm')
@@ -600,6 +612,24 @@ export class ProcurementController {
     return this.service.getBomTree();
   }
 
+  @Post('bom/nodes')
+  @Permissions('material:import')
+  createBomNode(@Body() dto: SaveBomNodeDto) {
+    return this.service.saveBomNode(dto);
+  }
+
+  @Put('bom/nodes/:id')
+  @Permissions('material:import')
+  updateBomNode(@Param('id') id: string, @Body() dto: SaveBomNodeDto) {
+    return this.service.saveBomNode(dto, id);
+  }
+
+  @Delete('bom/nodes/:id')
+  @Permissions('material:import')
+  deleteBomNode(@Param('id') id: string, @Body() dto: InventoryBomLineVersionDto) {
+    return this.service.deleteBomNode(id, dto.baseUpdatedAt);
+  }
+
   /** 量产仓库库存 × 产品 BOM：计算当前及在途到货后的物料可齐套套数。 */
   @Get('inventory-readiness')
   @Permissions('page:proc-inventory-readiness', 'page:proc-cockpit')
@@ -663,21 +693,6 @@ export class ProcurementController {
     const job = getApplyJob(id);
     if (!job) throw new NotFoundException('任务不存在或已被清理（服务可能重启过），请重新发起');
     return job;
-  }
-
-  /** 安全库存初始化干跑：基于采购单镜像统计建议值，不落库。 */
-  @Get('materials/safe-stock/preview')
-  @Permissions('material:import')
-  safeStockPreview() {
-    return this.safeStock.preview();
-  }
-
-  /** 安全库存初始化应用（异步，同分类）：只填 safeStock=0 的物料，人工值不覆盖。 */
-  @Post('materials/safe-stock/apply')
-  @Permissions('material:import')
-  safeStockApply(@Request() req: AuthedRequest) {
-    const job = startApplyJob('safe-stock', (update) => this.safeStock.apply(req.user.id, update));
-    return { jobId: job.id };
   }
 
   /** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务，>0 才列出。 */

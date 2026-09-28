@@ -15,7 +15,7 @@ function namedDeclarations(path, names) {
 }
 
 const helperSource = namedDeclarations("src/app/procurement/components/common.tsx", [
-  "PROC_STATUS_META", "INQUIRY_FLOW", "DIRECT_FLOW", "FREE_SAMPLE_ONLY_STATUSES", "QUOTE_RESETTABLE_STATUSES",
+  "PROC_STATUS_META", "INQUIRY_FLOW", "DIRECT_FLOW", "procurementStepsOf", "FREE_SAMPLE_ONLY_STATUSES", "QUOTE_RESETTABLE_STATUSES",
   "ROLLBACK_MAIN_FLOW", "ROLLBACK_DIRECT_FLOW", "rollbackTargetsOf", "rollbackCleanupHintOf",
 ]);
 const helpers = {};

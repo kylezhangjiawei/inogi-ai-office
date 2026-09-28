@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>供应链任务驾驶舱 · Direction C</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-direction="c">
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand"><span class="brand-mark">I</span><div><strong>INOGI</strong><small>供应链运营</small></div></div>
+        <nav>
+          <div class="nav-caption">工作台</div>
+          <a href="#">总览</a>
+          <a class="active" href="#" aria-current="page">供应链任务驾驶舱</a>
+          <div class="nav-caption">业务管理</div>
+          <a href="#">研发任务管理</a>
+          <a href="#">质量与生产</a>
+          <a href="#">销售与交付</a>
+          <div class="nav-caption">系统</div>
+          <a href="#">基础数据</a>
+          <a href="#">系统管理</a>
+        </nav>
+        <div class="sidebar-footer"><span class="permission-dot"></span><span>采购管理权限</span><button class="icon-btn" aria-label="设置">⚙</button></div>
+      </aside>
+      <main class="main-content">
+        <header class="topbar"><div class="breadcrumbs">供应链管理 <span>/</span> 供应链任务驾驶舱</div><div class="top-actions"><button class="icon-btn" aria-label="通知">◌</button><div class="user-chip"><span class="avatar">王</span><span>王工</span><span class="chevron">⌄</span></div></div></header>
+        <section class="page-head"><div><div class="eyebrow">采购运营 · page:proc-cockpit</div><h1>供应链任务驾驶舱</h1><p>围绕采购任务推进、到货和异常处理，保持任务状态与下一步动作在同一工作区内。</p></div><div class="page-actions"><button class="btn secondary" data-action="export">导出当前列表</button><button class="btn primary" data-action="create">+ 新建需求</button></div></section>
+        <div class="tabs" role="tablist" aria-label="供应链任务类型"><button class="tab active" role="tab" aria-selected="true" data-tab="采购任务">采购任务 <span>12</span></button><button class="tab" role="tab" aria-selected="false" data-tab="样品协同">样品协同 <span>4</span></button><button class="tab" role="tab" aria-selected="false" data-tab="备货计划">备货计划 <span>6</span></button></div>
+        <section class="metric-strip" id="metrics" aria-label="任务概况"></section>
+        <section class="workspace panel">
+          <div class="section-head"><div><h2 id="listTitle">采购任务</h2><span class="muted" id="tabHint">当前显示需要采购推进的任务</span></div><div class="head-actions"><button class="btn ghost" data-action="match">单据匹配</button><button class="btn ghost" data-action="assign">批量转派</button><button class="btn ghost" data-action="classify">批量归类</button><button class="more-btn" aria-label="更多操作">•••</button></div></div>
+          <div class="filter-bar"><label class="search-box"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索单号 / 物料 / 人员" aria-label="搜索单号、物料或人员" /></label><label class="select-wrap"><span>业务线</span><select id="lineFilter"><option value="">全部</option><option>普通采购</option><option>样品协同</option></select></label><label class="select-wrap"><span>采购负责人</span><select id="ownerFilter"><option value="">全部</option><option>王工</option><option>李成</option><option>韩琦</option><option>陈工</option></select></label><label class="select-wrap"><span>状态</span><select id="statusFilter"><option value="">全部</option><option>待处理</option><option>询价中</option><option>待到样</option><option>已下单/在途</option><option>部分到货</option></select></label><button class="link-btn" data-action="reset">清除筛选</button></div>
+          <div class="table-meta"><span id="resultCount"></span><span class="table-note">数据更新时间：2026-09-18 09:30</span></div>
+          <div class="table-wrap"><table><thead><tr><th class="check-col"><input type="checkbox" aria-label="选择全部任务" /></th><th>任务 / 物料</th><th>业务线</th><th>需求月份</th><th>负责人</th><th>供应商</th><th>状态</th><th>下一步</th><th class="action-col">操作</th></tr></thead><tbody id="taskRows"></tbody></table></div>
+        </section>
+      </main>
+    </div>
+    <aside class="detail-drawer" id="detailDrawer" aria-label="采购任务详情" aria-hidden="true"><div class="drawer-head"><div><span class="drawer-kicker">采购任务详情</span><h2 id="drawerTitle">—</h2><span class="code" id="drawerCode">—</span></div><button class="icon-btn close-drawer" data-action="close-detail" aria-label="关闭详情">×</button></div><div class="drawer-body" id="drawerBody"></div></aside>
+    <div class="modal-backdrop" id="createModal" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><div><span class="drawer-kicker">采购任务</span><h2 id="modalTitle">新建需求</h2></div><button class="icon-btn" data-action="close-create" aria-label="关闭新建需求">×</button></div><form id="createForm"><div class="form-grid"><label>物料名称<input name="material" required placeholder="如：主板传感器" /></label><label>规格<input name="spec" required placeholder="规格或型号" /></label><label>数量<input name="quantity" required type="number" min="1" placeholder="数量" /></label><label>单位<select name="unit"><option>件</option><option>套</option><option>个</option></select></label><label>需求月份<input name="month" required type="month" value="2026-09" /></label><label>业务线<select name="line"><option>普通采购</option><option>样品协同</option></select></label><label class="full">采购方式<select name="method"><option>询价采购</option><option>电商直购</option></select></label><label class="full">需求说明<textarea name="note" rows="3" placeholder="补充采购背景、交期或质量要求"></textarea></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-action="close-create">取消</button><button class="btn primary" type="submit">创建采购任务</button></div></form></section></div>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
+

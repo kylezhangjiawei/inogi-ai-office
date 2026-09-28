@@ -165,7 +165,7 @@ export function FieldPreviewPage() {
         <div><span>{t('派工日期 / 产线')}</span><strong>{task.date} · {task.lineName}</strong><p>{task.dispatchCode} · {t('第 {version} 版', { version: task.dispatchVersion })}</p></div>
         <div className="ft-source-links"><span>{t('本任务作业依据')}</span><div>{task.documents.map((doc) => <Button variant="unstyled" key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</Button>)}</div>{task.ecnId ? <Link to={`/__preview/ecn?ecn=${encodeURIComponent(task.ecnId)}`}>{t('查看 ECN 与岗位确认')}<ArrowRight className="size-4" aria-hidden="true" /></Link> : null}</div>
       </section>
-      <div className="ft-workflow" aria-label={t('现场执行概况')}>
+      <div className="ft-status-summary" aria-label={t('现场执行概况')}>
         <span className={cn(task.acceptedAt && 'ft-complete')}>{t('派工')}{' · '}{t(task.acceptedAt ? '已接收' : '待接收')}</span>
         <span>{t('领料')}{' · '}{issues.filter((item) => item.signedAt).length}/{issues.length} {t('单已签收')}</span>
         <span>{t('报工')}{' · '}{progress.reported}/{task.planned} {task.unit}</span>

@@ -16,7 +16,7 @@ const procurementServiceSource = await source("apps/api/src/modules/procurement/
 
 const embeddedPreviewFiles = [
   "src/app/MobileRDCockpit.tsx",
-  "src/app/RDTaskManagementPage.tsx",
+  "src/app/rd/TaskAttachmentGallery.tsx",
   "src/app/components/RagCitations.tsx",
   "src/app/procurement/components/common.tsx",
   "src/app/imageStudioShared.tsx",

@@ -9,14 +9,14 @@ const actor = { id: 'rd-1', name: '研发甲', permissions: ['proc-task:transfer
 const buyer = { id: 'buyer-1', name: '采购甲' };
 const attachment = { fileName: '图纸.pdf', fileUrl: 'https://example.test/drawing.pdf' };
 const input = {
-  rdTaskId: 'RD-001', materialName: '电机', quantity: 2,
+  rdTaskId: 'RD-001', materialName: '电机', quantity: 2, unit: '件', spec: '24V', needDate: '2026-09-30',
   attachments: [attachment],
 };
 
 function fixture(status?: string) {
   let row: Record<string, any> | null = status ? {
     id: 'proc-1', code: 'PR-001', source: 'rd', status, rdTaskId: 'RD-001',
-    rdTaskTitle: '原研发任务', materialName: '电机', quantity: 1, unit: '件',
+    rdTaskTitle: '原研发任务', materialName: '电机', quantity: 1, unit: '件', spec: '24V', needDate: new Date('2026-09-30T00:00:00Z'),
     method: 'inquiry', requester: '研发甲', requesterUserId: 'rd-1',
     attachments: [attachment], buyer: '', buyerUserId: null,
   } : null;
@@ -323,4 +323,29 @@ test('已确认的嵌入式技术文件从可信版本保留原内容，不把�
   assert.equal(writes[0].attachments.create[0].fileUrl, embedded);
   assert.equal(writes[0].metadata.rdTransferSnapshots[0].attachments[0].fileUrl, embedded);
   assert.equal(writes[0].metadata.rdTransferSnapshots[0].attachments[0].technicalDocumentVersionId, 'embedded-v1');
+});
+
+
+test('正式转采购拒绝缺日期和规格，原因随交付快照保留', async () => {
+  const h = fixture();
+  await assert.rejects(h.service.transferFromRd({ ...input, needDate: undefined }, actor), /需求日期/);
+  await assert.rejects(h.service.transferFromRd({ ...input, spec: '' }, actor), /填写规格/);
+  await assert.rejects(h.service.transferFromRd({ ...input, needDate: '2026-02-30' }, actor), /有效的日历日期/);
+  assert.equal(h.writes.length, 0);
+  await h.service.transferFromRd({ ...input, needDate: undefined, spec: '', needDateNotApplicableReason: '探索阶段按现货采购，无生产交期', specNotApplicableReason: '低值耗材按附件包装型号采购' }, actor);
+  const requirement = h.writes[0].metadata.rdTransferSnapshots[0].requirement;
+  assert.equal(requirement.needDate, null);
+  assert.equal(requirement.specNotApplicableReason, '低值耗材按附件包装型号采购');
+});
+
+
+test('待继续的旧需求不能绕过门槛，补齐重提追加交付并沿用原采购编号', async () => {
+  const h = fixture('pending_rd_review'); h.simulateProcurementUpdate({ needDate: null, spec: '' });
+  await assert.rejects(h.service.continueRdTransfer('proc-1', actor), /需求日期/);
+  assert.equal(h.writes.length, 0);
+  const completed = await h.service.transferFromRd(input, actor);
+  assert.equal(completed.id, 'proc-1'); assert.equal(completed.status, 'pending_confirm');
+  assert.equal(h.writes[0].metadata.rdTransferSnapshots.length, 1);
+  assert.equal(h.writes[0].logs.create.fromStatus, 'pending_rd_review');
+  assert.equal(h.handled.length, 2);
 });

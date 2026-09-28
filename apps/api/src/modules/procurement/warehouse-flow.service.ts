@@ -6,9 +6,11 @@ import { executionQty, executionText } from './production-execution.model';
 import { WAREHOUSE_PREFIX } from './production-execution.service';
 import type { ProcActor } from './procurement.types';
 import { pendingCountReduction, WAREHOUSE_RECORD_PREFIX, type WarehouseRecord } from './warehouse-records.service';
+import { warehouseStockExposure } from './warehouse-stock-ledger.model';
+import { warehouseBatchAllocation, warehouseBatchTotals, validateSignedBatches, type WarehouseBatchQuantity } from './warehouse-batches.model';
 import { isProductionWarehouse } from './inventory-readiness';
 
-export interface WarehouseIssueLine { code: string; name: string; unit: string; quantity: number; issuedQty?: number; signedQty?: number }
+export interface WarehouseIssueLine { code: string; name: string; unit: string; quantity: number; issuedQty?: number; signedQty?: number; issuedBatches?: WarehouseBatchQuantity[]; signedBatches?: WarehouseBatchQuantity[]; issuedBatchPendingQty?: number; signedBatchPendingQty?: number }
 export interface WarehouseReconciliation {
   eventId: string; method: 'manual'; result: 'matched' | 'difference' | 'revoked';
   voucherNumber?: string; posted?: boolean; detailsMatch?: boolean;
@@ -23,7 +25,7 @@ export interface WarehouseIssue {
   id: string; kind: 'issue'; version: number; status: 'requested' | 'partial' | 'issued' | 'signed' | 'cancelled';
   planId: string; batchId: string; taskId: string; productLine: string; title: string; neededDate: string; recipientId: string; recipientName: string;
   lines: WarehouseIssueLine[]; createdAt: string; createdBy: string; createdByName: string;
-  history: Array<{ id: string; action: string; actorId: string; actorName: string; at: string; reason: string; lines?: Array<{ code: string; quantity: number; warehouse?: string }>; erpPosting?: 'pending'; subjectId?: string; reconciliation?: WarehouseReconciliation }>;
+  history: Array<{ id: string; action: string; actorId: string; actorName: string; at: string; reason: string; lines?: Array<{ code: string; quantity: number; warehouse?: string; batches?: WarehouseBatchQuantity[]; batchPendingQty?: number }>; erpPosting?: 'pending'; subjectId?: string; reconciliation?: WarehouseReconciliation }>;
 }
 const key = (id: string) => `${WAREHOUSE_PREFIX}issue:${id}`;
 const has = (actor: ProcActor, code: string) => actor.permissions.includes('*') || actor.permissions.includes(code);
@@ -45,10 +47,10 @@ export class WarehouseFlowService {
     const issues = rows.map((row) => decode(row.value)).filter((row) => (all || row.recipientId === actor.id) && (query.status === 'all' || (row.status !== 'cancelled' && !isSettled(row))));
     const codes = [...new Set(issues.flatMap((row) => row.lines.map((line) => line.code)))];
     const balances = codes.length ? await this.prisma.procInventoryBalance.findMany({ where: { tpInventoryCode: { in: codes } }, select: { tpInventoryCode: true, warehouse: true, unit: true, availableQty: true, syncedAt: true } }) : [];
-    return { items: issues, canIssue: has(actor, 'warehouse:issue') && has(actor, 'page:warehouse-flow'), canReconcile: has(actor, 'warehouse:reconcile') && has(actor, 'page:warehouse-flow'),
+    return { items: issues.map(issue => ({ ...issue, lines: issue.lines.map(line => { const issued = warehouseBatchTotals(issue.history, line.code, 'issue', line.issuedQty ?? 0), signed = warehouseBatchTotals(issue.history, line.code, 'sign', line.signedQty ?? 0); return { ...line, issuedBatches: issued.batches, issuedBatchPendingQty: issued.batchPendingQty, signedBatches: signed.batches, signedBatchPendingQty: signed.batchPendingQty }; }) })), canIssue: has(actor, 'warehouse:issue') && has(actor, 'page:warehouse-flow'), canReconcile: has(actor, 'warehouse:reconcile') && has(actor, 'page:warehouse-flow'),
       balances: balances.map((row) => ({ code: row.tpInventoryCode, warehouse: row.warehouse, unit: row.unit, available: Number(row.availableQty), syncedAt: row.syncedAt?.toISOString() ?? null })) };
   }
-  async command(id: string, input: { requestId: string; version: number; action: string; reason: string; lines: Array<{ code: string; quantity: number; warehouse?: string }> }, actor: ProcActor) {
+  async command(id: string, input: { requestId: string; version: number; action: string; reason: string; lines: Array<{ code: string; quantity: number; warehouse?: string; batches?: WarehouseBatchQuantity[]; batchPendingQty?: number }> }, actor: ProcActor) {
     this.access(actor);
     if (!input || !['issue', 'sign'].includes(input.action)) throw new BadRequestException('不支持的领料操作');
     if (input.action === 'issue' && (!has(actor, 'page:warehouse-flow') || !has(actor, 'warehouse:issue'))) throw new ForbiddenException('需要仓库发料权限');
@@ -60,7 +62,8 @@ export class WarehouseFlowService {
       const code = executionText(row?.code, '物料编码');
       if (seen.has(code)) throw new BadRequestException('同一物料不能重复提交');
       seen.add(code);
-      return { code, quantity: executionQty(row.quantity, '本次数量', true), ...(input.action === 'issue' ? { warehouse: executionText(row.warehouse, '发料仓库') } : {}) };
+      const quantity = executionQty(row.quantity, '本次数量', true);
+      return { code, quantity, ...warehouseBatchAllocation(quantity, row), ...(input.action === 'issue' ? { warehouse: executionText(row.warehouse, '发料仓库') } : {}) };
     });
     const requestKey = `${WAREHOUSE_PREFIX}request:${input.requestId}`, fingerprint = createHash('sha256').update(JSON.stringify([actor.id, id, input.version, input.action, reason, lines])).digest('hex');
     try {
@@ -90,12 +93,16 @@ export class WarehouseFlowService {
             const records = (await db.runtimeState.findMany({ where: { key: { startsWith: `${WAREHOUSE_RECORD_PREFIX}record:` } } })).map(row => JSON.parse(row.value) as WarehouseRecord);
             const allocations = await db.runtimeState.findMany({ where: { key: { startsWith: 'procurement:readiness:v1:allocation:' } } });
             const otherReserved = allocations.map(row => JSON.parse(row.value)).filter(row => row.code === item.code && row.planId !== issue.planId).reduce((sum, row) => sum.plus(row.quantity), new Prisma.Decimal(0));
-            if (balance.availableQty.minus(pending).minus(pendingCountReduction(records, item.code, item.warehouse!, snapshotAt)).lt(item.quantity)) throw new ConflictException(`${line.name}库存不足，或既有发料、盘点尚未核对；请先核对库存与未过账发料`);
+            const local = warehouseStockExposure(records, item.code, item.warehouse!, line.unit, snapshotAt);
+            if (local.issues.length) throw new ConflictException(local.issues.join('；'));
+            if (balance.availableQty.minus(pending).minus(pendingCountReduction(records, item.code, item.warehouse!, snapshotAt)).minus(local.frozenAndScrappedPending).lt(item.quantity)) throw new ConflictException(`${line.name}库存不足，或既有发料、盘点尚未核对；请先核对库存与未过账发料`);
             if (isProductionWarehouse(item.warehouse!) && otherReserved.gt(0)) {
               const pool = await db.procInventoryBalance.findMany({ where: { tpInventoryCode: item.code } });
               const poolAvailable = pool.filter(row => isProductionWarehouse(row.warehouse) && row.unit === line.unit && row.syncedAt).reduce((sum, row) => {
                 const held = outstanding.filter(entry => entry.code === item.code && entry.warehouse === row.warehouse && (!entry.checkedAt || row.syncedAt! <= new Date(entry.checkedAt))).reduce((total, entry) => total.plus(entry.quantity), new Prisma.Decimal(0));
-                return sum.plus(row.availableQty).minus(held).minus(pendingCountReduction(records, item.code, row.warehouse, row.syncedAt));
+                const exposure = warehouseStockExposure(records, item.code, row.warehouse, line.unit, row.syncedAt);
+                if (exposure.issues.length) throw new ConflictException(exposure.issues.join('；'));
+                return sum.plus(row.availableQty).minus(held).minus(pendingCountReduction(records, item.code, row.warehouse, row.syncedAt)).minus(exposure.frozenAndScrappedPending);
               }, new Prisma.Decimal(0));
               if (poolAvailable.minus(otherReserved).lt(item.quantity)) throw new ConflictException(`${line.name}量产仓可用量扣除其他计划占用后不足`);
             }
@@ -109,6 +116,7 @@ export class WarehouseFlowService {
             line.issuedQty = new Prisma.Decimal(line.issuedQty ?? 0).plus(item.quantity).toNumber();
           } else {
             if (new Prisma.Decimal(line.signedQty ?? 0).plus(item.quantity).gt(line.issuedQty ?? 0)) throw new BadRequestException(`${line.name}签收数量不能超过已发未签数量`);
+            validateSignedBatches(item, warehouseBatchTotals(issue.history, item.code, 'issue', line.issuedQty ?? 0), warehouseBatchTotals(issue.history, item.code, 'sign', line.signedQty ?? 0));
             line.signedQty = new Prisma.Decimal(line.signedQty ?? 0).plus(item.quantity).toNumber();
           }
         }
@@ -116,6 +124,7 @@ export class WarehouseFlowService {
         issue.version++;
         const event: WarehouseIssue['history'][number] = { id: randomUUID(), action: input.action, actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), reason, lines, ...(input.action === 'issue' ? { erpPosting: 'pending' } : {}) };
         issue.history.push(event);
+        issue.lines = issue.lines.map(line => { const issued = warehouseBatchTotals(issue.history, line.code, 'issue', line.issuedQty ?? 0), signed = warehouseBatchTotals(issue.history, line.code, 'sign', line.signedQty ?? 0); return { ...line, issuedBatches: issued.batches, signedBatches: signed.batches, issuedBatchPendingQty: issued.batchPendingQty, signedBatchPendingQty: signed.batchPendingQty }; });
         const changed = await db.runtimeState.updateMany({ where: { key: key(id), value: stored.value }, data: { value: JSON.stringify(issue) } });
         if (changed.count !== 1) throw new ConflictException('领料记录已被更新，请重新核对');
         await db.runtimeState.create({ data: { key: requestKey, value: fingerprint } });

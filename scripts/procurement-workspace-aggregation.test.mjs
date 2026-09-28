@@ -105,10 +105,12 @@ const group = (tree, title) => nodes(tree).find((node) => typeof node.type === "
 
 test("无备货权限不请求，恢复权限后读取；撤权即隐藏缓存且旧来源按钮失效", async (t) => {
   const view = fixture(t); let tree = view.permission(false); tree = view.tab("stock");
-  assert.equal(view.requests.length, 0); assert.match(text(tree), /当前未读取/);
+  assert.equal(view.requests.length, 0); assert.match(text(tree), /查看备货计划需要供应链任务驾驶舱权限/);
   view.permission(true); assert.equal(view.requests.length, 1); view.requests[0].resolve([plan("one")]); tree = await view.settle();
-  const current = group(tree, "所选月待办"); assert.equal(current.props.rows.length, 1); current.props.onOpen(current.props.rows[0]); assert.match(view.calls[0][1], /stockFocus=one/);
-  view.permission(false); current.props.onOpen(current.props.rows[0]); assert.equal(view.calls.length, 1); assert.equal(group(view.render(), "所选月待办"), undefined);
+  const current = group(tree, "所选月待办"); assert.equal(current.props.rows.length, 1);
+  const openPlan = nodes(current.type(current.props)).find((node) => node.type === "Button" && text(node) === "查看备货计划");
+  openPlan.props.onClick(); assert.match(view.calls[0][1], /stockFocus=one/); assert.match(view.calls[0][1], /stockOpen=one/);
+  view.permission(false); openPlan.props.onClick(); assert.equal(view.calls.length, 1); assert.equal(group(view.render(), "所选月待办"), undefined);
 });
 test("刷新失败保留成功快照并禁用来源，再成功恢复；首次失败不显示0", async (t) => {
   const view = fixture(t); view.tab("stock"); view.requests[0].resolve([plan("old")]); await view.settle();
@@ -125,18 +127,25 @@ test("账号改变撤销旧请求，晚返回数据不得回填新账号", async
 });
 test("计划源成功但任务源失败，来源计数保持未知并标注范围待补全", async (t) => {
   const view = fixture(t, { tasks: [], error: "tasks failed" }); view.tab("stock"); view.requests[0].resolve([plan("mine")]); const tree = await view.settle();
-  assert.match(text(tree), /相关备货范围待补全/); assert.equal(group(tree, "所选月待办").props.incomplete, true);
+  assert.match(text(tree), /备货范围待补全/); assert.equal(group(tree, "所选月待办").props.incomplete, true);
   assert.match(text(nodes(tree).find((node) => node.type === "TabsTrigger" && node.props.value === "stock")), /—/);
 });
-test("筛选变更使旧来源处理器失效，普通任务入口只定位原任务不执行写操作", (t) => {
-  const view = fixture(t); let tree = view.render(); const before = group(tree, "所选月待办");
-  before.props.onOpen(before.props.rows[0]); assert.deepEqual(view.calls, [["task", "one"]]);
-  view.update({ productId: "B" }); before.props.onOpen(before.props.rows[0]); assert.equal(view.calls.length, 1);
+test("任务和待收订单入口均定位原采购任务，筛选变更使旧处理器失效", (t) => {
+  const view = fixture(t, { tasks: [task("one", { purchaseOrders: [order("1")] })] });
+  const before = group(view.render(), "所选月待办");
+  const openTask = nodes(before.type(before.props)).find((node) => node.type === "Button" && text(node) === "处理任务");
+  openTask.props.onClick(); assert.deepEqual(view.calls, [["task", "one"]]);
+  const arrival = group(view.tab("arrival"), "所选月待办");
+  const openRelatedTask = nodes(arrival.type(arrival.props)).find((node) => node.type === "Button" && text(node) === "查看采购任务");
+  openRelatedTask.props.onClick(); assert.deepEqual(view.calls, [["task", "one"], ["task", "one"]]);
+  view.update({ productId: "B" }); openTask.props.onClick(); openRelatedTask.props.onClick(); assert.equal(view.calls.length, 2);
 });
 
-test("本月来源默认折叠保留数量，跨月默认只显示两行并提供更多", (t) => {
+test("分类计数只含所选月待办，月内明细默认折叠，跨月保留独立数量及更多入口", (t) => {
   const view = fixture(t, { tasks: [task("current"), ...[1, 2, 3].map((id) => task(`old-${id}`, { needDate: "2026-08-01" }))] });
   const tree = view.render(), month = group(tree, "所选月待办"), old = group(tree, "跨月未完成");
+  const currentCount = nodes(tree).find((node) => node.type === "TabsTrigger" && node.props.value === "purchase");
+  assert.match(text(currentCount), /\b1\b/); assert.doesNotMatch(text(currentCount), /\b4\b/); assert.equal(old.props.rows.length, 3);
   const monthly = month.type(month.props); assert.equal(monthly.type, "details"); assert.equal(monthly.props.open, undefined); assert.match(text(nodes(monthly).find((node) => node.type === "summary")), /1/);
   const previous = old.type(old.props); assert.equal(nodes(previous).filter((node) => node.type === "li").length, 2); assert.match(text(previous), /显示更多/);
 });

@@ -12,7 +12,7 @@ const model = load('src/app/procurement/samples/sampleRecordsModel.ts');
 const facts = load('src/app/lib/procSampleFacts.ts');
 const timing = load('src/app/procurement/samples/sampleTimingModel.ts', { '../../lib/procSampleFacts': facts });
 const i18n = { useI18n: () => ({ t: (value) => value }), i18nLocale: () => 'zh-CN' };
-const history = load('src/app/procurement/samples/SampleRoundHistory.tsx', { 'react/jsx-runtime': jsxRuntime, '../../lib/i18n': i18n, './sampleTimingModel': timing });
+const history = load('src/app/procurement/samples/SampleRoundHistory.tsx', { 'react/jsx-runtime': jsxRuntime, '../../lib/i18n': i18n, './sampleTimingModel': timing, './SampleValidationPanel': { SampleValidationPanel: () => null } });
 const panel = compile('src/app/procurement/samples/SampleRecordsPanel.tsx');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };

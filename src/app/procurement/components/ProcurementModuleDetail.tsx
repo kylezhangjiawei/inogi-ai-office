@@ -7,10 +7,7 @@ import {
   ClipboardList,
   Eye,
   PackageCheck,
-  Pencil,
-  Plus,
   RefreshCw,
-  Trash2,
   Truck,
   Warehouse,
 } from "lucide-react";
@@ -28,11 +25,8 @@ import {
   type ProcTaskTreeNode,
   type TplusInventoryDetail,
 } from "../../lib/procurementApi";
-import { EditTaskModal, NewRequirementModal } from "./modals";
 import { StatusPill } from "./common";
-import { TaskDetailDrawer } from "./TaskDetailDrawer";
-import { removalModeOf, useProcTaskAction } from "./taskActions";
-import { StockPlanPanel } from "./StockPlanPanel";
+import { ProcurementTaskSummaryDrawer } from "./ProcurementTaskSummaryDrawer";
 import { SubsystemOperationsPanel } from "./SubsystemOperationsPanel";
 import { Button } from "../../components/ui/button";
 
@@ -65,9 +59,6 @@ export function ProcurementModuleDetail({
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const canCreate = usePermission("proc-task:create");
-  const canEdit = usePermission("proc-task:create");
-  const canDelete = usePermission("proc-task:delete");
   const canViewMaterials = usePermission("page:proc-materials");
   const material = useMemo(
     () => materials.find((item) => item.id === node.materialId) ?? null,
@@ -83,11 +74,9 @@ export function ProcurementModuleDetail({
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryVersion, setInventoryVersion] = useState(0);
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [openTask, setOpenTask] = useState<ProcurementTask | null>(null);
-  const [editTask, setEditTask] = useState<ProcurementTask | null>(null);
-  const detailTab = params.get("moduleTab") === "plans" ? "plans" : params.get("moduleTab") === "operations" ? "operations" : "inventory";
-  const setDetailTab = (value: "inventory" | "plans" | "operations") => {
+  const detailTab = params.get("moduleTab") === "operations" ? "operations" : "inventory";
+  const setDetailTab = (value: "inventory" | "operations") => {
     if (value === detailTab) return;
     setParams((current) => {
       const next = clearStockPlanViewParams(new URLSearchParams(current));
@@ -95,7 +84,10 @@ export function ProcurementModuleDetail({
       return next;
     }, { replace: true, state: location.state });
   };
-  const taskAction = useProcTaskAction({ onOpenDetail: setOpenTask });
+  useEffect(() => {
+    if (params.get("moduleTab") !== "plans") return;
+    setParams(current => clearStockPlanViewParams(new URLSearchParams(current)), { replace: true, state: location.state });
+  }, [params, setParams, location.state]);
   const inventoryCode = material?.tpInventoryCode?.trim() || null;
 
   const retryInventory = useCallback(() => {
@@ -124,7 +116,6 @@ export function ProcurementModuleDetail({
 
   useEffect(() => {
     setOpenTask((current) => current ? moduleTasks.find((task) => task.id === current.id) ?? null : null);
-    setEditTask((current) => current ? moduleTasks.find((task) => task.id === current.id) ?? null : null);
   }, [moduleTasks]);
 
   const item = inventory?.item;
@@ -134,13 +125,6 @@ export function ProcurementModuleDetail({
     return canonicalName === "量产仓" || canonicalName === "量产仓库";
   }).reduce((sum, warehouse) => sum + warehouse.available, 0) ?? 0;
   const totalStock = item?.stock ?? material?.stockQty ?? 0;
-  const taskDefaults = {
-    productId: node.productId,
-    materialId: node.materialId ?? undefined,
-    materialName: material?.name ?? node.name,
-    spec: material?.spec ?? node.spec ?? undefined,
-    unit: material?.unit ?? undefined,
-  };
 
   return (
     <section className="proc-horizon-module-detail material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
@@ -175,21 +159,10 @@ export function ProcurementModuleDetail({
             <ClipboardList className="size-3.5" />
             {t("任务")} <strong className="tabular-nums">{moduleTasks.length}</strong>
           </span>
-          {canCreate && (
-            <Button variant="unstyled"
-              type="button"
-              onClick={() => setNewTaskOpen(true)}
-              className="material-button-primary inline-flex h-8 items-center gap-1.5 px-3 text-xs"
-            >
-              <Plus className="size-3.5" />
-              {t("新增任务")}
-            </Button>
-          )}
         </div>
       </header>
-      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["plans", "备货计划"], ["operations", "生产与质量"]] as const).map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</Button>)}</div>
-      {detailTab === "plans" ? <div className="flex min-h-0 flex-1 flex-col p-4"><StockPlanPanel key={`${node.productId}:${node.id}`} materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} /></div>
-        : detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
+      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["operations", "生产与质量"]] as const).map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</Button>)}</div>
+      {detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
         : <div className="proc-horizon-module-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
         <section className="proc-horizon-module-inventory flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
@@ -290,7 +263,6 @@ export function ProcurementModuleDetail({
                 <ClipboardList aria-hidden="true" className="size-7 shrink-0 text-muted-foreground" />
                 <p className="text-pretty text-sm font-medium text-slate-600">{t("该模块暂无采购任务")}</p>
               </div>
-              {canCreate && <Button variant="unstyled" type="button" onClick={() => setNewTaskOpen(true)} className="material-button-secondary inline-flex min-h-9 shrink-0 items-center justify-center px-3 py-2 text-xs font-semibold text-primary hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("创建第一条任务")}</Button>}
             </div>
           ) : (
             <div className="proc-horizon-module-task-scroll max-h-96 overflow-auto">
@@ -315,8 +287,13 @@ export function ProcurementModuleDetail({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {moduleTasks.map((task) => (
-                    <tr key={task.id} className="group text-slate-600 hover:bg-slate-50">
-                      <td className="proc-horizon-module-task-identity sticky left-0 z-10 border-r border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50">
+                    <tr key={task.id} data-task-id={task.id} aria-selected={openTask?.id === task.id}
+                      onClick={event => {
+                        if ((event.target as HTMLElement).closest('button, a, input, select, textarea')) return;
+                        setOpenTask(task);
+                      }}
+                      className="group cursor-pointer text-slate-600 hover:bg-slate-50 aria-selected:bg-accent aria-selected:hover:bg-accent">
+                      <td className="proc-horizon-module-task-identity sticky left-0 z-10 border-r border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50 group-aria-selected:bg-accent">
                         <Button variant="unstyled" type="button" onClick={() => setOpenTask(task)} className="block w-full min-w-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                           <span className="block font-semibold text-slate-900">{task.code}</span>
                           <span className="mt-0.5 line-clamp-2 break-words text-pretty text-xs text-slate-500" title={taskDescription(task)}>{taskDescription(task)}</span>
@@ -326,18 +303,9 @@ export function ProcurementModuleDetail({
                       <td className="break-words px-3 py-3 text-right tabular-nums">{formatQuantity(task.quantity)} {t(task.unit)}</td>
                       <td className="px-3 py-3"><span className="line-clamp-2 break-words" title={task.buyer || t("未指派")}>{task.buyer || t("未指派")}</span></td>
                       <td className="px-3 py-3 tabular-nums text-slate-500">{new Date(task.createdAt).toLocaleDateString("zh-CN")}</td>
-                      <td className="proc-horizon-module-task-actions sticky right-0 z-10 border-l border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50">
+                      <td className="proc-horizon-module-task-actions sticky right-0 z-10 border-l border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50 group-aria-selected:bg-accent">
                         <div className="flex items-center justify-end gap-1">
                           <TaskActionButton label={t("查看")} icon={Eye} onClick={() => setOpenTask(task)} />
-                          {canEdit && <TaskActionButton label={t("编辑")} icon={Pencil} onClick={() => setEditTask(task)} />}
-                          {canDelete && removalModeOf(task) !== "review" && (
-                            <TaskActionButton
-                              label={removalModeOf(task) === "cancel" ? t("取消任务") : t("删除")}
-                              icon={Trash2}
-                              danger
-                              onClick={() => taskAction.remove(task)}
-                            />
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -350,10 +318,7 @@ export function ProcurementModuleDetail({
       </div>
 
       }
-      {newTaskOpen && <NewRequirementModal onClose={() => setNewTaskOpen(false)} defaults={taskDefaults} lockContext />}
-      {openTask && <TaskDetailDrawer task={openTask} onClose={() => setOpenTask(null)} />}
-      {editTask && <EditTaskModal task={editTask} onClose={() => setEditTask(null)} />}
-      {taskAction.modal}
+      {openTask && <ProcurementTaskSummaryDrawer task={openTask} materials={materials} readOnly onClose={() => setOpenTask(null)} />}
     </section>
   );
 }

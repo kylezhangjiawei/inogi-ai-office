@@ -26,8 +26,8 @@ test("研发工作台保留三工作区数据隔离并优化派生查询", () =>
 });
 
 test("研发工作台首屏使用文字、图标与可读数字呈现决策摘要", () => {
-  assert.match(workspaceSource, /<h2 className="rd-horizon-workspace-title/);
-  assert.doesNotMatch(workspaceSource, /<h1/, "页面壳已提供唯一主标题，工作台卡片不应重复 h1");
+  assert.match(workspaceSource, /<h1 className="rd-horizon-workspace-title/);
+  assert.equal((workspaceSource.match(/<h1\b/g) ?? []).length, 1, "工作台应提供唯一页面主标题");
   for (const label of ["主责", "协助", "完成率", "逾期", "今日到期", "待处理"]) {
     assert.match(workspaceSource, new RegExp(`t\\(\"${label}\"\\)`));
   }
@@ -77,7 +77,7 @@ test("研发审核通知在任务已处理后独立收敛消息状态", () => {
 
 test("审核确认提交期间锁住关闭路径，避免重复或相反动作并发", () => {
   const modalStart = workspaceSource.indexOf("function ConfirmActionModal");
-  const modalEnd = workspaceSource.indexOf("function TaskCardUI", modalStart);
+  const modalEnd = workspaceSource.indexOf("function FlowSteps", modalStart);
   const modalSource = workspaceSource.slice(modalStart, modalEnd);
   assert.ok(modalStart >= 0 && modalEnd > modalStart);
   assert.match(modalSource, /const requestClose = \(\) => \{[\s\S]{0,80}if \(!confirming\) onCancel\(\)/);

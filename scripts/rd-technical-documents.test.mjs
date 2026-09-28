@@ -471,3 +471,11 @@ test('embedded PDF preview releases temporary URLs and ignores a conversion resp
   loaded.unmount();
   assert.deepEqual(revoked, ['blob:document']);
 });
+
+test('technical attachments are listed newest upload first while preserving stable order for ties', () => {
+  const api = apiFixture();
+  const older = { ...note('A', 'old-note', [attachment('old')]), created_at: '2026-09-07T02:00:00Z' };
+  const newer = { ...note('A', 'new-note', [attachment('new')]), created_at: '2026-09-09T02:00:00Z' };
+  const sameTime = { ...note('A', 'same-note', [attachment('same')]), created_at: '2026-09-09T02:00:00Z' };
+  assert.deepEqual(api.collectRdTechnicalAttachments('A', [older, newer, sameTime]).map((row) => row.attachment.id), ['new', 'same', 'old']);
+ });

@@ -140,6 +140,17 @@ export function uniqueRosterUserIdsByName(
   return ids;
 }
 
+/** 驾驶舱统计与任务流共享负责人范围，历史姓名仅在名单内唯一时匹配。 */
+export function procurementTasksForBuyer<T extends ProcurementOwnerLike>(
+  tasks: readonly T[],
+  buyerId: string | null,
+  uniqueNameIds: ReadonlyMap<string, string | null>,
+): T[] {
+  return tasks.filter(task => !buyerId || (task.buyerUserId
+    ? task.buyerUserId === buyerId
+    : Boolean(task.buyer && uniqueNameIds.get(task.buyer) === buyerId)));
+}
+
 /** 优先使用稳定用户 ID；只有缺失/歧义 ID 的历史任务才退回姓名 key。 */
 export function resolveProcurementOwner(
   task: ProcurementOwnerLike,

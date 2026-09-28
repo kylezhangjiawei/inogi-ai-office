@@ -10,7 +10,7 @@ const files = {
   evidence: await read("src/app/RDProgressEvidence.tsx"),
   reports: await read("src/app/RDReportsPanel.tsx"),
 };
-const management = await read("src/app/RDTaskManagementPage.tsx");
+const management = await read("src/app/rd/TaskActionDialogs.tsx");
 
 test("任务详情链路保持 Horizon / Horizon 主题，并移除旧装饰与手写模态层", () => {
   const forbidden = /gradient|backdrop-blur|\b(?:purple|violet|indigo|fuchsia|pink)-|\btracking-|transition-all|hover:-translate|group-hover:translate|createPortal|<[^>]*\srole="dialog"/i;

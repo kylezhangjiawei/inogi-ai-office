@@ -6,7 +6,7 @@ import { previewUser } from "./fixtures";
 export function AuthProvider({ children }: { children: ReactNode }) { return children; }
 export function useAuth() {
   return {
-    user: previewUser, hydrated: true,
+    user: new URLSearchParams(window.location.search).get('previewScenario') === 'reader' ? { ...previewUser, permissions: ['page:order-workbench', 'page:proc-bom'] } : previewUser, hydrated: true,
     login: async () => ({ ok: false, message: "Preview has no login service" }),
     logout: async () => {}, refreshUser: async () => previewUser,
   };

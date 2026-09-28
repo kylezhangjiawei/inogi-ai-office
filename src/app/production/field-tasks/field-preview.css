@@ -27,8 +27,8 @@
 .ft-source-links > div { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .ft-source-links button,.ft-source-links a { display:inline-flex; gap:5px; align-items:center; font-size:11px; color:var(--primary); padding:3px 0; cursor:pointer; text-align:left; overflow-wrap:anywhere; }
 .ft-source-links svg { flex-shrink:0; }
-.ft-workflow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:12px 16px; gap:12px; background:var(--card); border:1px solid transparent; border-radius:var(--m3-shape-card); margin:12px 0 16px; font-size:12px; font-variant-numeric:tabular-nums; box-shadow:var(--shadow-card); }
-.ft-workflow > span + span { border-left:1px solid var(--border); padding-left:16px; }
+.ft-status-summary { display:flex; flex-wrap:wrap; gap:8px 20px; padding:10px 16px; margin:12px 0 16px; border:1px solid var(--border); border-radius:8px; background:var(--background); font-size:12px; font-variant-numeric:tabular-nums; }
+.ft-status-summary > span { color:var(--muted-foreground); }
 .ft-complete { color:#28613b; }
 .ft-attention { color:#946018; }
 .ft-workspace { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(390px,1fr); gap:20px; align-items:start; }
@@ -72,7 +72,7 @@
   .ft-filters { margin:8px 0; }
   .ft-task-picker { padding-top:8px; padding-bottom:8px; }
   .ft-context { padding-top:12px; padding-bottom:12px; }
-  .ft-workflow { margin-top:10px; margin-bottom:12px; }
+  .ft-status-summary { margin-top:10px; margin-bottom:12px; }
 }
 @media (min-width:1000px) and (max-width:1199px) {
   .field-preview { padding:20px; }
@@ -107,8 +107,7 @@
   .ft-context > div { border:0; padding:0; }
   .ft-context > div + div { padding-top:10px; border-top:1px solid var(--border); }
   .ft-source-links { grid-column:auto; }
-  .ft-workflow { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:12px; }
-  .ft-workflow > span + span { border:0; padding:0; }
+  .ft-status-summary { gap:8px 12px; padding:12px; }
   .ft-numbers { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px 10px; }
   .ft-numbers dd { font-size:24px; }
   .ft-progress-card,.ft-action-card { padding:16px; }

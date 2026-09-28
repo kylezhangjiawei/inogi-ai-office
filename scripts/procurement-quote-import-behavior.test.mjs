@@ -4,6 +4,23 @@ import * as XLSX from "xlsx";
 
 import { normalizeQuoteImportTiers, parseQuoteBookFile } from "../src/app/procurement/quoteBookXlsx.ts";
 
+test("导入同名不同规格各自保留，重复行不会生成重复报价", async () => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ["型号/名称", "规格", "厂家", "起订量", "单价"],
+    ["阀体", "A", "甲厂", 100, 12],
+    ["阀体", "B", "甲厂", 100, 15],
+    ["阀体", "A", "甲厂", 100, 12],
+  ]), "报价");
+  const bytes = XLSX.write(workbook, { type: "buffer", bookType: "biff8" });
+  const result = await parseQuoteBookFile(new File([bytes], "报价.xls"));
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.items.length, 2);
+  assert.deepEqual(result.items.map(item => [item.spec,item.tiers]), [
+    ["A", [{ minQty:100, unitPrice:12 }]], ["B", [{ minQty:100, unitPrice:15 }]],
+  ]);
+});
+
 test("AI 识别预览沿用后端的最后档位口径且不改写识别原始数据", () => {
   const recognized = [{ minQty: 500, unitPrice: 8 }, { minQty: 0, unitPrice: 12 }, { minQty: 500, unitPrice: 7.5 }];
   const original = structuredClone(recognized);

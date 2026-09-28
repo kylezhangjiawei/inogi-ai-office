@@ -75,6 +75,123 @@ function deferred() {
   return { promise, resolve, reject };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("成员页仅维护名录，系统用户按 ID 添加，移出及备注绑定选中账号", async () => {
+  const pageSource = readFileSync(new URL("../src/app/procurement/ProcPeopleManagementPage.tsx", import.meta.url), "utf8");
+  const pageAst = ts.createSourceFile("people.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const primitiveNames = pageAst.statements.filter(ts.isImportDeclaration).flatMap(node => node.importClause?.namedBindings?.elements ?? []).filter(node => !node.isTypeOnly && /^[A-Z]/.test(node.name.text)).map(node => node.name.text);
+  let members = [{ id: "buyer-a", name: "采购甲", note: "电子料" }, { id: "buyer-b", name: "采购乙" }];
+  const users = [...members, { id: "rd-a", name: "张工", department: "研发部" }, { id: "rd-b", name: "张工", department: "研发部" }, { id: "disabled", name: "停用用户", disabled: true }];
+  const calls = []; let callback;
+  const logic = {};
+  new Function("exports", ts.transpileModule(readFileSync(new URL("../src/app/procurement/procurementLogic.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(logic);
+  let taskData = { loading: false, error: null, tasks: [
+    { buyerUserId: "buyer-a", buyer: "旧姓名", status: "completed" },
+    { buyer: "采购甲", status: "ordered" },
+    { buyerUserId: "outside", buyer: "采购甲", status: "ordered" },
+    { status: "pending" },
+  ] };
+  let taskRetries = 0;
+  const state = fixture("ProcPeopleManagementContent", {
+    ...Object.fromEntries(primitiveNames.map(name => [name, name])),
+    ...logic, useProcurementData: () => taskData, refreshProcurement: async () => { taskRetries++; },
+    useCallback: fn => callback ??= fn, useNavigate: () => () => {}, usePermission: () => true,
+    useConfirmDialog: () => ({ confirm: request => calls.push(request), confirmDialog: null }),
+    getBuyerRoster: async () => ({ members }),
+    listBuyerCandidates: async (signal, scope) => { assert.ok(signal instanceof AbortSignal); assert.equal(scope, "all"); return users; },
+    updateBuyerRosterMember: async (...args) => { calls.push(args); return { members }; },
+    addBuyerRosterMember: async id => { calls.push(id); members = [...members, users.find(user => user.id === id)]; return { members }; },
+    removeBuyerRosterMember: async id => { calls.push(id); members = members.filter(member => member.id !== id); return { members }; },
+  }, pageAst);
+  const render = () => state.render();
+  const button = label => find(render(), node => node.type === "Button" && text(node) === label);
+  const select = id => find(render(), node => node.type === "Checkbox" && node.props["aria-label"].endsWith(id)).props.onCheckedChange(true);
+  render(); await settle();
+  assert.ok(find(render(), node => node.type === "Table"));
+  const count = id => text(find(find(render(), node => node.type === "TableRow" && find(node, child => child.type === "Checkbox" && child.props["aria-label"].endsWith(id))), node => node.type === "TableCell" && node.props["aria-label"] === "任务数量"));
+  assert.equal(count("buyer-a"), "2", "包含已完成与历史姓名任务，稳定 ID 优先于姓名");
+  assert.equal(count("buyer-b"), "0", "没有任务显示零");
+  taskData = { ...taskData, tasks: [...taskData.tasks, { buyerUserId: "buyer-b", status: "pending" }] };
+  assert.equal(count("buyer-b"), "1", "任务更新同步重算");
+  taskData = { ...taskData, loading: true };
+  assert.equal(count("buyer-a"), "—", "加载中不能误报零");
+  taskData = { ...taskData, loading: false, error: "加载失败" };
+  assert.equal(count("buyer-a"), "—", "失败不能显示陈旧数量");
+  assert.equal(button("添加成员").props.disabled, false, "任务统计失败不影响成员管理");
+  button("重新加载任务数量").props.onClick(); await settle(); assert.equal(taskRetries, 1);
+  taskData = { ...taskData, error: null };
+  assert.equal(button("成员名录"), undefined);
+  assert.equal(button("编辑岗位备注").props.disabled, true);
+  for (const label of ["查看全部任务", "任务交接", "智能分派未分配任务"]) assert.equal(button(label), undefined);
+  select("buyer-a");
+  assert.equal(button("编辑岗位备注").props.disabled, false);
+  assert.equal(button("移出成员").props.disabled, false);
+  button("编辑岗位备注").props.onClick();
+  find(render(), node => node.type === "Input" && node.props["aria-label"] === "岗位备注").props.onChange({ target: { value: "包材" } });
+  button("保存岗位备注").props.onClick(); await settle();
+  assert.deepEqual(calls.shift(), ["buyer-a", "包材"]);
+  button("添加成员").props.onClick(); render(); await settle();
+  assert.equal(find(render(), node => node.type === "SelectItem" && node.props.value === "buyer-a"), undefined);
+  assert.equal(find(render(), node => node.type === "SelectItem" && node.props.value === "disabled").props.disabled, true);
+  assert.match(text(find(render(), node => node.type === "SelectItem" && node.props.value === "rd-b")), /研发部.*rd-b/);
+  for (const invalid of ["buyer-a", "disabled", "missing"]) {
+    find(render(), node => node.type === "Select").props.onValueChange(invalid);
+    button("确认添加").props.onClick(); await settle(); assert.equal(calls.length, 0);
+  }
+  find(render(), node => node.type === "Select").props.onValueChange("rd-b");
+  button("确认添加").props.onClick(); await settle(); assert.equal(calls.shift(), "rd-b");
+  select("rd-b"); button("移出成员").props.onClick();
+  await calls.shift().onConfirm(); assert.equal(calls.shift(), "rd-b");
+  assert.equal(find(render(), node => node.type === "Checkbox" && node.props["aria-label"].endsWith("rd-b")), undefined);
+  select("buyer-a");
+  find(render(), node => node.type === "Input" && node.props["aria-label"] === "搜索成员").props.onChange({ target: { value: "采购乙" } });
+  assert.equal(count("buyer-b"), "1", "搜索成员不改变任务数量");
+  assert.equal(button("编辑岗位备注").props.disabled, true);
+  assert.equal(button("移出成员").props.disabled, true);
+  state.unmount();
+});
+
+test("单条及批量转派使用部门 Select，按 ID 区分同名成员并拒绝无效接收人", async () => {
+  const actionSource = readFileSync(new URL("../src/app/procurement/components/taskActions.tsx", import.meta.url), "utf8");
+  const actionAst = ts.createSourceFile("taskActions.tsx", actionSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const logic = {};
+  new Function("exports", ts.transpileModule(readFileSync(new URL("../src/app/procurement/procurementLogic.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(logic);
+  const members = [{ id: "member-a", name: "张工" }, { id: "member-b", name: "张工" }, { id: "no-permission", name: "李工", canReceiveTasks: false }];
+  const task = { id: "task-1", code: "PR-001", materialName: "阀体", status: "priced", quantity: 10, arrivedQty: 0, buyer: "历史负责人", buyerUserId: "outside" };
+  for (const batch of [false, true]) {
+    let directory = members;
+    const calls = [];
+    const componentAst = batch ? ast : actionAst;
+    const primitives = Object.fromEntries(componentAst.statements.filter(ts.isImportDeclaration).flatMap(node => node.importClause?.namedBindings?.elements ?? []).filter(node => !node.isTypeOnly && /^[A-Z]/.test(node.name.text)).map(node => [node.name.text, node.name.text]));
+    const state = fixture(batch ? "BatchReassignModal" : "ActionModal", {
+      ...primitives, ...logic, TERMINAL_STATUSES: ["completed", "cancelled"], FREE_SAMPLE_ONLY_STATUSES: [], TITLES: { reassign: "转派采购负责人" },
+      useDeferredValue: value => value, useNavigate: () => () => {},
+      useBuyerDirectory: options => { assert.deepEqual(options, { departmentOnly: true }); return { users: directory }; },
+      refreshProcurement: async () => {},
+      reassignProcTask: async (...args) => { calls.push(args); },
+      batchReassignProcTasks: async (...args) => { calls.push(args); return { updated: 1 }; },
+    }, componentAst);
+    const props = batch ? { tasks: [task], onClose() {} } : { pending: { kind: "reassign", task }, busy: false, onClose() {}, onSubmit: async fn => { await fn(); return { ok: true }; } };
+    const render = () => state.render(props);
+    const choose = id => find(render(), node => node.type === "Select").props.onValueChange(id);
+    const send = () => {
+      const tree = render();
+      find(batch ? tree.props.footer : tree, node => node.type === "Button" && node.props.className?.includes("material-button-primary")).props.onClick();
+    };
+    if (batch) find(render(), node => node.type === "Checkbox").props.onCheckedChange(true);
+    assert.equal(find(render(), node => node.type === "Select").props.value, "", "历史负责人不能作为合法新选择");
+    assert.equal(find(render(), node => node.type === "SelectItem" && node.props.value === "no-permission").props.disabled, true);
+    assert.match(text(find(render(), node => node.type === "SelectItem" && node.props.value === "member-b")), /member-b/);
+    for (const invalid of ["", "outside", "no-permission"]) { choose(invalid); send(); await settle(); assert.equal(calls.length, 0); }
+    choose("member-b"); send(); await settle();
+    assert.deepEqual(calls, [[batch ? ["task-1"] : "task-1", "张工", "member-b"]]);
+    directory = [];
+    assert.equal(find(render(), node => node.type === "Select").props.value, "");
+    assert.match(text(render()), /暂无可选部门成员/);
+    send(); await settle(); assert.equal(calls.length, 1, "部门成员移除后不能继续提交旧选择");
+    state.unmount();
+  }
+});
 const fileInput = (tree) => find(tree, (node) => node.type === "Input" && node.props.type === "file");
 const submit = (tree) => find(tree.props.footer, (node) => node.type === "Button" && node.props.className.includes("material-button-primary"));
 const pick = (tree, name) => fileInput(tree).props.onChange({ target: { files: [{ name }] } });

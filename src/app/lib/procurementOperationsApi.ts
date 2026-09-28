@@ -1,7 +1,22 @@
 import { authFetch, readErrorMessage } from './authSession';
 
+export type QualityAnalysis = {
+  materialBatches?: { code: string; batchNo: string | null }[];
+  version: number; state: 'pending' | 'confirmed'; category: 'unknown' | 'process' | 'packaging' | 'standard' | 'revision' | 'material' | 'other';
+  detail: string; evidence: string; responsibility: { kind: 'unknown' | 'internal' | 'supplier' | 'other'; id?: string; name: string };
+  phenomena: { name: string; count: number }[]; files: { fileId: string; name: string; mime: string; size: number }[];
+  references: { source: QualitySource; reference: string; note: string }[];
+  confirmedBy?: string; confirmedByName?: string; confirmedAt?: string;
+  history: { actorId: string; actorName: string; at: string; action: string; reason: string; snapshot: Omit<QualityAnalysis, 'history'> }[];
+};
+export interface QualityAnalysisResponse { record: QualityRecord; analysis: QualityAnalysis; people: { id: string; name: string }[]; suppliers: { id: string; name: string }[]; productionSource: { planVersion?: number; planId: string; taskId: string; fieldIssueId?: string; reportId?: string; inspectionId?: string } | null; receivedBatches: { code: string; name: string; batches: { batchNo: string; quantity: number }[] }[] }
+export const getQualityAnalysis = (id: string, signal?: AbortSignal) => request<QualityAnalysisResponse>(`/quality-records/${encodeURIComponent(id)}/analysis`, { signal });
+export const saveQualityAnalysis = (id: string, input: { requestId: string; version: number; baseUpdatedAt: string; action: 'save' | 'confirm'; data: Record<string, unknown> }) => request<{ id: string }>(`/quality-records/${encodeURIComponent(id)}/analysis`, { method: 'POST', body: JSON.stringify(input) });
+export const getQualityAttachment = (id: string, fileId: string, signal?: AbortSignal) => request<{ id: string; name: string; mime: string; size: number; url: string; previewUrl: string; downloadUrl: string }>(`/quality-records/${encodeURIComponent(id)}/attachments/${encodeURIComponent(fileId)}`, { signal });
+
+
 export type OperationsScope = { productId: string; treeNodeId?: string; stockPlanId?: string; month?: string };
-export type QualitySource = 'procurement' | 'production';
+export type QualitySource = 'procurement' | 'production' | 'warehouse' | 'after_sales';
 export type QualityStatus = 'open' | 'processing' | 'closed';
 export type QualityDisposition = 'pending' | 'return' | 'rework' | 'scrap' | 'concession' | 'replacement';
 
@@ -20,7 +35,7 @@ export interface QualityRecordInput {
 }
 interface RecordIdentity { id: string; treeNodeName: string; stockPlanCode: string | null; createdByName: string; updatedByName?: string | null; createdAt: string; updatedAt: string }
 export interface ProductionReport extends ProductionReportInput, RecordIdentity { defectiveQty: number; capacityQty: number | null }
-export interface QualityRecord extends QualityRecordInput, RecordIdentity { taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null; collaboration?: { ownerId: string; ownerName: string; originatorName: string; phase: 'waiting_reply' | 'returned'; reason: string; reply: string | null; repliedByName?: string } | null }
+export interface QualityRecord extends QualityRecordInput, RecordIdentity { analysis?: QualityAnalysis | null; taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null; collaboration?: { dueDate?: string; requiredInfo?: string; verificationPlan?: string; ownerId: string; ownerName: string; originatorName: string; phase: 'waiting_reply' | 'returned'; reason: string; reply: string | null; repliedByName?: string } | null }
 export interface ProductionSummary {
   unit: string; reports: number; plannedQty: number; actualQty: number; goodQty: number; defectiveQty: number;
   workHours: number; capacityQty: number | null; capacityRecorded: number; attainmentRate: number | null; yieldRate: number | null; capacityUtilization: number | null;

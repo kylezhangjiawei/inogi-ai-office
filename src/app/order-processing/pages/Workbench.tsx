@@ -1,3 +1,6 @@
+import { OrderMaterialMappingDialog } from '../components/OrderMaterialMappingDialog';
+import { Checkbox } from '../../components/ui/checkbox';
+import { usePermission } from '../../hooks/usePermission';
 import { Button } from "../../components/ui/button";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -26,6 +29,7 @@ import {
 import { StatItem } from '../components/StatItem';
 import { StatusBadge } from '../components/StatusBadge';
 import { OrderPageHeader } from '../components/HorizonPage';
+import { OrderSelectionState } from '../components/OrderSelectionState';
 import {
   Table,
   TableBody,
@@ -206,6 +210,10 @@ const buildInvoiceInfoForDetail = (detail: OrderDetail): InvoiceDraftInfo => ({
 export function Workbench() {
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
+  const canMapMaterial = usePermission('order-processing:material-map');
+  const [stockWarehouses, setStockWarehouses] = useState<string[]>([]), [warehouseOptions, setWarehouseOptions] = useState<string[]>([]);
+  const [warehouseError, setWarehouseError] = useState(''), [mappingLineId, setMappingLineId] = useState<string | null>(null);
+  useEffect(() => { let alive = true; orderProcessingApi.materialOptions().then(data => { if (alive) setWarehouseOptions(data.warehouses); }).catch(cause => { if (alive) setWarehouseError(cause instanceof Error ? cause.message : '仓库列表读取失败'); }); return () => { alive = false; }; }, []);
   const orderQueueRef = useRef<HTMLDivElement | null>(null);
   const orderUploadInputRef = useRef<HTMLInputElement | null>(null);
   const aiTemplateInputRef = useRef<HTMLInputElement | null>(null);
@@ -303,6 +311,7 @@ export function Workbench() {
     setWorkbenchError('');
     try {
       const data = await orderProcessingApi.getWorkbench({
+        warehouses: stockWarehouses.join('|'),
         q: debouncedOrderSearch,
         source: activeTab,
         mailboxId: activeTab === 'wecom_mail' ? selectedWecomMailboxId || undefined : undefined,
@@ -332,7 +341,7 @@ export function Workbench() {
         setLoadingMoreOrders(false);
       }
     }
-  }, [activeTab, debouncedOrderSearch, orderPage, selectedOrderId, selectedWecomMailboxId, t]);
+  }, [activeTab, debouncedOrderSearch, orderPage, selectedOrderId, selectedWecomMailboxId, stockWarehouses, t]);
 
   useEffect(() => {
     void loadWorkbench();
@@ -376,11 +385,12 @@ export function Workbench() {
     customer: '',
     orderId: '',
     date: '',
-    amount: '¥0.00',
+    amount: '—',
     invoiceNo: '',
     products: []
   };
   const allProductRows = orderDetails.products ?? [];
+  const mappingProduct = allProductRows.find(product => product.lineId === mappingLineId);
   const productCategories = useMemo(
     () => Array.from(new Set(allProductRows.map((item) => item.category).filter(Boolean))),
     [allProductRows]
@@ -750,28 +760,27 @@ export function Workbench() {
         Icon={Inbox}
         eyebrow={t('订单与库存')}
         title={t('订货单处理工作台')}
-        description={t('统一接收企业微信邮箱与手动上传订货单，完成商品核对、发票生成和导出。')}
         meta={(
           <>
-            <span>{t('当前队列')}：{workbench?.stats.pending ?? 0}</span>
+            <span>{t('当前来源匹配')}：{workbenchError ? '—' : queue?.total ?? '—'}</span>
             <span>· {t('数据来源')}：{activeTab === 'wecom_mail' ? t('企业微信邮箱') : t('手动上传')}</span>
           </>
         )}
         actions={(
           <>
-            <Button variant="unstyled"
+            <Button variant="outline"
               type="button"
               onClick={() => void handleRefreshOrders()}
               disabled={syncingWecomOrders}
-              className="order-horizon-secondary-action inline-flex items-center justify-center gap-2 border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-60">
+              >
               {syncingWecomOrders ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               {t('刷新队列')}
             </Button>
-            <Button variant="unstyled"
+            <Button
               type="button"
               onClick={() => orderUploadInputRef.current?.click()}
               disabled={uploadingOrders}
-              className="order-horizon-primary-action inline-flex items-center justify-center gap-2 border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60">
+              >
               {uploadingOrders ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
               {uploadingOrders ? t('上传中') : t('上传订货单')}
             </Button>
@@ -790,20 +799,21 @@ export function Workbench() {
         </div>
       ) : null}
       {/* Main Workbench Container */}
-      <div className="order-horizon-workbench-shell flex min-h-[38rem] min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="order-horizon-workbench-shell flex min-h-[28rem] min-w-0 flex-1 flex-col overflow-hidden">
+        <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">{t('以下统计覆盖全部来源及历史订单，不随左侧来源与搜索条件变化。')}</p>
         {/* Overview Strip */}
         <div className="order-horizon-kpi-strip min-h-14 border-b border-slate-100 shrink-0">
           <div className="contents">
-            <StatItem label={t("待处理")} value={String(workbench?.stats.pending ?? 0)} color="blue" />
-            <StatItem label={t("异常")} value={String(workbench?.stats.abnormal ?? 0)} color="rose" />
-            <StatItem label={t("已生成")} value={String(workbench?.stats.generated ?? 0)} color="emerald" />
-            <StatItem label={t("未导出")} value={String(workbench?.stats.unexported ?? 0)} color="amber" />
+            <StatItem label={t("待处理")} value={workbench && !workbenchError ? String(workbench.stats.pending) : '—'} color="blue" />
+            <StatItem label={t("异常")} value={workbench && !workbenchError ? String(workbench.stats.abnormal) : '—'} color="rose" />
+            <StatItem label={t("已生成")} value={workbench && !workbenchError ? String(workbench.stats.generated) : '—'} color="emerald" />
+            <StatItem label={t("未导出")} value={workbench && !workbenchError ? String(workbench.stats.unexported) : '—'} color="amber" />
           </div>
 
         </div>
 
         {/* Three Column Layout */}
-        <div className="order-horizon-workbench-layout min-h-0 flex-1 overflow-hidden">
+        <div data-empty={!selectedOrder || Boolean(workbenchError)} className="order-horizon-workbench-layout min-h-0 flex-1 overflow-hidden">
           {/* LEFT: Order Queue */}
           <aside className="order-horizon-queue w-[280px] border-r border-slate-100 flex min-h-0 flex-col bg-white shrink-0 z-10">
             <div className="px-4 py-3 border-b border-slate-100">
@@ -924,7 +934,7 @@ export function Workbench() {
 		                  ))}
 		                </div>
 		              ) : null}
-		              {!loading && visibleQueueItems.length === 0 &&
+		              {!loading && !workbenchError && visibleQueueItems.length === 0 &&
 		              <div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-slate-500">
 		                {activeTab === 'wecom_mail' ?
 		                enabledWecomMailboxes.length > 0 ?
@@ -937,10 +947,6 @@ export function Workbench() {
 		                    resetOrderQueue(true);
 		                  }}>
 		                    {t('清除搜索')}
-		                  </Button>
-		                ) : activeTab === 'upload' ? (
-		                  <Button type="button" disabled={uploadingOrders} className="min-h-10 px-3 font-medium disabled:opacity-60" onClick={() => orderUploadInputRef.current?.click()}>
-		                    {t('上传订货单')}
 		                  </Button>
 		                ) : null}
 		              </div>
@@ -966,19 +972,17 @@ export function Workbench() {
 		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-accent text-primary text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">
                   {syncingWecomOrders ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} {t("刷新")}
 		                </Button>
-                <Button variant="unstyled"
-                  onClick={() => orderUploadInputRef.current?.click()}
-                  disabled={uploadingOrders}
-                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 bg-accent py-2.5 text-sm font-medium text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">
-                  {uploadingOrders ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                  {uploadingOrders ? t('上传中') : t('上传')}
-                </Button>
               </div>
             </div>
           </aside>
 
           {/* CENTER: Order Comparison */}
+          {!selectedOrder || workbenchError ? <OrderSelectionState loading={loading} failed={Boolean(workbenchError)} hasOrders={visibleQueueItems.length > 0} filtered={Boolean(debouncedOrderSearch)} source={activeTab} /> : <>
           <main className="order-horizon-compare flex-1 flex min-h-0 min-w-[860px] flex-col bg-slate-50/30">
+            <section className="mx-5 mt-4 rounded-lg border bg-background px-4 py-3" aria-label="订单库存参考">
+              <details><summary className="cursor-pointer text-sm font-medium">可出货仓库 · {stockWarehouses.length ? stockWarehouses.join('、') : '未选择，库存待核对'}</summary><fieldset className="mt-3 flex flex-wrap gap-x-4 gap-y-3"><legend className="sr-only">选择用于库存参考的仓库</legend>{warehouseOptions.map(name => <label key={name} className="flex min-h-8 items-center gap-2 text-sm"><Checkbox checked={stockWarehouses.includes(name)} onCheckedChange={checked => setStockWarehouses(current => checked === true ? [...current, name] : current.filter(item => item !== name))} />{name}</label>)}</fieldset>{!warehouseOptions.length && !warehouseError && <p className="mt-2 text-sm text-muted-foreground">暂无已同步仓库</p>}</details>
+              <p className="mt-2 text-xs text-muted-foreground">按正式物料和所选仓库即时核对，仅供参考，不构成库存预留或交付承诺。</p>{warehouseError && <p role="alert" className="mt-2 text-sm text-destructive">{warehouseError}</p>}
+            </section>
             {/* Compact Summary */}
             <div className="order-horizon-summary mx-5 mt-4 mb-3 px-4 py-2.5 bg-white flex flex-wrap items-center gap-x-5 gap-y-2 text-sm shrink-0">
               <div className="flex items-center gap-2 whitespace-nowrap">
@@ -1073,13 +1077,14 @@ export function Workbench() {
                       <TableHead className="px-4 py-2.5 font-medium text-right">
                         {t("小计金额")}
                       </TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">物料核对 / 实时库存</TableHead>
                       <TableHead className="px-4 py-2.5 font-medium">{t("备注")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody className="divide-y divide-slate-50">
 	                    {productRows.map((p, idx: number) =>
 	                    <TableRow
-                      key={p.id}
+                      key={p.lineId ?? p.id}
                       className={`
                         hover:bg-accent/30 transition-colors
                       `}>
@@ -1112,6 +1117,12 @@ export function Workbench() {
                         <TableCell className="px-4 py-2.5 text-right font-medium text-slate-800">
                           ¥{p.subtotal}
                         </TableCell>
+                        <TableCell className="min-w-48 px-4 py-2.5 text-xs">
+                          <p className={p.stockCheck?.sufficient === false ? 'font-semibold text-rose-700' : 'font-medium'}>{loading || p.stockCheck?.scope.warehouses?.join('|') !== stockWarehouses.join('|') ? '正在核对…' : p.stockCheck?.availableQty == null ? '库存待核对' : `可用 ${p.stockCheck.availableQty.toLocaleString()} ${p.unit} · ${p.stockCheck.sufficient ? '数量满足' : '数量不足'}`}</p>
+                          <p className="mt-1 text-muted-foreground">{p.stockCheck?.mappingState === 'confirmed' ? '人工核对已关联' : p.stockCheck?.mappingState === 'exact' ? '正式编码精确匹配' : p.stockCheck?.mappingState === 'stale' ? '原核对已失效' : '待关联正式物料'}</p>
+                          <details className="mt-2"><summary className="cursor-pointer">查看库存依据</summary>{p.stockCheck?.issues.map(issue => <p key={issue} className="mt-1 whitespace-normal text-amber-800">{issue}</p>)}<p className="mt-1">核对时间：{p.stockCheck?.checkedAt ? new Date(p.stockCheck.checkedAt).toLocaleString() : '尚未核对'}</p>{p.stockCheck?.warehouses?.map(row => <p key={row.warehouse} className="mt-1">{row.warehouse}：{row.available ?? '待核对'} · ERP {row.syncedAt ? new Date(row.syncedAt).toLocaleString() : '未同步'}</p>)}</details>
+                          {canMapMaterial && p.lineId ? <Button variant="outline" size="sm" className="mt-2" onClick={() => setMappingLineId(p.lineId!)}>核对物料</Button> : <p className="mt-2 text-muted-foreground">由订单物料核对人员办理</p>}
+                        </TableCell>
                         <TableCell
                         className="px-4 py-2.5 text-slate-500 text-xs max-w-[150px] truncate"
                         title={p.remark}>
@@ -1122,7 +1133,7 @@ export function Workbench() {
 	                    )}
 	                    {productRows.length === 0 &&
 	                    <TableRow>
-	                      <TableCell colSpan={11} className="px-4 py-10 text-center text-sm text-muted-foreground">
+	                      <TableCell colSpan={12} className="px-4 py-10 text-center text-sm text-muted-foreground">
 	                        {loading
 	                          ? t('正在加载商品明细...')
 	                          : !selectedOrder
@@ -1328,6 +1339,7 @@ export function Workbench() {
 
             </div>
           </aside>
+          </>}
         </div>
       </div>
 
@@ -2153,6 +2165,7 @@ export function Workbench() {
             }
               </div>
             </WorkbenchDialogSurface>
+      {mappingProduct && <OrderMaterialMappingDialog key={mappingProduct.lineId} orderId={orderDetails.orderId} product={mappingProduct} onClose={() => setMappingLineId(null)} onRefresh={loadWorkbench} />}
     </div>
   );
 

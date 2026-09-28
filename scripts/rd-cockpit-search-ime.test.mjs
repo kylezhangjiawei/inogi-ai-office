@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const source = readFileSync(new URL("../src/app/rd/PersonTaskCockpit.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("RDTaskManagementPage.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const hook = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "useCockpitSearchKeyword");
 assert.ok(hook);

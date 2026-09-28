@@ -134,15 +134,18 @@ const CompanyOverviewPreviewPage = import.meta.env.DEV
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
 const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
+const BomListPage = lazyNamed(() => import("./procurement/BomListPage"), "BomListPage");
 const KeyMaterialsPage = lazyNamed(() => import("./procurement/key-materials/KeyMaterialsPage"), "KeyMaterialsPage");
 const ProductionDashboardPage = lazyNamed(() => import("./production/execution/ProductionDashboardPage"), "ProductionDashboardPage");
 function ProductionDashboardRoute() { const location = useLocation(); return new URLSearchParams(location.search).get("view") === "legacy" ? <RDTaskManagementPage key="ws-production" /> : <ProductionDashboardPage />; }
 const ProductionExecutionPage = lazyNamed(() => import("./production/execution/ProductionExecutionPage"), "ProductionExecutionPage");
-const WarehouseFlowPage = lazyNamed(() => import("./procurement/WarehouseFlowPage"), "WarehouseFlowPage");
+const WarehouseFlowPage = lazyNamed(() => import("./order-processing/pages/WarehouseWorkbench"), "WarehouseWorkbench");
+const InventoryCountPage = lazyNamed(() => import("./order-processing/pages/InventoryCountPage"), "InventoryCountPage");
+const ShipmentRecordsPage = lazyNamed(() => import("./order-processing/pages/ShipmentRecordsPage"), "ShipmentRecordsPage");
+const WarehouseCockpit = lazyNamed(() => import("./order-processing/pages/WarehouseCockpit"), "WarehouseCockpit");
 const InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
-const OperationalTasksPage = lazyNamed(() => import("./procurement/people/OperationalTasksPage"), "OperationalTasksPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -378,18 +381,29 @@ function ProtectedLayout() {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
 
+  // 已移除的岗位任务页统一回到首页，避免手机旧链接跳入研发工作区。
+  if (location.pathname === "/proc-operational-tasks") return <Navigate to="/" replace />;
+
+  // 系统首页自身支持窄屏；保留 Dashboard 身份及 home 查询视图。
+  if (location.pathname === "/") return <Root />;
+
   // 行政登记页自身适配窄屏；不转到无关的研发移动驾驶舱。
   if (location.pathname === routePath("page:applicant-forms", "/applicant-forms")) return <Root />;
 
   // 采购工作台及关联页自身支持窄屏，保留工作上下文和原路由权限检查。
   if (location.pathname === routePath("page:proc-my-workspace", "/proc-my-workspace")
-    || location.pathname === "/proc-operational-tasks"
     || location.pathname === routePath("page:proc-cockpit", "/proc-cockpit")
     || location.pathname === routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")
     || location.pathname === routePath("page:proc-materials", "/proc-materials")
+    || location.pathname === subRoutePath("page:proc-materials", "/proc-materials", "bom")
     || location.pathname === routePath("page:proc-key-materials", "/proc-key-materials")
     || location.pathname === routePath("page:production-execution", "/production-execution")
+    || location.pathname === "/production-dashboard"
+    || location.pathname === "/rd-director-dashboard"
     || location.pathname === routePath("page:warehouse-flow", "/warehouse-flow")
+    || location.pathname === routePath("page:warehouse-count", "/warehouse-count")
+    || location.pathname === subRoutePath("page:warehouse-flow", "/warehouse-flow", "shipments")
+    || location.pathname === routePath("page:warehouse-cockpit", "/warehouse-cockpit")
     || matchPath({ path: routePath("page:purchase-orders", "/purchase-orders"), end: true }, location.pathname)
     || matchPath({ path: subRoutePath("page:purchase-orders", "/purchase-orders", ":id"), end: true }, location.pathname)
     || (/^\/rd-task\/[^/]+$/.test(location.pathname) && procurementWorkspaceReturnPath(location.state))) return <Root />;
@@ -580,9 +594,13 @@ const router = createBrowserRouter([
       // 采购分类详情二级页：注册路由与权限，但不进侧边栏菜单（routesConfig 未收录即不显示）
       { path: asChildPath(routePath("page:proc-my-workspace", "/proc-my-workspace")), element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: asChildPath(routePath("page:proc-materials", "/proc-materials")), element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
+      { path: asChildPath(subRoutePath("page:proc-materials", "/proc-materials", "bom")), element: makeLazyProtected(<BomListPage />, "page:proc-materials") },
       { path: asChildPath(routePath("page:proc-key-materials", "/proc-key-materials")), element: makeLazyProtected(<KeyMaterialsPage />, "page:proc-key-materials") },
       { path: asChildPath(routePath("page:production-execution", "/production-execution")), element: makeLazyProtected(<ProductionExecutionPage />, "page:production-execution") },
       { path: asChildPath(routePath("page:warehouse-flow", "/warehouse-flow")), element: makeLazyProtected(<WarehouseFlowPage />, ["page:warehouse-flow", "page:production-execution"]) },
+      { path: asChildPath(routePath("page:warehouse-count", "/warehouse-count")), element: makeLazyProtected(<InventoryCountPage />, ["page:warehouse-count", "page:warehouse-flow"]) },
+      { path: asChildPath(subRoutePath("page:warehouse-flow", "/warehouse-flow", "shipments")), element: makeLazyProtected(<ShipmentRecordsPage />, "page:production-execution") },
+      { path: asChildPath(routePath("page:warehouse-cockpit", "/warehouse-cockpit")), element: makeLazyProtected(<WarehouseCockpit />, "page:warehouse-cockpit") },
       { path: asChildPath(routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")), element: makeLazyProtected(<InventoryReadinessPage />, "page:proc-inventory-readiness") },
       { path: asChildPath(routePath("page:proc-quote-book", "/proc-quote-book")), element: makeLazyProtected(<QuoteBookPage />, "page:proc-quote-book") },
       { path: "proc-audit-log", element: <Navigate to="/audit-log?module=procurement" replace /> },
@@ -591,7 +609,6 @@ const router = createBrowserRouter([
       // 若也用 routePath("page:proc-cockpit") 解析，两条路由会解析到同一路径，本页直接失联。
       // 一个权限码只能有一条「主路由」跟随目录配置。
       { path: "proc-people-management", element: makeLazyProtected(<ProcPeopleManagementPage />, "page:proc-cockpit") },
-      { path: "proc-operational-tasks", element: makeLazyProtected(<OperationalTasksPage />, "page:purchase-order-detail") },
       { path: asChildPath(routePath("page:resume-screening", "/resume-screening")), element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: asChildPath(routePath("page:employee-archive", "/employee-archive")), element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
       { path: asChildPath(routePath("page:applicant-forms", "/applicant-forms")), element: makeLazyProtected(<ApplicantFormsPage />, "page:applicant-forms") },

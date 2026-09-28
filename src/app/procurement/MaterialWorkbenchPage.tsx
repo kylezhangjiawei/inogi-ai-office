@@ -10,10 +10,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { StatCell, useProcCan } from "./components/common";
 import { EMPTY_MATERIAL_FILTERS, MaterialTable, type MaterialFilters } from "./components/MaterialTable";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
-import { CategoryManageModal, ImportMaterialsModal, MaterialClassifyModal, MaterialFormModal, ReplenishModal, SafeStockModal, TplusConfigModal } from "./components/modals";
+import { CategoryManageModal, ImportMaterialsModal, MaterialClassifyModal, MaterialFormModal, ReplenishModal, TplusConfigModal } from "./components/modals";
 import { countProcurementMaterialShortages } from "./procurementLogic";
 import { Button } from "../components/ui/button";
-import { routePath } from "../lib/routePaths";
+import { routePath, subRoutePath } from "../lib/routePaths";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
@@ -46,7 +46,6 @@ export function MaterialWorkbenchPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [tplusOpen, setTplusOpen] = useState(false);
   const [classifyOpen, setClassifyOpen] = useState(false);
-  const [safeStockOpen, setSafeStockOpen] = useState(false);
   const [replenishOpen, setReplenishOpen] = useState(false);
   const [filters, setFilters] = useState<MaterialFilters>(EMPTY_MATERIAL_FILTERS);
   const [focusedMaterialCode, setFocusedMaterialCode] = useState("");
@@ -89,8 +88,8 @@ export function MaterialWorkbenchPage() {
     <div className="proc-horizon proc-horizon-material-workbench flex h-full min-h-0 min-w-0 w-full flex-col pb-4">
       <div className="proc-horizon-material-toolbar mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
         {inventoryReturnPath && <Button variant="unstyled" type="button" onClick={() => inventoryHistoryBack ? navigate(-1) : navigate(inventoryReturnPath, { replace: true })} className="material-button-secondary inline-flex min-h-10 shrink-0 items-center gap-1.5 px-3 py-2 text-sm"><ArrowLeft aria-hidden="true" className="size-4" />{t("返回齐套中心")}</Button>}
-        <p className="min-w-0 flex-1 basis-64 text-pretty text-sm leading-6 text-slate-500">{t("按分类查找物料，跟踪库存与供应风险。")}</p>
-          <div className="proc-horizon-material-actions flex flex-wrap items-center gap-2">
+          <div className="proc-horizon-material-actions ml-auto flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => navigate(subRoutePath("page:proc-materials", "/proc-materials", "bom"))}><FolderTree aria-hidden="true" className="size-4" />{t("BOM清单")}</Button>
             {can("page:proc-key-materials") && <Button type="button" variant="outline" onClick={() => navigate(routePath("page:proc-key-materials", "/proc-key-materials"))}>{t("全部关键物料")}</Button>}
             {can("proc-task:create") && <Button variant="unstyled" type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</Button>}
             {can("material:import") && <Button variant="unstyled" type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload aria-hidden="true" className="size-4" />{t("批量导入")}</Button>}
@@ -121,10 +120,6 @@ export function MaterialWorkbenchPage() {
                     <DropdownMenuItem onSelect={() => { pendingManagementActionRef.current = () => setClassifyOpen(true); }} className="items-start py-3">
                       <Sparkles aria-hidden="true" className="mt-0.5 size-4" />
                       <span className="min-w-0"><span className="block font-medium">{t("AI 分类")}</span><span className="mt-1 block text-pretty text-xs text-muted-foreground">{t("规则+AI 为未分类物料补分类")}</span></span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => { pendingManagementActionRef.current = () => setSafeStockOpen(true); }} className="items-start py-3">
-                      <PackageCheck aria-hidden="true" className="mt-0.5 size-4" />
-                      <span className="min-w-0"><span className="block font-medium">{t("安全库存")}</span><span className="mt-1 block text-pretty text-xs text-muted-foreground">{t("依据近 90 天采购用量初始化安全库存，点亮缺料预警")}</span></span>
                     </DropdownMenuItem>
                   </>}
                   {can("proc:sync-erp") && <>
@@ -183,7 +178,6 @@ export function MaterialWorkbenchPage() {
       {tplusOpen && <TplusConfigModal onClose={() => setTplusOpen(false)} />}
       {catManageOpen && <CategoryManageModal onClose={() => setCatManageOpen(false)} />}
       {classifyOpen && <MaterialClassifyModal onClose={() => setClassifyOpen(false)} />}
-      {safeStockOpen && <SafeStockModal onClose={() => setSafeStockOpen(false)} />}
       {replenishOpen && <ReplenishModal onClose={() => setReplenishOpen(false)} />}
     </div>
   );

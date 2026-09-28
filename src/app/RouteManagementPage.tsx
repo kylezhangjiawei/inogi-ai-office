@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronRight,
   Edit3,
   Eye,
@@ -7,6 +9,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  GripVertical,
   Layers3,
   Minus,
   MousePointerClick,
@@ -55,23 +58,14 @@ import {
   SavePermissionCatalogItemPayload,
   permissionCatalogApi,
 } from "./lib/permissionCatalogApi";
+import { buildRouteTree, dropRoutePages, moveRoutePages, type RouteOrderTarget } from "./lib/routeCatalogOrder";
 import { cacheRoutePaths } from "./lib/routePaths";
 
 type DialogMode = "create" | "edit" | "delete" | null;
 type FormField = "code" | "label" | "groupLabel" | "routePath";
 type FormErrors = Partial<Record<FormField, string>>;
-
-type RouteTreeBranch = {
-  key: string;
-  label: string;
-  items: PermissionCatalogItem[];
-};
-
-type RouteTreeRoot = {
-  label: string;
-  items: PermissionCatalogItem[];
-  branches: RouteTreeBranch[];
-};
+type DragSource = RouteOrderTarget & { label: string };
+type DropTarget = RouteOrderTarget & { placement: "before" | "after" };
 
 const EMPTY_FORM: SavePermissionCatalogItemPayload = {
   code: "",
@@ -101,48 +95,6 @@ function formatDate(value: string) {
   }).format(date);
 }
 
-function splitGroupLabel(groupLabel: string) {
-  const parts = groupLabel
-    .split(/[·>／\/|]/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return {
-    root: parts[0] || "未分组",
-    branch: parts.slice(1).join(" · ") || "默认分组",
-  };
-}
-
-function buildRouteTree(items: PermissionCatalogItem[]): RouteTreeRoot[] {
-  const roots = new Map<string, RouteTreeRoot>();
-
-  for (const item of items) {
-    const group = splitGroupLabel(item.groupLabel);
-    const root = roots.get(group.root) ?? { label: group.root, items: [], branches: [] };
-    root.items.push(item);
-    let branch = root.branches.find((candidate) => candidate.label === group.branch);
-    if (!branch) {
-      branch = { key: `${group.root}::${group.branch}`, label: group.branch, items: [] };
-      root.branches.push(branch);
-    }
-    branch.items.push(item);
-    roots.set(group.root, root);
-  }
-
-  return Array.from(roots.values())
-    .map((root) => ({
-      ...root,
-      items: root.items.slice().sort((a, b) => a.sortOrder - b.sortOrder),
-      branches: root.branches
-        .map((branch) => ({ ...branch, items: branch.items.slice().sort((a, b) => a.sortOrder - b.sortOrder) }))
-        .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")),
-    }))
-    .sort((a, b) => {
-      const left = Math.min(...a.items.map((item) => item.sortOrder));
-      const right = Math.min(...b.items.map((item) => item.sortOrder));
-      return left - right || a.label.localeCompare(b.label, "zh-CN");
-    });
-}
-
 function TypeBadge({ type }: { type: PermissionCatalogItem["type"] }) {
   return type === "page" ? (
     <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-primary">
@@ -155,6 +107,43 @@ function TypeBadge({ type }: { type: PermissionCatalogItem["type"] }) {
   );
 }
 
+function MoveButtons({ label, index, count, disabled, onMove }: {
+  label: string;
+  index: number;
+  count: number;
+  disabled: boolean;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  return (
+    <div className="inline-flex shrink-0 items-center gap-0.5" role="group" aria-label={`调整${label}的位置`}>
+      <Button type="button" variant="ghost" size="icon" className="size-8" disabled={disabled || index <= 0}
+        aria-label={`上移${label}`} title="上移" onClick={() => onMove(-1)}>
+        <ArrowUp className="size-3.5" aria-hidden="true" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className="size-8" disabled={disabled || index < 0 || index >= count - 1}
+        aria-label={`下移${label}`} title="下移" onClick={() => onMove(1)}>
+        <ArrowDown className="size-3.5" aria-hidden="true" />
+      </Button>
+    </div>
+  );
+}
+
+function DragHandle({ label, disabled, onStart, onEnd }: {
+  label: string;
+  disabled: boolean;
+  onStart: (event: React.DragEvent<HTMLButtonElement>) => void;
+  onEnd: () => void;
+}) {
+  return (
+    <Button type="button" variant="ghost" size="icon" tabIndex={-1}
+      className="size-8 shrink-0 cursor-grab text-slate-400 hover:text-primary active:cursor-grabbing disabled:cursor-not-allowed"
+      disabled={disabled} draggable={!disabled} aria-label={`拖动${label}`} aria-describedby="route-order-help"
+      title="拖动调整顺序，也可使用上下箭头" onDragStart={onStart} onDragEnd={onEnd}>
+      <GripVertical className="pointer-events-none size-4" aria-hidden="true" />
+    </Button>
+  );
+}
+
 function LoadingTable() {
   return (
     <div className="overflow-x-auto" aria-label="正在加载权限目录" aria-busy="true">
@@ -162,7 +151,7 @@ function LoadingTable() {
         <caption className="sr-only">权限目录正在加载</caption>
         <thead className="bg-slate-50/90">
           <tr>
-            {["权限项", "类型", "访问路径", "状态", "导航", "更新时间", "操作"].map((column) => (
+            {["权限项", "类型", "访问路径", "状态", "导航", "显示顺序", "更新时间", "操作"].map((column) => (
               <th key={column} scope="col" className={TABLE_HEADER_CLASS}>{column}</th>
             ))}
           </tr>
@@ -170,7 +159,7 @@ function LoadingTable() {
         <tbody className="divide-y divide-slate-100">
           {Array.from({ length: 4 }, (_, index) => (
             <tr key={index} aria-hidden="true">
-              <td colSpan={7} className="px-4 py-4"><div className="h-10 rounded-lg bg-slate-100" /></td>
+              <td colSpan={8} className="px-4 py-4"><div className="h-10 rounded-lg bg-slate-100" /></td>
             </tr>
           ))}
         </tbody>
@@ -187,6 +176,10 @@ export function RouteManagementPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [orderError, setOrderError] = useState("");
+  const [dragSource, setDragSource] = useState<DragSource | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [busyItemIds, setBusyItemIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
@@ -198,6 +191,8 @@ export function RouteManagementPage() {
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
 
   const originalRoutePathRef = useRef("");
+  const reorderingRef = useRef(false);
+  const dragSourceRef = useRef<DragSource | null>(null);
   const itemsRequestRef = useRef(0);
   const busyItemIdsRef = useRef<Set<string>>(new Set());
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
@@ -222,6 +217,9 @@ export function RouteManagementPage() {
     });
   }, [items, keyword, typeFilter, navFilter]);
   const routeTree = useMemo(() => buildRouteTree(filteredItems), [filteredItems]);
+  const pageTree = useMemo(() => buildRouteTree(items.filter((item) => item.type === "page")), [items]);
+  const partialPageFilter = keyword.trim() !== "" || navFilter !== "all";
+  const orderDisabled = partialPageFilter || loading || Boolean(loadError) || saving || reordering || busyItemIds.size > 0 || dialogMode !== null;
   const isFiltering = keyword.trim() !== "" || typeFilter !== "all" || navFilter !== "all";
   const pageCount = items.filter((item) => item.type === "page").length;
   const actionCount = items.length - pageCount;
@@ -240,6 +238,7 @@ export function RouteManagementPage() {
       const fresh = await permissionCatalogApi.listItems();
       if (requestId !== itemsRequestRef.current) return null;
       setItems(fresh);
+      setOrderError("");
       return fresh;
     } catch (error) {
       if (requestId !== itemsRequestRef.current) return null;
@@ -263,6 +262,7 @@ export function RouteManagementPage() {
   }
 
   function beginItemWrite(itemId?: string) {
+    if (reorderingRef.current) return false;
     if (itemId && busyItemIdsRef.current.has(itemId)) return false;
     if (itemId) {
       const next = new Set(busyItemIdsRef.current);
@@ -326,6 +326,7 @@ export function RouteManagementPage() {
   }
 
   function openCreate(trigger: HTMLElement) {
+    if (reorderingRef.current) return;
     dialogTriggerRef.current = trigger;
     setSelected(null);
     setForm({
@@ -340,7 +341,7 @@ export function RouteManagementPage() {
   }
 
   function openEdit(item: PermissionCatalogItem, trigger: HTMLElement) {
-    if (busyItemIdsRef.current.has(item.id)) return;
+    if (reorderingRef.current || busyItemIdsRef.current.has(item.id)) return;
     dialogTriggerRef.current = trigger;
     setSelected(item);
     setForm({
@@ -362,7 +363,7 @@ export function RouteManagementPage() {
   }
 
   function openDelete(item: PermissionCatalogItem, trigger: HTMLElement) {
-    if (item.builtIn || busyItemIdsRef.current.has(item.id)) return;
+    if (reorderingRef.current || item.builtIn || busyItemIdsRef.current.has(item.id)) return;
     dialogTriggerRef.current = trigger;
     setSelected(item);
     setDialogError("");
@@ -513,6 +514,96 @@ export function RouteManagementPage() {
     }
   }
 
+  async function saveOrder(ids: string[] | null) {
+    if (orderDisabled || reorderingRef.current || busyItemIdsRef.current.size > 0) return;
+    if (!ids) return;
+    reorderingRef.current = true;
+    setReordering(true);
+    setOrderError("");
+    invalidatePendingLoads();
+    const requestId = itemsRequestRef.current;
+    try {
+      const fresh = await permissionCatalogApi.reorderItems(ids);
+      if (requestId !== itemsRequestRef.current) return;
+      setItems(fresh);
+      toast.success("显示顺序已保存");
+    } catch (error) {
+      if (requestId !== itemsRequestRef.current) return;
+      const message = error instanceof Error ? error.message : "显示顺序保存失败，请重试";
+      setOrderError(message);
+      toast.error(message);
+    } finally {
+      reorderingRef.current = false;
+      setReordering(false);
+    }
+  }
+
+  function handleMove(branchKey: string, direction: -1 | 1, itemId?: string) {
+    return saveOrder(moveRoutePages(items, branchKey, direction, itemId));
+  }
+
+  function clearDrag() {
+    dragSourceRef.current = null;
+    setDragSource(null);
+    setDropTarget(null);
+  }
+
+  function startDrag(event: React.DragEvent<HTMLButtonElement>, source: DragSource) {
+    if (orderDisabled || reorderingRef.current || busyItemIdsRef.current.size > 0) {
+      event.preventDefault();
+      return;
+    }
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", source.label);
+    dragSourceRef.current = source;
+    setDragSource(source);
+    setDropTarget(null);
+  }
+
+  function canDrop(target: RouteOrderTarget) {
+    const source = dragSourceRef.current;
+    if (!source || orderDisabled || reorderingRef.current) return false;
+    if (source.itemId) return source.branchKey === target.branchKey && source.itemId !== target.itemId && pageTree.some((root) => (
+      root.branches.some((branch) => branch.key === target.branchKey && branch.items.some((item) => item.id === target.itemId))
+    ));
+    return !target.itemId && source.branchKey !== target.branchKey && pageTree.some((root) => (
+      root.branches.some((branch) => branch.key === source.branchKey) && root.branches.some((branch) => branch.key === target.branchKey)
+    ));
+  }
+
+  function dropPlacement(event: React.DragEvent<HTMLElement>): "before" | "after" {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+  }
+
+  function dragOver(event: React.DragEvent<HTMLElement>, target: RouteOrderTarget) {
+    event.stopPropagation();
+    if (!canDrop(target)) {
+      setDropTarget(null);
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const placement = dropPlacement(event);
+    setDropTarget((current) => current?.branchKey === target.branchKey && current.itemId === target.itemId && current.placement === placement
+      ? current : { ...target, placement });
+  }
+
+  function drop(event: React.DragEvent<HTMLElement>, target: RouteOrderTarget) {
+    event.stopPropagation();
+    if (!canDrop(target)) { clearDrag(); return; }
+    event.preventDefault();
+    const ids = dropRoutePages(items, dragSourceRef.current!, target, dropPlacement(event));
+    clearDrag();
+    void saveOrder(ids);
+  }
+
+  function dragStyle(target: RouteOrderTarget): React.CSSProperties | undefined {
+    if (dropTarget?.branchKey !== target.branchKey || dropTarget.itemId !== target.itemId) return undefined;
+    return { boxShadow: `inset 0 ${dropTarget.placement === "before" ? "2px" : "-2px"} 0 var(--primary)` };
+  }
+
   return (
     <div className="horizon-theme hz-page">
       <div className="hz-page-inner space-y-3">
@@ -530,11 +621,11 @@ export function RouteManagementPage() {
           )}
           actions={(
             <>
-              <Button type="button" variant="outline" onClick={() => void loadItems()} disabled={loading || busyItemIds.size > 0}>
+              <Button type="button" variant="outline" onClick={() => void loadItems()} disabled={loading || saving || reordering || busyItemIds.size > 0}>
                 <RefreshCw className="size-4" aria-hidden="true" />
                 {loading ? "读取中…" : "刷新目录"}
               </Button>
-              <Button type="button" className="hz-primary-action" onClick={(event) => openCreate(event.currentTarget)}>
+              <Button type="button" className="hz-primary-action" disabled={reordering} onClick={(event) => openCreate(event.currentTarget)}>
                 <Plus className="size-4" aria-hidden="true" />
                 新增权限
               </Button>
@@ -602,9 +693,14 @@ export function RouteManagementPage() {
           </div>
 
           <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-pretty text-slate-600">
-              导航隐藏仅影响侧边栏展示，页面仍可通过链接访问，并继续出现在角色授权目录中。
-            </p>
+            <div className="space-y-1 text-xs text-pretty text-slate-600">
+              <p id="route-order-help">拖动左侧手柄调整顺序：页面在组内移动，分组整体移动。松手后自动保存，也可用上下箭头微调。</p>
+              <p className="text-slate-500">导航隐藏仅影响侧边栏展示，页面仍可通过链接访问，并继续出现在角色授权目录中。</p>
+              <p role="status" aria-live="polite" className="min-h-4 font-medium text-primary">
+                {reordering ? "正在保存显示顺序…" : partialPageFilter ? "清除搜索和导航状态筛选后，可调整完整页面顺序。" : dragSource
+                  ? `正在移动${dragSource.label}，拖到目标位置松手；按 Esc 取消。` : ""}
+              </p>
+            </div>
             {routeTree.length > 0 ? (
               isFiltering ? (
                 <span className="shrink-0 text-xs font-medium text-primary">筛选结果已展开</span>
@@ -616,6 +712,8 @@ export function RouteManagementPage() {
               )
             ) : null}
           </div>
+
+          {orderError ? <p role="alert" className="border-b border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">{orderError}</p> : null}
 
           {loading && items.length === 0 ? (
             <LoadingTable />
@@ -633,7 +731,8 @@ export function RouteManagementPage() {
               )}
             />
           ) : (
-            <div className="divide-y divide-slate-200">
+            <div className="divide-y divide-slate-200" onDragOver={() => setDropTarget(null)}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null); }}>
               {routeTree.map((root, rootIndex) => {
                 const rootExpanded = isFiltering || expandedRoots.has(root.label);
                 const rootPanelId = `route-root-${rootIndex}`;
@@ -668,30 +767,44 @@ export function RouteManagementPage() {
                     {rootExpanded ? (
                       <div id={rootPanelId} className="border-t border-slate-200 bg-slate-50/50">
                         {root.branches.map((branch, branchIndex) => {
-                          const branchExpanded = isFiltering || expandedBranches.has(branch.key);
+                          const branchExpanded = (!dragSource || Boolean(dragSource.itemId)) && (isFiltering || expandedBranches.has(branch.key));
                           const branchPanelId = `route-branch-${rootIndex}-${branchIndex}`;
                           const branchPageCount = branch.items.filter((item) => item.type === "page").length;
+                          const pageRoot = pageTree.find((candidate) => candidate.label === root.label);
+                          const pageBranchIndex = pageRoot?.branches.findIndex((candidate) => candidate.key === branch.key) ?? -1;
+                          const pageBranch = pageRoot?.branches[pageBranchIndex];
 
                           return (
                             <section key={branch.key} className="border-b border-slate-200 last:border-b-0" aria-labelledby={`${branchPanelId}-title`}>
-                              <h4 id={`${branchPanelId}-title`}>
-                                <Button variant="unstyled"
-                                  type="button"
-                                  className="flex w-full cursor-pointer items-center gap-2 px-5 py-3 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent sm:pl-14"
-                                  onClick={() => toggleBranch(branch.key)}
-                                  disabled={isFiltering}
-                                  aria-expanded={branchExpanded}
-                                  aria-controls={branchPanelId}
-                                >
-                                  <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground", branchExpanded && "rotate-90 text-primary")} aria-hidden="true" />
-                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">{branch.label}</span>
-                                  <span className="shrink-0 text-xs text-slate-500 tabular-nums">{branch.items.length} 项 · {branchPageCount} 页面 · {branch.items.length - branchPageCount} 按钮</span>
-                                </Button>
-                              </h4>
+                              <div className={cn("flex items-center px-4", dragSource?.branchKey === branch.key && !dragSource.itemId && "bg-primary/5")}
+                                data-route-order-group={branch.key}
+                                data-drop-placement={dropTarget?.branchKey === branch.key && !dropTarget.itemId ? dropTarget.placement : undefined}
+                                style={dragStyle({ branchKey: branch.key })}
+                                onDragOver={(event) => dragOver(event, { branchKey: branch.key })}
+                                onDrop={(event) => drop(event, { branchKey: branch.key })}>
+                                {pageBranch ? <DragHandle label={`分组“${branch.label}”`} disabled={orderDisabled || (pageRoot?.branches.length ?? 0) < 2}
+                                  onStart={(event) => startDrag(event, { branchKey: branch.key, label: `分组“${branch.label}”` })} onEnd={clearDrag} /> : null}
+                                <h4 id={`${branchPanelId}-title`} className="min-w-0 flex-1">
+                                  <Button variant="unstyled"
+                                    type="button"
+                                    className="flex w-full cursor-pointer items-center gap-2 px-2 py-3 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent"
+                                    onClick={() => toggleBranch(branch.key)}
+                                    disabled={isFiltering}
+                                    aria-expanded={branchExpanded}
+                                    aria-controls={branchPanelId}
+                                  >
+                                    <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground", branchExpanded && "rotate-90 text-primary")} aria-hidden="true" />
+                                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">{branch.label}</span>
+                                    <span className="shrink-0 text-xs text-slate-500 tabular-nums">{branch.items.length} 项 · {branchPageCount} 页面 · {branch.items.length - branchPageCount} 按钮</span>
+                                  </Button>
+                                </h4>
+                                {pageBranch ? <MoveButtons label={`分组“${branch.label}”`} index={pageBranchIndex} count={pageRoot?.branches.length ?? 0}
+                                  disabled={orderDisabled} onMove={(direction) => void handleMove(branch.key, direction)} /> : null}
+                              </div>
 
                               {branchExpanded ? (
                                 <div id={branchPanelId} className="overflow-x-auto bg-white">
-                                  <table className="w-full min-w-[1180px] table-fixed text-left">
+                                  <table className="w-full min-w-[1280px] table-fixed text-left">
                                     <caption className="sr-only">{root.label}中的{branch.label}权限项</caption>
                                     <colgroup>
                                       <col className="w-[320px]" />
@@ -699,25 +812,38 @@ export function RouteManagementPage() {
                                       <col className="w-[250px]" />
                                       <col className="w-[100px]" />
                                       <col className="w-[170px]" />
+                                      <col className="w-[120px]" />
                                       <col className="w-[150px]" />
                                       <col className="w-[90px]" />
                                     </colgroup>
                                     <thead className="bg-slate-50/90">
                                       <tr>
-                                        {["权限项", "类型", "访问路径", "状态", "导航", "更新时间", "操作"].map((column) => (
+                                        {["权限项", "类型", "访问路径", "状态", "导航", "显示顺序", "更新时间", "操作"].map((column) => (
                                           <th key={column} scope="col" className={cn(TABLE_HEADER_CLASS, column === "操作" && "text-right")}>{column}</th>
                                         ))}
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                       {branch.items.map((item) => {
-                                        const itemBusy = busyItemIds.has(item.id);
+                                        const itemBusy = reordering || busyItemIds.has(item.id);
+                                        const pageIndex = pageBranch?.items.findIndex((candidate) => candidate.id === item.id) ?? -1;
                                         return (
-                                        <tr key={item.id} className="hover:bg-accent/35" aria-busy={itemBusy}>
+                                        <tr key={item.id} className={cn("hover:bg-accent/35", dragSource?.itemId === item.id && "bg-primary/5 opacity-50")}
+                                          aria-busy={itemBusy} data-route-order-item={item.id}
+                                          data-drop-placement={dropTarget?.itemId === item.id ? dropTarget.placement : undefined}
+                                          style={dragStyle({ branchKey: branch.key, itemId: item.id })}
+                                          onDragOver={(event) => dragOver(event, { branchKey: branch.key, itemId: item.id })}
+                                          onDrop={(event) => drop(event, { branchKey: branch.key, itemId: item.id })}>
                                           <td className={TABLE_CELL_CLASS}>
-                                            <div className="font-semibold text-slate-900">{item.label}</div>
-                                            <div className="mt-1 break-all font-mono text-xs text-slate-500">{item.code}</div>
-                                            {item.description ? <p className="mt-1.5 line-clamp-2 text-pretty text-xs leading-5 text-slate-500">{item.description}</p> : null}
+                                            <div className="flex items-start gap-2">
+                                              {item.type === "page" && pageBranch ? <DragHandle label={`页面“${item.label}”`} disabled={orderDisabled || pageBranch.items.length < 2}
+                                                onStart={(event) => startDrag(event, { branchKey: branch.key, itemId: item.id, label: `页面“${item.label}”` })} onEnd={clearDrag} /> : null}
+                                              <div className="min-w-0">
+                                              <div className="font-semibold text-slate-900">{item.label}</div>
+                                              <div className="mt-1 break-all font-mono text-xs text-slate-500">{item.code}</div>
+                                              {item.description ? <p className="mt-1.5 line-clamp-2 text-pretty text-xs leading-5 text-slate-500">{item.description}</p> : null}
+                                              </div>
+                                            </div>
                                           </td>
                                           <td className={TABLE_CELL_CLASS}><TypeBadge type={item.type} /></td>
                                           <td className={TABLE_CELL_CLASS}>
@@ -742,11 +868,20 @@ export function RouteManagementPage() {
                                                   aria-label={`${item.navHidden ? "显示" : "隐藏"}“${item.label}”的侧边栏导航`}
                                                 >
                                                   {item.navHidden ? <EyeOff className="size-3" aria-hidden="true" /> : <Eye className="size-3" aria-hidden="true" />}
-                                                  {itemBusy ? "更新中…" : item.navHidden ? "导航隐藏" : "导航显示"}
+                                                  {busyItemIds.has(item.id) ? "更新中…" : item.navHidden ? "导航隐藏" : "导航显示"}
                                                 </Button>
                                                 {actionError?.id === item.id ? <p role="alert" className="mt-1.5 text-pretty text-xs font-medium text-red-600">{actionError.message}</p> : null}
                                               </div>
                                             ) : <span className="text-muted-foreground">不适用</span>}
+                                          </td>
+                                          <td className={TABLE_CELL_CLASS}>
+                                            {item.type === "page" && pageBranch ? (
+                                              <div className="flex items-center gap-1">
+                                                <span className="w-5 text-xs tabular-nums text-slate-500">{pageIndex + 1}</span>
+                                                <MoveButtons label={`页面“${item.label}”`} index={pageIndex} count={pageBranch.items.length}
+                                                  disabled={orderDisabled} onMove={(direction) => void handleMove(branch.key, direction, item.id)} />
+                                              </div>
+                                            ) : <span className="text-muted-foreground">—</span>}
                                           </td>
                                           <td className={cn(TABLE_CELL_CLASS, "text-xs text-slate-500 tabular-nums")}>{formatDate(item.updatedAt)}</td>
                                           <td className={cn(TABLE_CELL_CLASS, "text-right")}>

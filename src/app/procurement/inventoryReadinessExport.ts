@@ -56,7 +56,7 @@ export function buildInventoryReadinessExportRows(data: InventoryReadinessRespon
   const unverifiedRows: InventoryReadinessExportRow[] = [];
   const targetValid = isQuantity(data.summary.targetSets) && Number.isInteger(data.summary.targetSets);
   for (const item of data.items) {
-    const reasons: string[] = [];
+    const reasons: string[] = [...(item.issues ?? [])];
     const codeValid = Boolean(item.code?.trim());
     const qtyValid = isQuantity(item.qtyPer) && item.qtyPer > 0;
     const bomInvalid = !codeValid || !qtyValid || item.status === "data_missing"
@@ -69,7 +69,7 @@ export function buildInventoryReadinessExportRows(data: InventoryReadinessRespon
     if (unmatched) reasons.push(diagnosticReason(item));
     const synced = isTimestamp(item.syncedAt);
     if (!synced && !bomInvalid && !unmatched) reasons.push("库存源写入时间待核实");
-    const inventoryUnknown = bomInvalid || unmatched || !synced;
+    const inventoryUnknown = bomInvalid || unmatched || !synced || item.available === null;
     const targetUnknown = bomInvalid || !targetValid;
     for (const [label, value] of [["目标需求", item.targetDemand], ["量产仓现存", item.stock], ["量产仓可用", item.available], ["全部在途", item.inTransit], ["在途到齐后缺口", item.gapAfterTransit]] as const) {
       if (!isQuantity(value)) reasons.push(`${label}数值待核实`);

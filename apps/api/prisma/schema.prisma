@@ -225,10 +225,10 @@ model AuditLog {
   /// 关键字搜索是多列 ILIKE '%kw%'，B-tree 用不上。实测 30 万行：搜不到时全表扫 213ms，
   /// 建 trigram GIN 后 0.05ms；代价是写入 +0.055ms/行、索引约 150 字节/行。
   /// 只给真正会被子串搜索的列建：action 是枚举式的动作码，由「动作」下拉精确筛，不建。
-  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([resourceName(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([actorName(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([resourceId(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "AuditLog_summary_gin_trgm_idx")
+  @@index([resourceName(ops: raw("gin_trgm_ops"))], type: Gin, map: "AuditLog_resourceName_gin_trgm_idx")
+  @@index([actorName(ops: raw("gin_trgm_ops"))], type: Gin, map: "AuditLog_actorName_gin_trgm_idx")
+  @@index([resourceId(ops: raw("gin_trgm_ops"))], type: Gin, map: "AuditLog_resourceId_gin_trgm_idx")
   @@index([createdAt, id])
   @@index([resource, createdAt, id])
   @@index([module, createdAt, id])
@@ -307,7 +307,7 @@ model RdTaskDiscussionThread {
   reads        RdTaskDiscussionRead[]
   participants RdTaskDiscussionParticipant[]
   createdAt    DateTime                      @default(now())
-  updatedAt    DateTime                      @updatedAt
+  updatedAt    DateTime                      @default(now()) @updatedAt
 
   @@index([workspace, taskId, updatedAt])
   @@index([workspace, taskId, anchorType, anchorId])
@@ -445,7 +445,7 @@ model OrderProcessingOrder {
   products         OrderProcessingOrderProduct[]
   invoice          OrderProcessingInvoice?
   createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  updatedAt        DateTime                      @default(now()) @updatedAt
 
   @@index([source, createdAt])
   @@index([status, createdAt])
@@ -454,6 +454,9 @@ model OrderProcessingOrder {
 
 model OrderProcessingOrderProduct {
   id         String               @id @default(cuid())
+  materialId String?
+  material   ProcMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  mappingEvidence Json?
   orderId    String
   order      OrderProcessingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku        String
@@ -470,9 +473,10 @@ model OrderProcessingOrderProduct {
   remark     String
   sortOrder  Int                  @default(0)
   createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
+  updatedAt  DateTime             @default(now()) @updatedAt
 
   @@index([orderId, sku])
+  @@index([materialId])
   @@index([sku])
   @@index([status])
 }
@@ -488,7 +492,7 @@ model OrderProcessingInvoice {
   templateId  String?
   metadata    Json                 @default("{}")
   createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  updatedAt   DateTime             @default(now()) @updatedAt
 
   @@index([generatedAt])
   @@index([exportedAt])
@@ -507,7 +511,7 @@ model OrderProcessingInventoryItem {
   sortOrder       Int                            @default(0)
   movements       OrderProcessingStockMovement[]
   createdAt       DateTime                       @default(now())
-  updatedAt       DateTime                       @updatedAt
+  updatedAt       DateTime                       @default(now()) @updatedAt
 
   @@index([sortOrder])
   @@index([category])
@@ -544,7 +548,7 @@ model OrderProcessingInvoiceTemplate {
   accentColor String?
   config      Json     @default("{}")
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@index([source, createdAt])
 }
@@ -552,7 +556,7 @@ model OrderProcessingInvoiceTemplate {
 model OrderProcessingSetting {
   key       String   @id
   value     Json
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model OrderProcessingInvoiceCounter {
@@ -1560,6 +1564,9 @@ model EmployeeArchiveDocument {
 /// 多层 BOM 节点：自引用树。叶子节点可挂物料，中间节点为结构分组。
 model ProcBomNode {
   id          String        @id @default(cuid())
+  productRootId String?
+  productRoot ProcTaskTreeNode? @relation("BomDeviceProduct", fields: [productRootId], references: [id], onDelete: Restrict)
+  revisions ProcBomRevision[]
   parentId    String?
   parent      ProcBomNode?  @relation("ProcBomTree", fields: [parentId], references: [id], onDelete: Cascade)
   children    ProcBomNode[] @relation("ProcBomTree")
@@ -1607,6 +1614,7 @@ model ProcMaterial {
   remark            String?
   metadata          Json                       @default("{}")
   bomNodes          ProcBomNode[]
+  orderProducts     OrderProcessingOrderProduct[]
   taskTreeNodes     ProcTaskTreeNode[]
   tasks             ProcTask[]
   criticalTaskLinks ProcTaskCriticalMaterial[]
@@ -1629,6 +1637,8 @@ model ProcMaterial {
 /// 叶子可关联物料，任务通过 ProcTask.materialId 自动归入节点；节点本身不承载业务数据。
 model ProcTaskTreeNode {
   id         String             @id @default(cuid())
+  bomDevices ProcBomNode[] @relation("BomDeviceProduct")
+  bomRevisions ProcBomRevision[]
   productId  String             @default("prod-portable-o2")
   parentId   String?
   parent     ProcTaskTreeNode?  @relation("ProcTaskTree", fields: [parentId], references: [id], onDelete: Cascade)
@@ -1880,6 +1890,9 @@ model ProcPurchaseOrderRef {
 
 /// 采购自建的备货总计划。下单、到货及合格进度分别计算，不将下单达标当作备货完成。
 model ProcStockPlan {
+  bomRevisionId String?
+  bomRevision ProcBomRevision? @relation(fields: [bomRevisionId], references: [id], onDelete: Restrict)
+  bomBasis Json?
   id            String               @id @default(cuid())
   code          String               @unique
   planType      String               @default("material")
@@ -1913,6 +1926,31 @@ model ProcStockPlan {
 }
 
 /// 备货计划下的采购批次。不同批次可以来自不同供应商。
+model ProcBomRevision {
+  id String @id @default(cuid())
+  deviceId String
+  device ProcBomNode @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  productRootId String
+  productRoot ProcTaskTreeNode @relation(fields: [productRootId], references: [id], onDelete: Restrict)
+  version Int
+  snapshot Json
+  fingerprint String
+  requestId String @unique
+  requestHash String
+  publishedById String
+  publishedByName String
+  publishedAt DateTime @default(now())
+  reason String
+  retiredAt DateTime?
+  retiredById String?
+  retiredByName String?
+  retiredReason String?
+  stockPlans ProcStockPlan[]
+
+  @@unique([deviceId, version])
+  @@index([productRootId])
+}
+
 model ProcStockPlanBatch {
   id                  String         @id @default(cuid())
   planId              String

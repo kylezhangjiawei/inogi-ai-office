@@ -1,9 +1,22 @@
+import { RDRelatedRecordsService } from './rd-related-records.service';
+import { RDRelatedRecordsController } from './rd-related-records.controller';
+import { ProcurementDecisionService } from './procurement-decision.service';
+import { ProcurementDecisionController } from './procurement-decision.controller';
+import { ManagementRiskService } from './management-risk.service';
+import { ManagementRiskController } from './management-risk.controller';
+import { SupplierQualificationsController } from './supplier-qualifications.controller';
+import { SupplierQualificationsService } from './supplier-qualifications.service';
+import { ProductionScenarioController } from './production-scenario.controller';
+import { ProductionScenarioService } from './production-scenario.service';
 import { ProductionLifecycleController } from './production-lifecycle.controller';
 import { ProductionLifecycleService } from './production-lifecycle.service';
 import { ProductionReadinessService } from './production-readiness.service';
 import { WarehouseRecordsController } from './warehouse-records.controller';
 import { WarehouseRecordsService } from './warehouse-records.service';
 import { Module } from '@nestjs/common';
+import { BomRevisionsController } from './bom-revisions.controller';
+import { BomRevisionsService } from './bom-revisions.service';
+import { InventoryStockModule } from '../inventory-stock/inventory-stock.module';
 
 import { ChatModule } from '../chat/chat.module';
 import { OcrModule } from '../ocr/ocr.module';
@@ -11,7 +24,6 @@ import { ResearchDevelopmentModule } from '../research-development/research-deve
 import { SecurityModule } from '../security/security.module';
 import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
-import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementController } from './procurement.controller';
 import { ProcurementOperationsController } from './procurement-operations.controller';
 import { ProcurementOperationsService } from './procurement-operations.service';
@@ -47,9 +59,10 @@ import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 @Module({
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
-  imports: [ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [ProductionLifecycleController, WarehouseRecordsController, ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController, KeyMaterialsController, ProductionExecutionController, WarehouseFlowController],
-  providers: [
+  imports: [InventoryStockModule, ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
+  controllers: [BomRevisionsController, RDRelatedRecordsController, ProcurementDecisionController, ManagementRiskController, ProductionScenarioController, SupplierQualificationsController, ProductionLifecycleController, WarehouseRecordsController, ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController, KeyMaterialsController, ProductionExecutionController, WarehouseFlowController],
+  providers: [BomRevisionsService, RDRelatedRecordsService, ProcurementDecisionService, ManagementRiskService,
+    ProductionScenarioService, SupplierQualificationsService,
     ProductionLifecycleService,
     ProductionReadinessService,
     WarehouseRecordsService,
@@ -62,7 +75,6 @@ import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
     QuoteBookService,
     TplusSyncService,
     MaterialClassifyService,
-    MaterialSafeStockService,
     MaterialReplenishService,
     TplusPoMatchService,
     TplusOperationsService,

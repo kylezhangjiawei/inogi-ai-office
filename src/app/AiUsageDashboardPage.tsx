@@ -509,7 +509,7 @@ export function AiUsageDashboardPage() {
                   )}
                 />
               ) : (
-                <div className="flex-1 p-4">
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]">
                   <div className="space-y-2">
                     {visibleModelRows.map((modelRow) => {
                       const meta = modalityMeta(modelRow.modality);
@@ -575,7 +575,7 @@ export function AiUsageDashboardPage() {
                   )}
                 />
               ) : (
-                <div className="flex-1 overflow-x-auto px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-auto px-5 py-4 [scrollbar-gutter:stable]">
                   <table className="w-full min-w-[720px] text-left text-sm">
                     <caption className="sr-only">按人员统计的 AI 使用排行榜，选择人员可查看逐次调用详情。</caption>
                     <thead className="text-xs text-slate-500">

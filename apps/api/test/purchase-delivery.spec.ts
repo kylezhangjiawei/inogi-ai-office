@@ -48,6 +48,18 @@ function fixture(initial = [line()]) {
   };
   return { service: new PurchaseDeliveryService(db as never), db, audits, locks, queries, lines: () => lines, states: () => states, failAudit: () => { failAudit = true; } };
 }
+
+test('F11: supplier basis changes calendar day and preserves ERP; withdrawal returns to undated', async () => {
+  const f = fixture(); await f.service.record('mirror-1', input(), actor);
+  const latest = await f.service.schedule({ month: '2026-09', dateBasis: 'latest' }, actor);
+  assert.deepEqual(latest.days, [{ date: '2026-09-15', count: 1 }]);
+  assert.equal(latest.rows.items[0].erpExpectedDate, '2026-09-14');
+  const old = await f.service.schedule({ month: '2026-09', dateBasis: 'latest', date: '2026-09-14' }, actor); assert.equal(old.rows.total, 0);
+  await f.service.record('mirror-1', input({ requestId: 'withdrawal_00000002', declareOriginal: false, expectedVersion: 1, promisedDate: null }), actor);
+  await assert.rejects(f.service.schedule({ month: '2026-09', dateBasis: 'latest', snapshot: latest.snapshot }, actor), /已更新/);
+  const result = await f.service.schedule({ month: '2026-09', dateBasis: 'latest', bucket: 'undated' }, actor); assert.equal(result.rows.total, 1); assert.equal(result.days.length, 0);
+  await assert.rejects(f.service.schedule({ month: '2026-09', dateBasis: 'unknown' }, actor), /口径/);
+});
 test('strict dates and complete input reject impossible dates, missing evidence, future communication and invalid versions', async () => {
   assert.equal(validateDeliveryDay('2028-02-29','日期'), '2028-02-29');
   for (const day of ['0000-01-01','2026-02-29','2026-04-31','2026-9-01',undefined]) assert.throws(() => validateDeliveryDay(day,'日期'));
@@ -111,4 +123,13 @@ test('changed source/account invalidates page token and bad ranges/pages fail', 
 test('immutable history pages preserve original beyond first ten versions', async () => {
   const f=fixture(); for (let i=0;i<12;i++) await f.service.record('mirror-1',input({requestId:`request_${String(i).padStart(16,'0')}`,expectedVersion:i,declareOriginal:i===0}),actor);
   const detail=await f.service.get('mirror-1',{orderNo:'PO-1',supplierPage:2},actor); assert.equal(detail.supplierHistory.total,12); assert.deepEqual(detail.supplierHistory.items.map(r=>r.version),[2,1]); assert.equal(detail.supplier?.originalDate,'2026-09-15');
+});
+
+test('review: reconfirming a changed supplier cannot assign the previous supplier original promise to the new source', async () => {
+  const f = fixture(); await f.service.record('mirror-1', input(), actor);
+  f.lines()[0].supplierName = '供应商乙'; f.lines()[0].updatedAt = new Date(stamp.getTime() + 1000);
+  const updated = await f.service.record('mirror-1', input({ requestId: 'new-source-request-01', declareOriginal: false, expectedVersion: 1, expectedSourceUpdatedAt: f.lines()[0].updatedAt.toISOString(), promisedDate: '2026-09-18' }), actor);
+  assert.equal(updated.supplier?.currentDate, '2026-09-18'); assert.equal(updated.supplier?.originalDate, null); assert.equal(updated.supplier?.sourceChanged, false);
+  const original = updated.supplierHistory.items.find(row => row.version === 1)!;
+  assert.equal(original.after, '2026-09-15'); assert.equal(original.source.supplierName, '供应商甲');
 });

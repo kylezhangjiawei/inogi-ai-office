@@ -14,7 +14,6 @@ import { DEFAULT_PROCUREMENT_PRODUCT_ID, refreshProcurement, useProcurementData,
 import {
   aiParseProcTask,
   applyMaterialClassify,
-  applySafeStock,
   batchReassignProcTasks,
   waitApplyJob,
   confirmPoMatch,
@@ -23,7 +22,6 @@ import {
   ignorePoMatch,
   listPoMirror,
   listReplenishSuggestions,
-  previewSafeStock,
   runPoMatch,
   runTplusAutoSync,
   syncTplusMaterialMaster,
@@ -50,8 +48,6 @@ import {
   type ReplenishSuggestion,
   type TplusAutoSyncResult,
   type TplusMaterialMasterSyncResult,
-  type SafeStockPreview,
-  type SafeStockReport,
   type Material,
   type MaterialImportItem,
   type PaymentStatus,
@@ -871,124 +867,6 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── 安全库存初始化 ────────────────────────────────────────────────────────────
-
-/** 基于近 90 天采购镜像初始化安全库存：预演 → 一键应用 → 报告；只填空值不覆盖人工值。 */
-export function SafeStockModal({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const [preview, setPreview] = useState<SafeStockPreview | null>(null);
-  const [report, setReport] = useState<SafeStockReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
-
-  useEffect(() => {
-    previewSafeStock()
-      .then(setPreview)
-      .catch((err) => setError(err instanceof Error ? err.message : t('加载失败')));
-  }, []);
-
-  const run = async () => {
-    setBusy(true);
-    setProgress(t('任务已启动…'));
-    try {
-      // 异步任务：AI 判定要几分钟，轮询进度避免网关超时
-      const { jobId } = await applySafeStock();
-      const result = await waitApplyJob<SafeStockReport>(jobId, setProgress);
-      setReport(result);
-      await refreshProcurement();
-      toast.success(t('安全库存已初始化：规则 {rule} 条，AI {ai} 条', { rule: result.ruleApplied, ai: result.aiApplied.length }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('应用失败'));
-    } finally {
-      setBusy(false);
-      setProgress(null);
-    }
-  };
-
-  return (
-    <Shell
-      title={t("安全库存初始化")} busy={busy}
-      onClose={onClose}
-      wide
-      footer={<>
-        <Button variant="unstyled" type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t(report ? '完成' : '关闭')}</Button>
-        {!report && (
-          <Button variant="unstyled" type="button" disabled={busy || !preview || (preview.ruleCount === 0 && preview.aiPending === 0)} onClick={() => void run()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{t(busy ? '计算中…' : '一键初始化')}
-          </Button>
-        )}
-      </>}
-    >
-      <p className="mb-3 text-xs text-muted-foreground">{t('依据近 {days} 天 T+ 采购单用量：频次 ≥2 单按月均 × {factor} 直接建议；仅 1 单的由 AI 判断常备性；只填未设置的物料，人工值不覆盖。', { days: preview?.windowDays ?? 90, factor: preview?.coverFactor ?? 1.5 })}</p>
-
-      {error && <div className="py-8 text-center text-sm text-rose-500">{error}</div>}
-      {!error && !preview && <div className="py-8 text-center text-sm text-muted-foreground">{t('统计中')}…</div>}
-
-      {busy && progress && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3 text-sm text-primary">
-          <Loader2 className="h-4 w-4 animate-spin" />{progress}
-        </div>
-      )}
-
-      {preview && !report && (
-        preview.ruleCount === 0 && preview.aiPending === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">{t('没有可初始化的物料（近 90 天有采购记录且安全库存为空的物料为 0）。')}</div>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"><div className="text-lg font-semibold text-slate-800">{preview.usageMaterialCount}</div><div className="text-xs text-slate-500">{t('近 90 天有采购的物料')}</div></div>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3"><div className="text-lg font-semibold text-emerald-700">{preview.ruleCount}</div><div className="text-xs text-slate-500">{t('规则可算（频次 ≥2）')}</div></div>
-              <div className="rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3"><div className="text-lg font-semibold tabular-nums text-primary">{preview.aiPending}</div><div className="text-xs text-slate-500">{t('需 AI 判断（仅 1 单）')}</div></div>
-            </div>
-            {preview.skippedManual > 0 && <div className="text-[11px] text-muted-foreground">{t('另有 {n} 个物料已人工设置安全库存，不会改动。', { n: preview.skippedManual })}</div>}
-            {preview.samples.length > 0 && (
-              <div className="rounded-xl border border-slate-100 p-3">
-                <div className="text-xs font-medium text-slate-600">{t('建议值示例（按月均用量排序）')}</div>
-                <ul className="mt-1.5 space-y-0.5 text-[11px] leading-5 text-slate-500">
-                  {preview.samples.map((s) => (
-                    <li key={s.code + s.name} className="truncate">{s.code} <AutoTranslatedText as="span" text={s.name} /> · {t('{n} 单', { n: s.orders })} · {t('月均')} {s.monthlyAvg} → <span className="font-medium text-slate-700">{s.suggest}</span></li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )
-      )}
-
-      {report && (
-        <div className="space-y-3">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-sm text-emerald-800">
-            {t('规则应用 {rule} 条，AI 应用 {ai} 条，跳过 {skip} 条', { rule: report.ruleApplied, ai: report.aiApplied.length, skip: report.aiSkipped.length })}
-            {report.model && <span className="ml-2 text-xs text-emerald-600">{t('模型')}: {report.model}</span>}
-          </div>
-          {report.aiError && <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-700">{t('AI 调用失败，已降级为仅应用规则结果')}：{report.aiError}</div>}
-          {report.aiApplied.length > 0 && (
-            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-100 p-3">
-              <div className="text-xs font-medium text-slate-600">{t('AI 判定常备并应用')}</div>
-              <ul className="mt-1.5 space-y-0.5 text-[11px] leading-5 text-slate-600">
-                {report.aiApplied.map((item) => (
-                  <li key={item.code + item.name} className="truncate">{item.code} <AutoTranslatedText as="span" text={item.name} /> → {item.suggest} <span className="text-muted-foreground">({Math.round(item.confidence * 100)}%)</span></li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {report.aiSkipped.length > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-100 p-3">
-              <div className="text-xs font-medium text-slate-600">{t('未设置（一次性采购或无把握）')}</div>
-              <ul className="mt-1.5 space-y-0.5 text-[11px] leading-5 text-slate-500">
-                {report.aiSkipped.map((item) => (
-                  <li key={item.code + item.name} className="truncate">{item.code} <AutoTranslatedText as="span" text={item.name} /> — {item.reason}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </Shell>
-  );
-}
-
 // ── 补货建议 ──────────────────────────────────────────────────────────────────
 
 /** 缺料 → 补货清单（缺口已扣在途与进行中任务）→ 勾选/改量 → 批量生成采购任务。 */
@@ -1153,16 +1031,17 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
 
 const TERMINAL_STATUSES = ["completed", "cancelled"];
 
-/** 批量转派：勾选进行中任务 → 输入新采购负责人 → 原子批量转派。 */
+/** 批量转派：勾选进行中任务 → 选择采购部门成员 → 原子批量转派。 */
 export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[]; onClose: () => void }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [keyword, setKeyword] = useState("");
-  const [buyer, setBuyer] = useState("");
+  const [buyerUserId, setBuyerUserId] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
-  const { resolveUserId } = useBuyerDirectory();
+  const { users: departmentMembers } = useBuyerDirectory({ departmentOnly: true });
+  const selectedBuyer = departmentMembers.find(member => member.id === buyerUserId && member.canReceiveTasks !== false);
 
   const eligibleTasks = useMemo(() => tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status)), [tasks]);
   const eligibleIds = useMemo(() => new Set(eligibleTasks.map((task) => task.id)), [eligibleTasks]);
@@ -1188,9 +1067,8 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
 
   const submit = async () => {
     if (busyRef.current) return;
-    const name = buyer.trim();
-    if (!name) {
-      const message = t('请填写新采购负责人');
+    if (!selectedBuyer) {
+      const message = t('请选择当前采购部门中可接收任务的成员');
       setError(message);
       toast.error(message);
       return;
@@ -1206,9 +1084,9 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
     setBusy(true);
     try {
       // 后端事务原子执行：任一任务已完结/不存在则整批回滚，不会转一半
-      const result = await batchReassignProcTasks(Array.from(validSelected), name, resolveUserId(name));
+      const result = await batchReassignProcTasks(Array.from(validSelected), selectedBuyer.name, selectedBuyer.id);
       await refreshProcurement();
-      toast.success(t('已转派 {count} 个任务给 {name}', { count: result.updated, name }));
+      toast.success(t('已转派 {count} 个任务给 {name}', { count: result.updated, name: selectedBuyer.name }));
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('转派失败'));
@@ -1238,7 +1116,15 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
       <div className="proc-business-fields mb-3 grid grid-cols-1 gap-3">
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('新采购负责人')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <BuyerComboInput disabled={busy} ariaLabel={t('新采购负责人')} value={buyer} onChange={(value) => { setBuyer(value); setError(""); }} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
+          <Select disabled={busy} value={selectedBuyer?.id ?? ""} onValueChange={(value) => { setBuyerUserId(value); setError(""); }}>
+            <SelectTrigger aria-label={t('新采购负责人')} className="mt-1 h-9 w-full"><SelectValue placeholder={t('请选择采购部门成员')} /></SelectTrigger>
+            <SelectContent>
+              {departmentMembers.map(member => <SelectItem key={member.id} value={member.id} disabled={member.canReceiveTasks === false}>
+                {member.name}{departmentMembers.filter(other => other.name === member.name).length > 1 ? `（${member.id}）` : ""}{member.canReceiveTasks === false ? ` · ${t('暂无接收权限')}` : ""}
+              </SelectItem>)}
+              {departmentMembers.length === 0 && <div role="status" className="px-3 py-2 text-sm text-muted-foreground">{t('暂无可选部门成员，请稍后重试')}</div>}
+            </SelectContent>
+          </Select>
         </label>
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('筛选任务')}</span>

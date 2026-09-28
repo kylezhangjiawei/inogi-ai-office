@@ -7,7 +7,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 const transpile = (source) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const commonSource = read("src/app/procurement/components/common.tsx");
 const commonAst = ts.createSourceFile("common.tsx", commonSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const commonNames = ["PROC_STATUS_META", "ROLLBACK_MAIN_FLOW", "ROLLBACK_DIRECT_FLOW", "rollbackTargetsOf"];
+const commonNames = ["PROC_STATUS_META", "procurementNextAction", "ROLLBACK_MAIN_FLOW", "ROLLBACK_DIRECT_FLOW", "rollbackTargetsOf"];
 const common = {};
 new Function("exports", transpile(commonAst.statements.filter((node) => commonNames.includes(node.name?.text)
   || ts.isVariableStatement(node) && node.declarationList.declarations.some((item) => commonNames.includes(item.name.getText(commonAst))))
@@ -49,6 +49,7 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
   const slots = [];
   let cursor = 0;
+  let actionHandlers;
   let params = new URLSearchParams("period=all&task=mine");
   Object.assign(stubs, common, logic, workspaceModel, arrivalNavigation, {
     useState(initial) {
@@ -66,7 +67,7 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
     routePath: (_permission, fallback) => fallback,
     useProcurementData: () => ({ tasks, materials: [], loading: false }),
     useProcurementProducts: () => [],
-    useProcTaskAction: () => ({}), useProcCan: () => (permission) => allowed && permission === "proc-task:rollback",
+    useProcTaskAction: handlers => { actionHandlers = handlers; return {}; }, useProcCan: () => (permission) => allowed && permission === "proc-task:rollback",
     isProcurementTaskOverdue: () => false, daysFromToday: () => null, taskMainDate: () => ({}), taskRequester: () => ({ name: "研发员" }),
     nextPermissionOf: () => "proc-task:transition", removalModeOf: () => "delete", cn: (...values) => values.filter(Boolean).join(" "),
   });
@@ -78,6 +79,7 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
     return { jsx, jsxs: jsx, Fragment: "Fragment" };
   });
   return {
+    openAction: (...args) => actionHandlers.onOpenDetail(...args),
     render() {
       cursor = 0;
       const tree = exports[component]({ task, materials: [], onOpen() {}, ...props });
@@ -91,22 +93,27 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
 test("个人工作台右侧只绑定本人任务，回退和日志仍路由到同一详情抽屉", () => {
   const view = fixture("ProcMyWorkspacePage", { tasks: [own, { ...own, id: "other", buyerUserId: "buyer-2" }, { ...own, id: "finished", status: "completed" }] });
   const list = view.find((node) => node.type === "ProcWorkspaceTaskList");
-  assert.deepEqual(list.props.tasks.map((task) => task.id), ["mine"]);
-  const panel = view.find((node) => node.type === "ProcWorkspaceTaskPanel");
+  assert.deepEqual(list.props.tasks.map((task) => task.id).sort(), ["finished", "mine"]);
+  const panel = view.find((node) => node.type === "TaskDetailDrawer" && node.props.presentation === 'workspace');
   assert.equal(panel.props.task.id, "mine");
-  panel.props.onOpenDetail(own, "rollback");
-  let drawer = view.find((node) => node.type === "TaskDetailDrawer");
+  view.openAction(own, "rollback");
+  let drawer = view.find((node) => node.type === "TaskDetailDrawer" && node.props.initialAction);
   assert.equal(drawer.props.task.id, "mine");
   assert.equal(drawer.props.initialAction, "rollback");
   assert.equal(drawer.key, "mine", "不同任务使用独立抽屉状态");
   drawer.props.onClose();
-  assert.equal(view.find((node) => node.type === "TaskDetailDrawer"), undefined);
-  panel.props.onOpenDetail(own, "logs");
-  drawer = view.find((node) => node.type === "TaskDetailDrawer");
+  assert.equal(view.find((node) => node.type === "TaskDetailDrawer" && node.props.initialAction), undefined);
+  view.openAction(own, "logs");
+  drawer = view.find((node) => node.type === "TaskDetailDrawer" && node.props.initialAction);
   assert.equal(drawer.props.initialAction, "logs");
   drawer.props.onClose();
-  panel.props.onOpenDetail(own);
-  assert.equal(view.find((node) => node.type === "TaskDetailDrawer").props.initialAction, undefined);
+  view.openAction(own);
+  const detailPage = view.find((node) => node.type === "ProcurementTaskDetailPage");
+  assert.equal(detailPage.props.task, own);
+  assert.equal(view.find((node) => node.type === "TaskDetailDrawer"), undefined);
+  detailPage.props.onClose();
+  assert.equal(view.find((node) => node.type === "ProcurementTaskDetailPage"), undefined);
+  assert.equal(view.find((node) => node.type === "TaskDetailDrawer" && node.props.presentation === 'workspace').props.task, own);
 });
 
 test("卡片回退采用真实权限与流程规则；已完成、取消和无权限任务不提供回退", () => {

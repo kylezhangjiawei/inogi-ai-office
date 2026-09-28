@@ -1,524 +1,170 @@
-// 采购人员管理独立页（对齐研发人员管理形态）：成员名录增删改（岗位备注）+
-// 按负责人聚合任务负载 + 一键交接；非名录但有在制任务的人提示入录。
+// 采购成员名录：维护成员关系和岗位备注，只读展示成员任务数量。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "../auth";
-import { Input } from "../components/ui/input";
-import { Button } from "../components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { useNavigate } from "react-router";
-import { AlertTriangle, ArrowLeft, ArrowRightLeft, CheckCircle2, ClipboardList, Gauge, Loader2, Pencil, Search, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Search, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "../components/ui/utils";
+import { useAuth } from "../auth";
 import { usePermission } from "../hooks/usePermission";
-import {
-  autoAssignBuyerTasks,
-  batchReassignProcTasks,
-  getBuyerRoster,
-  updateBuyerRosterMember,
-  type BuyerRosterMember,
-  type ProcurementTask,
-} from "../lib/procurementApi";
-import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcurementData } from "./data";
-import { BuyerComboInput, PersonAvatar, PROC_STATUS_META, useBuyerDirectory } from "./components/common";
-import { AutoTranslatedText } from "../components/TranslatableText";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Checkbox } from "../components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { PersonAvatar, useConfirmDialog } from "./components/common";
+import { addBuyerRosterMember, removeBuyerRosterMember, updateBuyerRosterMember, getBuyerRoster, listBuyerCandidates, type BuyerCandidate, type BuyerRosterMember } from "../lib/procurementApi";
 import { useI18n } from "../lib/i18n";
-import { PeopleManageDrawer } from "./components/PeopleManageDrawer";
-import { resolveProcurementOwner, uniqueRosterUserIdsByName } from "./procurementLogic";
-import { uniqueWorkspaceTasks } from "./procurementWorkspaceModel";
-import { PersonTasksDrawer } from "./people/PersonTasksDrawer";
-import { OperationalTasksPanel } from './people/OperationalTasksPanel';
-// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "../lib/routePaths";
-
-const TERMINAL = ["completed", "cancelled"];
-const TRANSIT = ["in_transit", "partial_arrival"];
-const UNASSIGNED = "__unassigned__";
-
-interface PersonRow {
-  key: string;
-  name: string;
-  userId?: string;
-  member: BuyerRosterMember | null;
-  tasks: ProcurementTask[];
-  active: ProcurementTask[];
-  pending: number;
-  transit: number;
-  overdue: number;
-  week: number;
-}
+import { refreshProcurement, useProcurementData } from "./data";
+import { resolveProcurementOwner, uniqueRosterUserIdsByName } from "./procurementLogic";
 
 export function ProcPeopleManagementPage() {
   const { user } = useAuth();
-  const scope = JSON.stringify([user?.id, user?.name, user?.roleId, user?.departmentCode, [...(user?.permissions ?? [])].sort()]);
-  // A new account or permission scope starts with no previous roster, selection or personal information.
+  const scope = JSON.stringify([user?.id, user?.roleId, [...(user?.permissions ?? [])].sort()]);
   return <ProcPeopleManagementContent key={scope} />;
 }
 
 function ProcPeopleManagementContent() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { tasks, loading: tasksLoading, error: tasksError } = useProcurementData();
-  const { deptOf, resolveUserId } = useBuyerDirectory();
   const canManage = usePermission("proc-task:reassign");
-
+  const { tasks, loading: tasksLoading, error: tasksError } = useProcurementData();
+  const { confirm: confirmAction, confirmDialog } = useConfirmDialog();
   const [roster, setRoster] = useState<BuyerRosterMember[]>([]);
-  const [rosterError, setRosterError] = useState("");
-  const [rosterLoading, setRosterLoading] = useState(true);
-  const rosterRequestRef = useRef(0);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const handoverTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const noteTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
-  const dataPending = tasksLoading || rosterLoading;
-  const [manageOpen, setManageOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestRef = useRef(0);
+  const [users, setUsers] = useState<BuyerCandidate[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState("");
+  const [usersVersion, setUsersVersion] = useState(0);
   const [keyword, setKeyword] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addUserId, setAddUserId] = useState("");
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [editingNote, setEditingNote] = useState<string | null>(null);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [handover, setHandover] = useState<string | null>(null);
-  const [target, setTarget] = useState("");
-  const [actionError, setActionError] = useState<{ scope: string; message: string } | null>(null);
-  const [personKey, setPersonKey] = useState<string | null>(null);
-  const personTriggerRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (busy || !restoreFocusRef.current) return;
-    const opener = restoreFocusRef.current;
-    restoreFocusRef.current = null;
-    if (opener.isConnected && !opener.matches(":disabled")) opener.focus();
-    else searchRef.current?.focus();
-  }, [busy]);
-
-  const cancelNote = () => {
-    if (busyRef.current) return;
-    setEditingNote(null);
-    setActionError(null);
-    noteTriggerRef.current?.focus();
-  };
-
-  const cancelHandover = () => {
-    if (busyRef.current) return;
-    setHandover(null);
-    setTarget("");
-    setActionError(null);
-    handoverTriggerRef.current?.focus();
-  };
-
+  const [actionError, setActionError] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const addTriggerRef = useRef<HTMLButtonElement>(null);
+  const noteTriggerRef = useRef<HTMLButtonElement>(null);
   const loadRoster = useCallback(async () => {
-    const requestId = ++rosterRequestRef.current;
-    setRosterLoading(true);
-    setRosterError("");
-    try {
-      const result = await getBuyerRoster();
-      if (requestId === rosterRequestRef.current) setRoster(result.members);
-    } catch (error) {
-      if (requestId === rosterRequestRef.current) setRosterError(error instanceof Error ? error.message : t("成员名录加载失败"));
-    } finally {
-      if (requestId === rosterRequestRef.current) setRosterLoading(false);
-    }
+    const request = ++requestRef.current;
+    setLoading(true); setError("");
+    try { const result = await getBuyerRoster(); if (request === requestRef.current) setRoster(result.members); }
+    catch (cause) { if (request === requestRef.current) setError(cause instanceof Error ? cause.message : t("成员名录加载失败")); }
+    finally { if (request === requestRef.current) setLoading(false); }
   }, [t]);
-
+  useEffect(() => { void loadRoster(); return () => { requestRef.current++; }; }, [loadRoster]);
   useEffect(() => {
-    void loadRoster();
-    return () => { rosterRequestRef.current += 1; };
-  }, [loadRoster]);
-
-  const allRows = useMemo<PersonRow[]>(() => {
-    const memberById = new Map(roster.map((member) => [member.id, member]));
+    if (!adding || !canManage) return;
+    const controller = new AbortController();
+    setUsersLoading(true); setUsersError(""); setUsers([]);
+    // 与用户管理共用系统用户表；采购接口只返回选择成员需要的身份字段。
+    void listBuyerCandidates(controller.signal, "all").then(result => {
+      if (!controller.signal.aborted) setUsers(result);
+    }).catch(cause => { if (!controller.signal.aborted) setUsersError(cause instanceof Error ? cause.message : t("用户列表加载失败")); })
+      .finally(() => { if (!controller.signal.aborted) setUsersLoading(false); });
+    return () => controller.abort();
+  }, [adding, canManage, usersVersion, t]);
+  const taskCounts = useMemo(() => {
     const uniqueNameIds = uniqueRosterUserIdsByName(roster);
-    const byBuyer = new Map<string, { name: string; userId?: string; tasks: ProcurementTask[] }>(
-      roster.map((member) => [member.id, { name: member.name, userId: member.id, tasks: [] }]),
-    );
-    for (const task of uniqueWorkspaceTasks(tasks)) {
-      const { userId: ownerId, key } = resolveProcurementOwner(task, uniqueNameIds, UNASSIGNED);
-      // 已移出名录的负责人仍保留原任务，包括已结束历史；交接只取 active。
-      const current = byBuyer.get(key);
-      if (current) {
-        current.tasks.push(task);
-      } else {
-        byBuyer.set(key, {
-          name: key === UNASSIGNED
-            ? t("未指派")
-            : memberById.get(ownerId ?? "")?.name ?? task.buyer ?? t("未知采购人员"),
-          userId: ownerId,
-          tasks: [task],
-        });
-      }
+    const counts = new Map<string, number>();
+    for (const task of tasks) {
+      const { userId } = resolveProcurementOwner(task, uniqueNameIds, "unassigned");
+      if (userId) counts.set(userId, (counts.get(userId) ?? 0) + 1);
     }
-    return Array.from(byBuyer.entries())
-      .map(([key, person]) => {
-        const member = memberById.get(key) ?? null;
-        const active = person.tasks.filter((task) => !TERMINAL.includes(task.status));
-        return ({
-        key,
-        name: person.name,
-        userId: person.userId,
-        member,
-        tasks: person.tasks,
-        active,
-        pending: active.filter((x) => x.status === "pending_confirm").length,
-        transit: active.filter((x) => TRANSIT.includes(x.status)).length,
-        overdue: active.filter(isProcurementTaskOverdue).length,
-        week: active.filter((x) => { const d = daysFromToday(x.expectedArrivalDate); return TRANSIT.includes(x.status) && d != null && d >= 0 && d <= 7; }).length,
-      });})
-      // 未指派置顶，其次名录成员，再按在制任务量降序
-      .sort((a, b) =>
-        Number(b.key === UNASSIGNED) - Number(a.key === UNASSIGNED) ||
-        Number(Boolean(b.member)) - Number(Boolean(a.member)) ||
-        b.active.length - a.active.length,
-      );
-  }, [tasks, roster, t]);
-
+    return counts;
+  }, [tasks, roster]);
   const rows = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    if (!kw) return allRows;
-    return allRows.filter((row) =>
-      row.name.toLowerCase().includes(kw) ||
-      (row.member?.note ?? "").toLowerCase().includes(kw),
-    );
-  }, [allRows, keyword]);
-
-  const teamSummary = useMemo(() => ({
-    active: allRows.reduce((sum, row) => sum + row.active.length, 0),
-    pending: allRows.reduce((sum, row) => sum + row.pending, 0),
-    overdue: allRows.reduce((sum, row) => sum + row.overdue, 0),
-    unassigned: allRows.find((row) => row.key === UNASSIGNED)?.active.length ?? 0,
-  }), [allRows]);
-
-  const autoAssign = async () => {
+    const query = keyword.trim().toLowerCase();
+    return roster.filter(member => !query || [member.name, member.department, member.note, member.id].some(value => value?.toLowerCase().includes(query)));
+  }, [roster, keyword]);
+  const selected = !loading && !error ? rows.find(member => member.id === selectedId) : undefined;
+  const availableUsers = users.filter(user => !roster.some(member => member.id === user.id));
+  const addCandidate = !usersLoading && !usersError ? availableUsers.find(user => user.id === addUserId && !user.disabled) : undefined;
+  const selectMember = (id: string | null) => {
     if (busyRef.current) return;
-    busyRef.current = true;
-    setActionError(null);
-    setBusy(true);
-    setPendingAction("auto");
-    try {
-      const result = await autoAssignBuyerTasks();
-      await refreshProcurement();
-      const distribution = result.distribution
-        .map(({ name, count }) => `${name} ${count}`)
-        .join("、");
-      toast.success(
-        result.assigned > 0
-          ? t("已自动分派 {count} 个任务：{distribution}", { count: result.assigned, distribution })
-          : t("当前没有待分派任务"),
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("自动分派失败");
-      setActionError({ scope: "auto", message });
-      toast.error(message);
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-      setPendingAction(null);
-    }
+    setSelectedId(id); setEditingNote(false); setActionError("");
   };
-
-  const saveNote = async (member: BuyerRosterMember) => {
+  const closeForm = () => {
     if (busyRef.current) return;
-    busyRef.current = true;
-    setActionError(null);
-    setBusy(true);
-    setPendingAction(`note:${member.id}`);
-    try {
-      const r = await updateBuyerRosterMember(member.id, noteDraft);
-      setRoster(r.members);
-      setEditingNote(null);
-      restoreFocusRef.current = noteTriggerRef.current;
-      toast.success(t("岗位备注已更新"));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("更新失败");
-      setActionError({ scope: `note:${member.id}`, message });
-      toast.error(message);
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-      setPendingAction(null);
-    }
+    (adding ? addTriggerRef : noteTriggerRef).current?.focus();
+    setAdding(false); setEditingNote(false); setActionError("");
   };
-
-  const submitHandover = async (person: PersonRow) => {
-    if (busyRef.current) return;
-    if (person.active.length === 0) {
-      const message = t("当前没有可交接的在办任务");
-      setActionError({ scope: `handover:${person.key}`, message });
-      toast.info(message);
-      return;
-    }
-    const name = target.trim();
-    if (!name) {
-      const message = t("请填写接收人");
-      setActionError({ scope: `handover:${person.key}`, message });
-      toast.error(message);
-      return;
-    }
-    const targetUserId = resolveUserId(name);
-    if (person.key !== UNASSIGNED && ((person.userId && targetUserId === person.userId) || (!person.userId && name === person.name))) {
-      const message = t("接收人不能是本人");
-      setActionError({ scope: `handover:${person.key}`, message });
-      toast.error(message);
-      return;
-    }
-    busyRef.current = true;
-    setActionError(null);
-    setBusy(true);
-    setPendingAction(`handover:${person.key}`);
+  const saveMember = async (kind: "add" | "note") => {
+    if (!canManage || busyRef.current || loading || error) return;
+    if (kind === "add" ? !addCandidate : !selected) return;
+    busyRef.current = true; setBusy(true); setActionError("");
     try {
-      const result = await batchReassignProcTasks(person.active.map((x) => x.id), name, targetUserId);
-      await refreshProcurement();
-      toast.success(t("已把 {from} 的 {count} 个在制任务交接给 {to}", { from: person.name, count: result.updated, to: name }));
-      setHandover(null);
-      setTarget("");
-      restoreFocusRef.current = handoverTriggerRef.current;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t("交接失败");
-      setActionError({ scope: `handover:${person.key}`, message });
-      toast.error(message);
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-      setPendingAction(null);
-    }
+      const result = kind === "add" ? await addBuyerRosterMember(addCandidate!.id) : await updateBuyerRosterMember(selected!.id, noteDraft);
+      setRoster(result.members); setAdding(false); setEditingNote(false); setAddUserId("");
+      toast.success(t(kind === "add" ? "成员已添加" : "岗位备注已更新"));
+    } catch (cause) { setActionError(cause instanceof Error ? cause.message : t("保存失败，请重试")); }
+    finally { busyRef.current = false; setBusy(false); }
   };
-
-  return (
-    <div className="proc-horizon proc-people-page mx-auto flex min-h-full min-w-0 w-full max-w-[1600px] flex-col pb-4">
-      <section className="proc-horizon-surface material-card mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <p className="min-w-0 flex-1 basis-80 text-pretty text-xs leading-5 text-slate-500">{t("采购名录保留在办及历史任务；仓管与质量任务按原订单行、收货批次独立分派，处理结果随原业务更新。")}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {canManage && <Button variant="unstyled" type="button" disabled={busy} onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"><UserPlus className="size-4" />{t("成员名录")}</Button>}
-          <Button type="button" disabled={busy} variant="outline" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="h-9 rounded-lg border-slate-200 px-3 text-sm text-slate-600"><ArrowLeft className="size-4" />{t("返回驾驶舱")}</Button>
-        </div>
-      </section>
-
-      <OperationalTasksPanel />
-      <div className="proc-people-metrics mb-3 grid shrink-0 grid-cols-2 gap-2">
-        {[
-          { icon: ClipboardList, label: t("团队在办"), value: teamSummary.active, detail: t("所有非终态采购任务") },
-          { icon: Gauge, label: t("待处理"), value: teamSummary.pending, detail: t("需要负责人尽快确认"), risk: teamSummary.pending > 0 },
-          { icon: AlertTriangle, label: t("已逾期"), value: teamSummary.overdue, detail: t("按需求或到货日期判断"), risk: teamSummary.overdue > 0 },
-          { icon: UserPlus, label: t("未指派"), value: teamSummary.unassigned, detail: t("可使用智能分派处理"), risk: teamSummary.unassigned > 0 },
-        ].map((item) => (
-          <div key={item.label} className="proc-horizon-surface material-card flex min-w-0 items-center gap-3 px-3 py-2.5">
-            <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", item.risk ? "bg-amber-50 text-amber-700" : "bg-accent text-primary")}><item.icon className="size-4" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-baseline gap-x-2"><span className="text-pretty text-xs font-medium text-slate-500">{item.label}</span><strong className="shrink-0 text-lg tabular-nums text-slate-900">{dataPending || tasksError || rosterError ? "—" : item.value}</strong></div>
-              <p className="text-pretty text-[11px] text-slate-500" title={item.detail}>{item.detail}</p>
-            </div>
-          </div>
-        ))}
+  const requestRemove = () => {
+    if (!canManage || !selected || busyRef.current) return;
+    const member = selected;
+    confirmAction({ title: t("移出成员"), desc: t("将「{name}」移出当前名录？不会删除系统用户，也不会修改已有任务。", { name: member.name }), tone: "danger", actionLabel: t("确认移出"),
+      onConfirm: async () => {
+        if (busyRef.current) return false;
+        busyRef.current = true; setBusy(true);
+        try { const result = await removeBuyerRosterMember(member.id); setRoster(result.members); setSelectedId(null); setEditingNote(false); setActionError(""); toast.success(t("成员已移出")); }
+        finally { busyRef.current = false; setBusy(false); }
+      },
+    });
+  };
+  return <div className="proc-horizon proc-people-page mx-auto min-h-full min-w-0 w-full max-w-[1600px] pb-4">
+    <section className="proc-horizon-surface material-card overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div><h2 className="text-balance text-base font-semibold">{t("人员列表")}</h2><p className="mt-1 text-pretty text-sm text-muted-foreground">{t("从系统用户中添加成员，维护名录和岗位备注。")}</p></div>
+        <Button variant="outline" disabled={busy} onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))}><ArrowLeft className="size-4" />{t("返回驾驶舱")}</Button>
+      </header>
+      <div aria-label={t("成员管理操作")} className="flex flex-wrap items-center gap-2 px-5 pt-4">
+        {canManage && <>
+          <Button ref={addTriggerRef} className="bg-primary text-primary-foreground" disabled={busy || loading || Boolean(error)} onClick={() => { setAdding(!adding); setEditingNote(false); setAddUserId(""); setActionError(""); }}><UserPlus className="size-4" />{t("添加成员")}</Button>
+          <Button ref={noteTriggerRef} variant="outline" disabled={busy || !selected} onClick={() => { if (!selected) return; setEditingNote(true); setNoteDraft(selected.note ?? ""); setAdding(false); setActionError(""); }}><Pencil className="size-4" />{t("编辑岗位备注")}</Button>
+          <Button variant="outline" disabled={busy || !selected} onClick={requestRemove}><X className="size-4" />{t("移出成员")}</Button>
+        </>}
       </div>
-
-      {/* 工具行：搜索 + 添加成员 */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 basis-64 max-w-md">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <Input
-            ref={searchRef}
-            disabled={busy}
-            aria-label={t("搜索采购人员")}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder={t("搜索姓名 / 岗位备注…")}
-            className="h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white pl-8 pr-10 text-sm outline-none focus:border-primary/40"
-          />
-          {keyword && <Button variant="unstyled" type="button" disabled={busy} aria-label={t("清空搜索")} onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="absolute right-0.5 top-0.5 flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-60"><X className="size-3.5" /></Button>}
-        </div>
-        <span role="status" className="text-xs tabular-nums text-slate-500">{dataPending ? t("加载中") : tasksError || rosterError ? "—" : t("显示 {count} / {total} 位负责人", { count: rows.length, total: allRows.length })}</span>
-        {canManage && (
-          <div className="ml-auto flex items-center gap-2">
-            {!dataPending && !tasksError && !rosterError && teamSummary.unassigned > 0 && (
-              <Button variant="unstyled"
-                type="button"
-                disabled={busy}
-                onClick={() => void autoAssign()}
-                className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"
-              >
-                {pendingAction === "auto" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
-                {t("智能分派未分配任务")}
-              </Button>
-            )}
-          </div>
-        )}
+      <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+        <div className="relative w-full max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input ref={searchRef} disabled={busy} aria-label={t("搜索成员")} placeholder={t("搜索姓名 / 部门 / 岗位备注")} value={keyword} onChange={event => { setKeyword(event.target.value); selectMember(null); }} className="pl-9 pr-9" />{keyword && <Button variant="ghost" aria-label={t("清空搜索")} disabled={busy} className="absolute right-0 top-0 size-9 p-0" onClick={() => { setKeyword(""); searchRef.current?.focus(); }}><X className="size-4" /></Button>}</div>
+        <span role="status" className="text-sm tabular-nums text-muted-foreground">{loading ? t("加载中") : error ? "—" : t("显示 {count} / {total} 位成员", { count: rows.length, total: roster.length })}</span>
+        {selected && <span className="ml-auto text-sm text-muted-foreground">{t("已选择：{name}", { name: selected.name })}</span>}
       </div>
-
-      {tasksError && <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><span className="min-w-0 break-words">{tasksError}</span><Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重试")}</Button></div>}
-      {rosterError && (
-        <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
-          <span className="min-w-0 break-words text-pretty">{rosterError}</span>
-          <Button variant="unstyled" type="button" onClick={() => void loadRoster()} className="material-button-secondary shrink-0 px-3 py-2 text-xs">{t("重试")}</Button>
+      {canManage && adding && <div className="mx-5 mb-4 space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+        <p className="text-sm font-medium">{t("添加系统用户为成员")}</p>
+        <div className="flex flex-wrap gap-2">
+          <Select disabled={busy || usersLoading || Boolean(usersError)} value={addCandidate?.id ?? ""} onValueChange={value => { setAddUserId(value); setActionError(""); }}>
+            <SelectTrigger aria-label={t("待添加用户")} className="w-full sm:w-96"><SelectValue placeholder={t(usersLoading ? "正在加载系统用户…" : "请选择系统用户")} /></SelectTrigger>
+            <SelectContent>{availableUsers.map(user => <SelectItem key={user.id} value={user.id} disabled={user.disabled}>{user.name}{user.department ? " · " + user.department : ""}{users.filter(other => other.name === user.name).length > 1 ? " · " + user.id : ""}{user.disabled ? " · " + t("账号未启用") : ""}</SelectItem>)}{!usersLoading && !usersError && availableUsers.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">{t("暂无可添加用户")}</p>}</SelectContent>
+          </Select>
+          <Button disabled={busy || !addCandidate} onClick={() => void saveMember("add")}>{busy && <Loader2 className="size-4 animate-spin" />}{t("确认添加")}</Button><Button variant="ghost" disabled={busy} onClick={closeForm}>{t("取消")}</Button>
         </div>
-      )}
-      {actionError?.scope === "auto" && (
-        <div role="alert" className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-pretty text-sm text-rose-700">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />{actionError.message}
-        </div>
-      )}
-
-      {/* 成员/负载列表 */}
-      <div className="min-w-0">
-      <div className="space-y-2 pb-4">
-        {dataPending && <div role="status" className="material-card py-12 text-center text-sm text-slate-500">{t("加载中")}…</div>}
-        {!dataPending && !tasksError && !rosterError && rows.length === 0 && (
-          <div className="material-card flex flex-col items-center gap-3 py-12 text-center">
-            <p className="text-pretty text-sm text-slate-500">{t(keyword.trim() ? "没有匹配的人员" : "暂无采购成员与在制任务")}</p>
-            {keyword.trim() ? <Button variant="unstyled" type="button" onClick={() => { setKeyword(""); searchRef.current?.focus(); }} className="material-button-secondary px-3 py-2 text-xs">{t("清空搜索")}</Button> : canManage && <Button variant="unstyled" type="button" onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs"><UserPlus className="size-4" />{t("维护成员名录")}</Button>}
-          </div>
-        )}
-        {!dataPending && !tasksError && !rosterError && rows.map((p) => {
-          const load = p.key === UNASSIGNED
-            ? { label: t("待分配"), Icon: AlertTriangle, tone: "border-amber-200 bg-amber-50 text-amber-700" }
-            : !p.member && p.active.length === 0
-              ? { label: t("历史任务 · {count} 项", { count: p.tasks.length }), Icon: ClipboardList, tone: "border-slate-200 bg-slate-50 text-slate-600" }
-            : p.member?.canReceiveTasks === false
-              ? { label: t("不可接单"), Icon: AlertTriangle, tone: "border-amber-200 bg-amber-50 text-amber-700" }
-              : p.overdue > 0
-                ? { label: t("需关注 · {count} 项逾期", { count: p.overdue }), Icon: AlertTriangle, tone: "border-rose-200 bg-rose-50 text-rose-700" }
-                : p.active.length >= 8
-                  ? { label: t("高负载 · {count} 项", { count: p.active.length }), Icon: Gauge, tone: "border-amber-200 bg-amber-50 text-amber-700" }
-                  : { label: t("负载可用 · {count} 项", { count: p.active.length }), Icon: CheckCircle2, tone: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-          const previewTasks = [...p.active]
-            .sort((a, b) => Number(isProcurementTaskOverdue(b)) - Number(isProcurementTaskOverdue(a)) || a.createdAt.localeCompare(b.createdAt))
-            .slice(0, 3);
-          return (
-          <Collapsible key={p.key} open={handover === p.key && p.active.length > 0} onOpenChange={(open) => { if (busyRef.current || (open && p.active.length === 0)) return; setHandover(open ? p.key : null); if (open) setEditingNote(null); setTarget(""); setActionError(null); }} className={cn("proc-horizon-surface material-card p-4", p.key === UNASSIGNED && "proc-horizon-unassigned border-amber-200 bg-amber-50/40")}>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="flex min-w-0 flex-1 basis-56 items-start gap-2">
-              <PersonAvatar name={p.key === UNASSIGNED ? "?" : p.name} size="xs" />
-              <div className="min-w-0 flex-1">
-              <span className="block break-words text-sm font-semibold text-slate-800" title={p.name}>{p.name}</span>
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
-              {p.userId && allRows.some((other) => other.key !== p.key && other.name === p.name) && <span className="break-all text-[10px] text-slate-500">{t("账号")} {p.userId}</span>}
-              {!p.userId && p.key !== UNASSIGNED && <span className="text-[10px] text-amber-700">{t("历史姓名归属待核对")}</span>}
-              {p.member ? (
-                <span className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]", p.member.canReceiveTasks === false ? "border-amber-200 bg-amber-50 text-amber-700" : "border-[var(--primary-soft-border)] bg-accent text-primary")}>
-                  {p.member.canReceiveTasks === false && <AlertTriangle className="size-3 shrink-0" />}
-                  {t(p.member.canReceiveTasks === false ? "缺少采购工作台权限" : "采购部门成员")}
-                </span>
-              ) : p.key !== UNASSIGNED ? (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-500">{t("未入名录")}</span>
-              ) : null}
-              {p.key !== UNASSIGNED && deptOf(p.name) && <AutoTranslatedText as="span" className="min-w-0 break-words text-[11px] text-slate-500" text={deptOf(p.name)!} />}
-              {p.member?.note && editingNote !== p.member.id && (
-                <span className="max-w-44 truncate rounded bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-500" title={p.member.note}><AutoTranslatedText text={p.member.note} /></span>
-              )}
-              </div>
-              </div>
-              </div>
-              <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className={cn("inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium tabular-nums", load.tone)}><load.Icon className="size-3 shrink-0" />{load.label}</span>
-                <Button type="button" variant="outline" disabled={busy} aria-label={`${t("查看 {name} 的全部任务", { name: p.name })}${p.userId ? t("，账号 {id}", { id: p.userId }) : p.key !== UNASSIGNED ? t("，历史姓名归属待核对") : ""}`} onClick={(event) => { personTriggerRef.current = event.currentTarget; setPersonKey(p.key); setEditingNote(null); setHandover(null); }} className="min-h-10 rounded-lg px-3 text-xs">{t("查看全部任务")} · {p.tasks.length}</Button>
-                {canManage && p.member && (
-                  <Button variant="unstyled" type="button" disabled={busy} aria-label={t("编辑岗位备注")} aria-expanded={editingNote === p.member.id} onClick={(event) => { noteTriggerRef.current = event.currentTarget; setEditingNote((cur) => (cur === p.member!.id ? null : p.member!.id)); setHandover(null); setActionError(null); setNoteDraft(p.member.note ?? ""); }} className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-60" title={t("编辑岗位备注")}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                {canManage && (
-                  <CollapsibleTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" disabled={busy || p.active.length === 0} onClick={(event) => { handoverTriggerRef.current = event.currentTarget; }} className="h-8 rounded-lg border-slate-200 px-2.5 text-xs text-slate-600">
-                    <ArrowRightLeft className="h-3.5 w-3.5" />{t(p.key === UNASSIGNED ? "指派" : "交接")}
-                  </Button>
-                  </CollapsibleTrigger>
-                )}
-              </div>
-            </div>
-
-            {canManage && p.member && editingNote === p.member.id && (
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <Input
-                  autoFocus
-                  aria-label={t("岗位备注")}
-                  disabled={busy}
-                  value={noteDraft}
-                  onChange={(e) => { setNoteDraft(e.target.value); setActionError(null); }}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void saveNote(p.member!); if (e.key === "Escape") { e.preventDefault(); cancelNote(); } }}
-                  placeholder={t("岗位备注，如「电子料询价」「包材/耗材」")}
-                  className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40"
-                />
-                <Button type="button" disabled={busy} onClick={() => void saveNote(p.member!)} className="rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">{pendingAction === `note:${p.member.id}` ? t("正在保存…") : t("保存岗位备注")}</Button>
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancelNote} className="h-8 text-xs">{t("取消")}</Button>
-                </div>
-                {actionError?.scope === `note:${p.member.id}` && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}
-              </div>
-            )}
-
-            <div className="mt-2 grid grid-cols-5 gap-1 rounded-lg bg-slate-50/70 py-1.5 text-center">
-              {([
-                [p.active.length, "在制"],
-                [p.pending, "待处理"],
-                [p.transit, "在途"],
-                [p.overdue, "逾期"],
-                [p.week, "本周到货"],
-              ] as const).map(([n, label]) => (
-                <div key={label}>
-                  <div className={cn("text-base font-bold tabular-nums", (label === "逾期" || label === "待处理") && n > 0 ? "text-rose-600" : "text-slate-900")}>{n}</div>
-                  <div className="text-[10px] text-slate-500">{t(label)}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 border-t border-slate-100 pt-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><ClipboardList className="size-3.5" />{t("在办任务")}</span>
-                {p.active.length > previewTasks.length && <span className="text-[11px] tabular-nums text-slate-500">{t("另有 {count} 项", { count: p.active.length - previewTasks.length })}</span>}
-              </div>
-              {previewTasks.length > 0 ? (
-                <div className="space-y-1.5">
-                  {previewTasks.map((task) => {
-                    const overdue = isProcurementTaskOverdue(task);
-                    const date = task.expectedArrivalDate || task.needDate || task.deadline;
-                    const status = PROC_STATUS_META[task.status];
-                    return (
-                      <div key={task.id} className="proc-person-task grid items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-2 text-xs">
-                        <span className="min-w-0 max-w-32 truncate font-mono tabular-nums text-slate-500" title={task.code}>{task.code}</span>
-                        <span className="truncate font-medium text-slate-700" title={task.materialName}><AutoTranslatedText text={task.materialName} /></span>
-                        <span className={cn("min-w-0 max-w-36 break-words rounded-full border px-1.5 py-0.5 text-[10px]", status?.pill)}>{t(status?.label ?? task.status)}</span>
-                        <span className={cn("whitespace-nowrap tabular-nums", overdue ? "font-medium text-rose-700" : "text-slate-500")}>{overdue ? t("已逾期") : date || t("日期待定")}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-pretty text-xs text-slate-500">{t(!p.member ? "当前没有在办任务，已保留历史记录。" : p.member.canReceiveTasks === false ? "暂无在办任务；需先开通采购工作台权限。" : "当前没有在办任务，可继续接收分派。")}</p>
-              )}
-            </div>
-
-            <CollapsibleContent>
-              <div className="mt-3 rounded-lg border border-[var(--primary-soft-border)] bg-accent/60 p-3">
-                <p className="mb-2 text-pretty text-xs text-slate-600">{t(p.key === UNASSIGNED ? "将该组全部未指派任务一次分配给指定负责人。" : "将该负责人名下全部在办任务一次性交接，历史记录保持不变。")}</p>
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <BuyerComboInput
-                  autoFocus
-                  disabled={busy}
-                  ariaLabel={t("任务接收人")}
-                  value={target}
-                  onChange={(value) => { setTarget(value); setActionError(null); }}
-                  onEnter={() => void submitHandover(p)}
-                  onEscape={cancelHandover}
-                  placeholder={t("接收人姓名")}
-                  className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40"
-                />
-                <Button type="button" disabled={busy || p.active.length === 0} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
-                  {pendingAction === `handover:${p.key}` && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {pendingAction === `handover:${p.key}` ? t("正在提交…") : t(p.key === UNASSIGNED ? "指派 {count} 个任务" : "交接 {count} 个任务", { count: p.active.length })}
-                </Button>
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancelHandover} className="h-8 text-xs">{t("取消")}</Button>
-                </div>
-                {actionError?.scope === `handover:${p.key}` && <p role="alert" className="mt-2 text-pretty text-xs text-rose-700">{actionError.message}</p>}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-          );
-        })}
-      </div>
-      </div>
-      {manageOpen && <PeopleManageDrawer onClose={() => { setManageOpen(false); void loadRoster(); }} />}
-      {personKey && !manageOpen && <PersonTasksDrawer key={personKey} person={allRows.find((person) => person.key === personKey) ?? null}
-        loading={dataPending} error={tasksError || rosterError || null}
-        onClose={() => setPersonKey(null)} onRetry={() => { void loadRoster(); void refreshProcurement(); }}
-        onRestoreFocus={() => { const trigger = personTriggerRef.current; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); else searchRef.current?.focus({ preventScroll: true }); }} />}
-    </div>
-  );
+        {usersError && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-rose-700"><span>{usersError}</span><Button variant="outline" onClick={() => setUsersVersion(value => value + 1)}>{t("重新加载用户")}</Button></div>}
+      </div>}
+      {canManage && selected && editingNote && <div className="mx-5 mb-4 space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+        <p className="text-sm font-medium">{t("编辑岗位备注")} · {selected.name}</p><div className="flex flex-wrap gap-2"><Input autoFocus aria-label={t("岗位备注")} disabled={busy} maxLength={100} value={noteDraft} onChange={event => setNoteDraft(event.target.value)} onKeyDown={event => { if (event.key === "Escape") closeForm(); if (event.key === "Enter" && !event.nativeEvent.isComposing) void saveMember("note"); }} className="w-full sm:w-96" /><Button disabled={busy} onClick={() => void saveMember("note")}>{t("保存岗位备注")}</Button><Button variant="ghost" disabled={busy} onClick={closeForm}>{t("取消")}</Button></div>
+      </div>}
+      {error && <div role="alert" className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700"><span>{error}</span><Button variant="outline" onClick={() => void loadRoster()}>{t("重试")}</Button></div>}
+      {actionError && <p role="alert" className="mx-5 mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{actionError}</p>}
+      {tasksError && <div role="alert" className="mx-5 mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700"><span>{t("任务数量加载失败")}</span><Button variant="outline" onClick={() => void refreshProcurement()}>{t("重新加载任务数量")}</Button></div>}
+      <Table aria-label={t("采购成员列表")} className="min-w-[760px]" containerClassName="border-t border-border">
+        <TableHeader><TableRow>{["选择", "姓名", "所属部门", "岗位备注", "账号状态", "任务数量"].map(label => <TableHead key={label} scope="col" className="px-4 py-3" title={label === "任务数量" ? t("当前权限范围内该成员负责的全部采购任务，含已完成任务") : undefined}>{t(label)}</TableHead>)}</TableRow></TableHeader>
+        <TableBody>
+          {loading && <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground">{t("加载中")}…</TableCell></TableRow>}
+          {!loading && !error && rows.length === 0 && <TableRow><TableCell colSpan={6} className="py-12 text-center text-muted-foreground">{t(keyword.trim() ? "没有匹配的成员" : "暂无成员，请从系统用户中添加")}</TableCell></TableRow>}
+          {!loading && !error && rows.map(member => <TableRow key={member.id} aria-selected={selected?.id === member.id} data-state={selected?.id === member.id ? "selected" : undefined} className="cursor-pointer" onClick={event => { if (!(event.target as HTMLElement).closest('button, input, a')) selectMember(member.id); }}>
+            <TableCell className="w-16 px-4 py-4"><Checkbox disabled={busy} checked={selected?.id === member.id} aria-label={t("选择成员：{name}", { name: member.name }) + " · " + member.id} onCheckedChange={checked => selectMember(checked ? member.id : null)} /></TableCell>
+            <TableCell className="px-4"><div className="flex items-center gap-2"><PersonAvatar name={member.name} size="xs" /><span className="font-medium">{member.name}</span></div>{roster.some(other => other.id !== member.id && other.name === member.name) && <span className="mt-1 block text-xs text-muted-foreground">{member.id}</span>}</TableCell>
+            <TableCell className="px-4">{member.department || "—"}</TableCell><TableCell className="max-w-96 whitespace-normal break-words px-4">{member.note || "—"}</TableCell><TableCell className="px-4 text-muted-foreground">{t(member.disabled ? "已停用" : "已启用")}</TableCell>
+            <TableCell className="px-4 font-medium tabular-nums" aria-label={t("任务数量")}>{tasksLoading || tasksError ? <span className="text-muted-foreground" title={t(tasksLoading ? "任务数量加载中" : "任务数量加载失败")}>—</span> : taskCounts.get(member.id) ?? 0}</TableCell>
+          </TableRow>)}
+        </TableBody>
+      </Table>
+    </section>
+    {confirmDialog}
+  </div>;
 }

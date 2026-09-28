@@ -128,7 +128,7 @@ export class ChatDeliveryService {
   private async save(row: ChatDeliveryCheck, checklist: DeliveryChecklist, taskTitle: string) {
     const checkedAt = new Date();
     const saved = await this.prisma.chatDeliveryCheck.updateMany({ where: { id: row.id, userId: row.userId, revision: row.revision },
-      data: { checklist: json(checklist), taskTitle, checkedAt, revision: { increment: 1 } } });
+      data: { checklist: json(checklist), taskTitle, checkedAt, updatedAt: checkedAt, revision: { increment: 1 } } });
     if (saved.count !== 1) throw conflict();
     return { ...row, checklist: json(checklist) as Prisma.JsonValue, taskTitle, checkedAt, updatedAt: checkedAt, revision: row.revision + 1 };
   }
@@ -199,7 +199,8 @@ export class ChatDeliveryService {
         }
       }
     }
-    return this.view(await this.save(row, report, scan.task.title));
+    // Persist the same evidence-first candidate order used by subsequent reads.
+    return this.view(await this.save(row, this.build(report.rows, scan.files, scan.warnings, report), scan.task.title));
   }
 
   async refresh(id: string, raw: Record<string, unknown>, user: RagUserContext) {

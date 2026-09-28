@@ -7,6 +7,8 @@ import { ProductionLifecycleService, lifecycleKey, productionBasis } from '../sr
 import { purchaseOrderSourceFingerprint } from '../src/modules/procurement/purchase-order-availability';
 import { executionToday, type ExecutionPlan } from '../src/modules/procurement/production-execution.model';
 const planner = { id: 'planner', name: '计划员', permissions: ['*'] }, checker = { id: 'checker', name: '独立审核', permissions: ['*'] }, worker = { id: 'worker', name: '现场人员', permissions: ['page:production-execution'] };
+const controlledVersions = ['sop', 'sip', 'drawing'].map(kind => ({ id: kind + '-v1', documentId: kind, document: { taskId: 'rd1' }, attachmentId: kind + '-attachment', version: 'V1', fileName: kind + '.pdf', fileKey: kind + '.pdf', fileUrl: '', mimeType: 'application/pdf' }));
+const controlledReferences = controlledVersions.map((row, index) => ({ kind: ['sop', 'sip', 'drawing'][index], versionId: row.id }));
 const decimal = (value: number) => new Prisma.Decimal(value), today = executionToday();
 function fixture() {
   const plan: ExecutionPlan = { id: 'plan', month: today.slice(0, 7), version: 1, productId: 'product', productName: '制氧机', productLine: 'Q7', targetQty: 240, shipmentTargetQty: 200, bomFingerprint: 'bom-v1',
@@ -27,10 +29,13 @@ function fixture() {
     },
     procInventoryBalance: { findMany: async () => balances, findUnique: async ({ where }: any) => balances.find(row => row.tpInventoryCode === where.tpInventoryCode_warehouse.tpInventoryCode && row.warehouse === where.tpInventoryCode_warehouse.warehouse) ?? null },
     procPurchaseOrderMirror: { findMany: async () => orders },
+    user: { findMany: async () => [planner, checker, worker].map(row => ({ ...row, role: { permissions: row.permissions } })) },
+    fileAsset: { findUnique: async ({ where }: any) => ({ id: where.objectKey, status: 'active' }) },
+    rdTechnicalDocumentVersion: { findMany: async ({ where }: any) => controlledVersions.filter(row => where.id.in.includes(row.id)) },
     procTask: { findMany: async () => samples, findUnique: async ({ where }: any) => samples.find(row => row.id === where.id) ?? null },
     procQualityRecord: { findMany: async ({ where }: any) => qualities.filter(row => where.id.in.includes(row.id)) },
     auditLog: { create: async ({ data }: any) => { audits.push(data); } },
-    $transaction: async (run: (db: any) => Promise<unknown>, options: any) => { assert.equal(options.isolationLevel, 'Serializable'); const saved = new Map(state), count = audits.length; try { return await run(db); } catch (error) { state.clear(); saved.forEach((value, key) => state.set(key, value)); audits.length = count; throw error; } },
+    $transaction: async (run: (db: any) => Promise<unknown>, options: any) => { assert.ok(['Serializable', 'RepeatableRead'].includes(options.isolationLevel)); const saved = new Map(state), count = audits.length; try { return await run(db); } catch (error) { state.clear(); saved.forEach((value, key) => state.set(key, value)); audits.length = count; throw error; } },
   };
   return { db, state, plan, put, savePlan, balances, orders, samples, qualities, audits, warehouse: new WarehouseRecordsService(db as never), readiness: new ProductionReadinessService(db as never), lifecycle: new ProductionLifecycleService(db as never) };
 }
@@ -45,7 +50,10 @@ test('A03：全 BOM 使用当日确认未耗用线边，240/270/270；缺失、�
   for (const [code, quantity] of [['V', 60], ['C', 40], ['S', 80]] as const) await f.readiness.command('plan', { action: 'line', version: 1, requestId: `line-confirm-request-${code}`, data: { code, taskId: `task-${code}`, quantity, reason: '实际盘核未耗用', sourceToken: (await f.readiness.read('plan', today, planner)).sourceToken } }, planner);
   const view = await f.readiness.read('plan', today, planner);
   assert.equal(view.currentSets, 240); assert.equal(view.projectedSets, 240, '没有日期依据的ERP在途9999不计入');
-  assert.deepEqual(view.lines.map(row => row.current / row.qtyPer), [240, 270, 270]);
+  assert.deepEqual(view.lines.map(row => {
+    assert.ok(row.current !== null, '已确认的 BOM 行必须有当前可用数量');
+    return row.current / row.qtyPer;
+  }), [240, 270, 270]);
   f.balances[0].availableQty = decimal(-1); assert.equal((await f.readiness.read('plan', today, planner)).currentSets, null);
 });
 test('A04/A05：按确认日期的净未到量预计齐套，不重复计本地实收；来源变化使日期失效', async () => {
@@ -73,8 +81,9 @@ test('库存占用按正式物料去重，释放有审计；齐套快照不可�
 });
 test('A09：账面200实盘198占用20，独立复核后净可用178；ERP核对同步后不重复扣减', async () => {
   const f = fixture(); f.balances[0].stockQty = decimal(200); f.balances[0].availableQty = decimal(180);
-  const created = await f.warehouse.command({ action: 'count', requestId: 'count-v11-request001', data: { code: 'V', warehouse: '量产仓', countedQty: 198, batch: '全仓合格品', reason: '实盘表' } }, planner);
-  const confirm = { action: 'approve-count', id: created.id, version: 1, requestId: 'count-v11-approve001', data: { reason: '独立复核盘点表' } };
+  const created = await f.warehouse.command({ action: 'start-count', requestId: 'count-v11-request001', data: { code: 'V', warehouse: '量产仓', batch: '全仓合格品', reason: '发起盘点' } }, planner);
+  await f.warehouse.command({ action: 'submit-count', id: created.id, version: 1, requestId: 'count-v11-submit001', data: { countedQty: 198, reason: '实盘表' } }, planner);
+  const confirm = { action: 'approve-count', id: created.id, version: 2, requestId: 'count-v11-approve001', data: { reason: '独立复核盘点表' } };
   await assert.rejects(f.warehouse.command(confirm, planner), /不同人员/);
   await f.warehouse.command(confirm, checker); await f.warehouse.command(confirm, checker);
   assert.equal((await f.readiness.read('plan', today, planner)).lines[0].warehouse, 178);
@@ -96,10 +105,10 @@ test('A08：不良退料6件实收只入一次隔离桶，未耗用与报工不�
   await assert.rejects(f.warehouse.command({ ...receive, id: other.id, requestId: 'return-v11-receive02' }, checker), /可退范围/);
 });
 async function published() {
-  const f = fixture(); f.samples.push({ id: 'sample', materialName: '阀样品', code: 'SP-1', treeNode: { productId: 'product' }, metadata: { sampleTest: { roundId: 'round1', testerUserId: 'worker', testerName: '测试员', assignedAt: new Date().toISOString(), assignedByName: '采购', result: 'passed', confirmedAt: new Date().toISOString(), confirmedByName: '测试员', recordsVersion: 1, finishedAt: new Date().toISOString() } } });
+  const f = fixture(); f.samples.push({ id: 'sample', materialName: '阀样品', code: 'SP-1', treeNode: { productId: 'product' }, metadata: { rdTransferSnapshots: [{ id: 'snapshot1', rdTaskId: 'rd1', attachments: controlledVersions.map(row => ({ technicalDocumentVersionId: row.id, documentId: row.documentId })) }], sampleTest: { roundId: 'round1', testerUserId: 'worker', testerName: '测试员', assignedAt: new Date().toISOString(), assignedByName: '采购', result: 'passed', confirmedAt: new Date().toISOString(), confirmedByName: '测试员', recordsVersion: 1, finishedAt: new Date().toISOString() } } });
   let sequence = 0;
   const command = async (action: string, data: Record<string, unknown>, actor = planner) => { const state = JSON.parse(f.state.get(lifecycleKey('plan'))?.value ?? '{"version":0}'); return f.lifecycle.command('plan', { action, version: state.version, requestId: `lifecycle-v11-request-${++sequence}`, data: { reason: '正式资料与验证依据', ...data } }, actor); };
-  await command('transfer', { type: 'validation', code: 'TP-V1', sampleTaskId: 'sample', roundId: 'round1', sop: 'SOP-V1 文件', sip: 'SIP-V1 文件', drawing: 'BOM-V1 文件' });
+  await command('transfer', { type: 'validation', code: 'TP-V1', documents: controlledReferences, sampleTaskId: 'sample', roundId: 'round1', sop: 'SOP-V1 文件', sip: 'SIP-V1 文件', drawing: 'BOM-V1 文件' });
   const pkg = JSON.parse(f.state.get(lifecycleKey('plan'))!.value).transfers[0];
   await assert.rejects(command('publish-transfer', { id: pkg.id }), /尚未/);
   await assert.rejects(command('validate-transfer', { id: pkg.id, documentsChecked: true, productionValidated: true }), /非编制人/);

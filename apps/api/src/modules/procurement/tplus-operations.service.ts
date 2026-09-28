@@ -6,8 +6,13 @@ import type { ProcActor } from './procurement.types';
 import type { SavePurchaseOrderAvailabilityDto } from './dto/purchase-order-availability.dto';
 import { purchaseOrderAvailabilityView, purchaseOrderSourceFingerprint, validatePurchaseOrderAvailability, type PurchaseOrderAvailabilityView } from './purchase-order-availability';
 
+import { InventoryStockService } from '../inventory-stock/inventory-stock.service';
+import { stockForCode } from '../inventory-stock/inventory-stock.model';
+import { warehouseInventoryMovements } from './warehouse-inventory-view';
+import type { WarehouseRecord } from './warehouse-records.service';
+import type { WarehouseIssue } from './warehouse-flow.service';
 type Query = Record<string, unknown>;
-type InventoryStatus = '正常' | '偏低' | '缺货';
+type InventoryStatus = '正常' | '偏低' | '缺货' | '待核对';
 type PurchaseOrderStatus = '待确认' | '已下单' | '部分到货' | '已完成' | '异常';
 
 export interface InventoryViewRow {
@@ -17,12 +22,14 @@ export interface InventoryViewRow {
   spec: string;
   unit: string;
   stock: number;
-  available: number;
+  available: number | null;
+  erpAvailable: number;
+  ledgerIssues: string[];
   safe: number;
   in: number;
   out: number;
   status: InventoryStatus;
-  warehouses: Array<{ name: string; stock: number; available: number; inTransit: number }>;
+  warehouses: Array<{ name: string; stock: number; available: number | null; inTransit: number; erpAvailable: number; issuedPending: number; frozen: number; scrappedPending: number; countReduction: number; qualifiedPending: number; defectivePending: number; inspectionPending: number; syncedAt: string | null }>;
   syncedAt: string | null;
 }
 
@@ -122,10 +129,11 @@ function purchaseOrderLinesQuery(query: Query) {
  */
 @Injectable()
 export class TplusOperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly stock: InventoryStockService = new InventoryStockService(prisma)) {}
 
-  async listInventory(query: Query) {
-    const balances = await this.prisma.procInventoryBalance.findMany({
+  async listInventory(query: Query, includeLedger = false, db?: Prisma.TransactionClient) {
+    if (!db) return this.prisma.$transaction(tx => this.listInventory(query, includeLedger, tx), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const balances = await db.procInventoryBalance.findMany({
       include: {
         material: {
           select: {
@@ -141,9 +149,14 @@ export class TplusOperationsService {
       orderBy: [{ materialName: 'asc' }, { warehouse: 'asc' }],
     });
 
+    const runtime = await db.runtimeState.findMany({ where: { OR: [{ key: { startsWith: 'procurement:warehouse-record:v1:record:' } }, { key: { startsWith: 'procurement:warehouse-flow:v1:issue:' } }] } });
+    const records = runtime.filter(row => row.key.startsWith('procurement:warehouse-record:')).map(row => JSON.parse(row.value) as WarehouseRecord);
+    const issues = runtime.filter(row => row.key.startsWith('procurement:warehouse-flow:')).map(row => JSON.parse(row.value) as WarehouseIssue);
+    const movements = warehouseInventoryMovements(records, issues);
+    const snapshot = await this.stock.read({ codes: [...new Set(balances.map(row => row.tpInventoryCode))], scope: { kind: 'all' } }, db);
     const grouped = new Map<string, InventoryViewRow>();
     for (const balance of balances) {
-      const key = balance.materialId || balance.tpInventoryCode;
+      const key = balance.tpInventoryCode;
       const material = balance.material;
       const current = grouped.get(key) ?? {
         id: balance.tpInventoryCode,
@@ -153,6 +166,7 @@ export class TplusOperationsService {
         unit: material?.unit || balance.unit || '',
         stock: 0,
         available: 0,
+        erpAvailable: 0, ledgerIssues: [],
         safe: Number(material?.safeStock ?? 0),
         in: 0,
         out: 0,
@@ -161,17 +175,22 @@ export class TplusOperationsService {
         syncedAt: null,
       };
       const stock = Number(balance.stockQty);
-      const available = Number(balance.availableQty);
+      const erpAvailable = Number(balance.availableQty);
+      const exposure = snapshot.rows.find(row => row.code === balance.tpInventoryCode && row.warehouse === balance.warehouse);
+      const problems = stockForCode(snapshot, key, current.unit).issues;
+      const available = exposure?.available ?? null;
+      current.ledgerIssues.push(...problems); current.erpAvailable += erpAvailable;
       const inTransit = Number(balance.inTransitQty);
       current.stock += stock;
-      current.available += available;
+      current.available = stockForCode(snapshot, key, current.unit).available;
       current.in += inTransit;
-      current.out += Math.max(0, stock - available);
+      current.out += Math.max(0, stock - erpAvailable);
       current.warehouses.push({
         name: balance.warehouse || '未指定仓库',
         stock,
         available,
-        inTransit,
+        inTransit, erpAvailable, issuedPending: exposure?.pendingIssue ?? 0, frozen: exposure?.frozen ?? 0, scrappedPending: exposure?.scrappedPending ?? 0, countReduction: exposure?.countReduction ?? 0,
+        qualifiedPending: exposure?.qualifiedPending ?? 0, defectivePending: exposure?.defectivePending ?? 0, inspectionPending: exposure?.inspectionPending ?? 0, syncedAt: exposure?.syncedAt ?? null,
       });
       const syncedAt = balance.syncedAt?.toISOString() ?? null;
       if (syncedAt && (!current.syncedAt || syncedAt > current.syncedAt)) current.syncedAt = syncedAt;
@@ -180,7 +199,9 @@ export class TplusOperationsService {
 
     const allRows = Array.from(grouped.values()).map((row) => ({
       ...row,
-      status: this.inventoryStatus(row.available, row.safe),
+      stockState: row.available === null ? 'unknown' as const : 'known' as const,
+      scope: snapshot.scope, readAt: snapshot.readAt,
+      status: row.available === null ? '待核对' as InventoryStatus : this.inventoryStatus(row.available, row.safe),
     }));
     const q = this.text(query.q).toLowerCase();
     const category = this.text(query.category);
@@ -214,8 +235,9 @@ export class TplusOperationsService {
         totalPages,
       },
       categories: [...new Set(allRows.map((row) => row.category).filter(Boolean))].sort(),
-      statuses: ['正常', '偏低', '缺货'] satisfies InventoryStatus[],
-      recentMovements: [],
+      statuses: ['正常', '偏低', '缺货', '待核对'] satisfies InventoryStatus[],
+      recentMovements: movements.slice(0, 30),
+      ledgerMovements: includeLedger ? movements : undefined,
       syncedAt: this.latestDate(allRows.map((row) => row.syncedAt)),
     };
   }
@@ -223,7 +245,7 @@ export class TplusOperationsService {
   async getInventoryDetail(idOrInventoryCode: string) {
     const inventoryCode = decodeURIComponent(idOrInventoryCode);
     const [inventory, purchaseRows] = await Promise.all([
-      this.listInventory({ page: 1, pageSize: 10_000 }),
+      this.listInventory({ page: 1, pageSize: 10_000 }, true),
       this.prisma.procPurchaseOrderMirror.findMany({
         where: { inventoryCode },
         orderBy: [{ orderDate: 'desc' }, { tpOrderNo: 'desc' }],
@@ -236,7 +258,7 @@ export class TplusOperationsService {
       source: 'tplus',
       readOnly: true,
       item,
-      movements: [],
+      movements: (inventory.ledgerMovements ?? []).filter(row => row.itemId === inventoryCode),
       relatedOrders: [],
       relatedPurchaseOrders: purchaseRows.map((row) => ({
         id: row.id,
@@ -266,7 +288,7 @@ export class TplusOperationsService {
           row.spec,
           row.unit,
           row.stock,
-          row.available,
+          row.available ?? '待核对',
           row.in,
           row.safe,
           row.status,

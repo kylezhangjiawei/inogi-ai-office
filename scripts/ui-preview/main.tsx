@@ -4,6 +4,13 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react
 import { Toaster } from "sonner";
 import { TooltipProvider } from "../../src/app/components/ui/tooltip";
 import { QuoteBookPage } from "../../src/app/procurement/QuoteBookPage";
+import { BomListPage } from "../../src/app/procurement/BomListPage";
+import { Workbench } from '../../src/app/order-processing/pages/Workbench';
+import { WarehouseWorkbench } from '../../src/app/order-processing/pages/WarehouseWorkbench';
+import { ReadinessPanel } from '../../src/app/production/execution/ReadinessPanel';
+import type { ExecutionPlan } from '../../src/app/lib/productionExecutionApi';
+import '../../src/app/order-processing/horizon.css';
+import '../../src/app/production/execution/production.css';
 import { ProcPeopleManagementPage } from "../../src/app/procurement/ProcPeopleManagementPage";
 import { ProcMyWorkspacePage } from "../../src/app/procurement/ProcMyWorkspacePage";
 import { PeopleManageDrawer } from "../../src/app/procurement/components/PeopleManageDrawer";
@@ -17,6 +24,10 @@ import "../../src/app/procurement/horizon.css";
 import "./preview.css";
 
 const pages = [
+  ['/warehouse-flow', '仓库工作台', 'Warehouse workbench'],
+  ['/order-workbench', '订单物料闭环', 'Order material verification'],
+  ['/preview-readiness', '齐套库存口径', 'Readiness stock basis'],
+  ["/proc-materials/bom", "BOM 发布核对", "BOM revision review"],
   ["/proc-quote-book", "报价库", "Quote book"], ["/proc-people-management", "人员管理", "People"],
   ["/proc-my-workspace", "我的工作台", "My workspace"], ["/preview-dialogs", "抽屉与历史", "Drawers & history"],
   ["/preview-import", "导入核对表", "Import review"],
@@ -57,15 +68,20 @@ function PreviewApp() {
   const { lang } = useI18n();
   const location = useLocation();
   const current = pages.find(([url]) => url === location.pathname);
-  return <div className="horizon-theme ui-preview-frame">
+  const workspace = location.pathname === "/proc-my-workspace";
+  return <div className={`horizon-theme ui-preview-frame${workspace ? " ui-preview-workspace" : ""}`}>
     <header className="ui-preview-banner"><strong>{lang === "zh" ? "独立 UI 验收沙箱 · 全部为虚构数据 · 禁止业务写入" : "Isolated UI preview · Synthetic data · Business writes disabled"}</strong>
       <div className="ui-preview-language"><button aria-pressed={lang === "zh"} onClick={() => void setI18nLang("zh")}>中文</button><button aria-pressed={lang === "en"} onClick={() => void setI18nLang("en")}>English</button></div>
     </header>
     <nav className="ui-preview-nav" aria-label="Preview pages">{pages.map(([url, zh, en]) => <Link key={url} to={url} aria-current={url === location.pathname ? "page" : undefined}>{lang === "zh" ? zh : en}</Link>)}</nav>
-    <main className="ui-preview-main"><h1 className="ui-preview-title">{current ? current[lang === "zh" ? 1 : 2] : "UI Preview"}</h1>
+    <main className="ui-preview-main">{!workspace && <h1 className="ui-preview-title">{current ? current[lang === "zh" ? 1 : 2] : "UI Preview"}</h1>}
       <Routes>
         <Route path="/" element={<Navigate to="/proc-quote-book" replace />} />
         <Route path="/proc-quote-book" element={<QuoteBookPage />} />
+        <Route path="/proc-materials/bom" element={<BomListPage />} />
+        <Route path="/order-workbench" element={<Workbench />} />
+        <Route path="/warehouse-flow" element={<WarehouseWorkbench />} />
+        <Route path="/preview-readiness" element={<ReadinessPanel plan={{ id: 'preview-plan', version: 1, month: '2026-09', batches: [] } as unknown as ExecutionPlan} />} />
         <Route path="/proc-people-management" element={<ProcPeopleManagementPage />} />
         <Route path="/proc-my-workspace" element={<ProcMyWorkspacePage />} />
         <Route path="/preview-dialogs" element={<DialogPreviews />} />
@@ -76,4 +92,6 @@ function PreviewApp() {
   </div>;
 }
 
-createRoot(document.getElementById("root")!).render(<BrowserRouter><TooltipProvider><PreviewApp /></TooltipProvider></BrowserRouter>);
+const previewRoot = createRoot(document.getElementById("root")!);
+previewRoot.render(<BrowserRouter><TooltipProvider><PreviewApp /></TooltipProvider></BrowserRouter>);
+if (import.meta.hot) import.meta.hot.dispose(() => previewRoot.unmount());

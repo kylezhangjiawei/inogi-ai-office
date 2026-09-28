@@ -58,22 +58,21 @@ import {
 import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { ResourceDownloadLink } from "./components/ResourceDownloadLink";
 import { refreshRdAttachment } from "./lib/attachmentAccess";
-import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
-import { RDTaskConversation } from "./RDTaskConversation";
 import {
-  STATUS_CONFIG,
-  PRIORITY_CONFIG,
-  WorkItemsSection,
-  HandoverDialog,
-  AddCollaboratorsDialog,
-  CompleteConfirmDialog,
-  ApprovalActionDialog,
-  displayPersonName,
-  downloadUsCollabTaskReport,
-  flattenTasks,
-  OwnerAvatar,
-  type PersonProfile,
-} from "./RDTaskManagementPage";
+  AttachmentPreviewModal,
+  ProgressAttachmentGrid,
+  TaskImageGallery,
+  TaskImageGalleryScope,
+  formatRdFileSize,
+  formatTraceDateTime,
+} from "./RDProgressEvidence";
+import { RDTaskConversation } from "./RDTaskConversation";
+import { STATUS_CONFIG, PRIORITY_CONFIG, displayPersonName, type PersonProfile } from './rd/taskModel';
+import { WorkItemsSection } from './rd/WorkItemsSection';
+import { HandoverDialog, AddCollaboratorsDialog, CompleteConfirmDialog, ApprovalActionDialog } from './rd/TaskActionDialogs';
+import { downloadUsCollabTaskReport } from './rd/taskReport';
+import { flattenTasks } from './lib/rdCockpitMetrics';
+import { OwnerAvatar } from './rd/TaskIdentity';
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";

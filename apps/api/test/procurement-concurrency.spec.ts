@@ -30,7 +30,7 @@ function harness(status: string, extra: Row = {}) {
   const tx = {
     $queryRaw: async () => { await arrivalInterleave(); return [{ id: row.id }]; },
     procTask: taskStore,
-    procQuotation: { deleteMany: async () => ({ count: 1 }) },
+    procQuotation: { deleteMany: async () => ({ count: 1 }), findMany: async () => [{ supplierName: '已确认供应商' }] },
     procPurchaseOrderRef: {
       findMany: async () => refs.map((ref) => ({ ...ref })),
       deleteMany: async ({ where }: Row) => {
@@ -138,7 +138,22 @@ test('合法确认和推进仍正常落状态及留痕，普通推进保留独�
     assert.equal(h.logs[0].fromStatus, 'pending_confirm');
   }
   const h = harness('inquiring', { businessDone: true });
-  await h.service.transitionTask('task-1', { from_status: 'inquiring', status: 'priced' }, actor);
+  await h.service.completeInquiry('task-1', actor);
   assert.equal(h.snapshot().status, 'priced');
   assert.equal(h.snapshot().businessDone, true);
+});
+
+test('通用接口拒绝绕过报价、需样、订单和到货依据，即使来源状态正确也不写入', async () => {
+  for (const [from, to] of [
+    ['pending_confirm', 'pending_purchase'], ['pending_inquiry', 'inquiring'],
+    ['inquiring', 'priced'], ['priced', 'in_transit'], ['pending_purchase', 'in_transit'],
+    ['in_transit', 'partial_arrival'], ['in_transit', 'completed'], ['partial_arrival', 'completed'],
+  ]) {
+    const h = harness(from, { needSample: true, arrivedQty: new Prisma.Decimal(0) });
+    await assert.rejects(h.service.transitionTask('task-1', { from_status: from, status: to }, actor),
+      (error: any) => error.getStatus() === 400 && /不能直接修改状态/.test(error.message));
+    assert.equal(h.snapshot().status, from);
+    assert.equal(Number(h.snapshot().arrivedQty), 0);
+    assert.equal(h.logs.length, 0);
+  }
 });

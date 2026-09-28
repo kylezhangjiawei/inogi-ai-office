@@ -58,12 +58,11 @@
 .qep-identity-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 24px; margin-top: 16px; font-size: 12px; line-height: 1.6; }
 .qep-identity-grid dt { color: var(--muted-foreground); margin-bottom: 3px; }
 .qep-identity-grid dd { overflow-wrap: anywhere; }
-.qep-progress { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); align-items: center; padding: 12px 16px; margin: 14px 0; background: #e7edf7; border-radius: 8px; }
-.qep-progress li { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
-.qep-progress li > span { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; width: 24px; height: 24px; border: 1px solid #cad5e8; border-radius: 50%; }
-.qep-progress li[aria-current=step] { color: var(--primary); font-weight: 600; }
-.qep-progress li[aria-current=step] > span { color: white; background: var(--primary); border-color: var(--primary); }
-.qep-progress li[data-past=true] > span { color: var(--primary); border-color: transparent; }
+.qep-status-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:14px 0; padding:14px 16px; border:1px solid var(--border); border-radius:var(--m3-shape-card); background:var(--card); box-shadow:var(--shadow-card); }
+.qep-status-summary > div { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.qep-status-summary > div + div { border-left:1px solid var(--border); padding-left:14px; }
+.qep-status-summary span,.qep-status-summary small { color:var(--muted-foreground); font-size:11px; }
+.qep-status-summary strong { font-size:15px; font-weight:650; overflow-wrap:anywhere; }
 .qep-detail-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(360px,1.1fr); gap: 16px; align-items: start; }
 .qep-facts-column { display: grid; gap: 16px; min-width: 0; }
 .qep-section { padding: 18px; }
@@ -134,8 +133,9 @@
   .qep-identity { padding: 16px; }
   .qep-identity-title h2 { font-size: 18px; }
   .qep-identity-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-  .qep-progress { padding: 10px 4px; }
-  .qep-progress li { flex-direction: column; gap: 6px; font-size: 11px; }
+  .qep-status-summary { grid-template-columns:1fr 1fr; }
+  .qep-status-summary > div + div { border-left:0; padding-left:0; }
+  .qep-status-summary > div:last-child { grid-column:1/-1; border-top:1px solid var(--border); padding-top:10px; }
   .qep-detail-grid { grid-template-columns: minmax(0,1fr); }
   .qep-action-column { grid-column: 1; grid-row: 1; }
   .qep-facts-column { grid-column: 1; }

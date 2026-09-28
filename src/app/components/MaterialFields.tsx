@@ -5,8 +5,10 @@ import { cn } from "./ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
 
 type FieldShellProps = {
+  id: string;
   label?: string;
   hint?: string;
   icon?: LucideIcon;
@@ -14,17 +16,17 @@ type FieldShellProps = {
   className?: string;
 };
 
-function FieldShell({ label, hint, icon: Icon, children, className }: FieldShellProps) {
+function FieldShell({ id, label, hint, icon: Icon, children, className }: FieldShellProps) {
   return (
     <div className={cn("space-y-2", className)}>
       {label ? (
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          {Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null}
+        <Label htmlFor={id} className="flex items-center gap-2 text-sm font-medium text-foreground">
+          {Icon ? <Icon className="size-4 text-muted-foreground" aria-hidden="true" /> : null}
           <span>{label}</span>
-        </div>
+        </Label>
       ) : null}
       {children}
-      {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}
+      {hint ? <div id={`${id}-hint`} className="text-xs text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }
@@ -35,11 +37,15 @@ type MaterialInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   icon?: LucideIcon;
 };
 
-export function MaterialInput({ label, hint, icon, className, ...props }: MaterialInputProps) {
+export function MaterialInput({ label, hint, icon, className, id, ...props }: MaterialInputProps) {
+  const generatedId = React.useId();
+  const fieldId = id ?? generatedId;
   return (
-    <FieldShell label={label} hint={hint} icon={icon}>
+    <FieldShell id={fieldId} label={label} hint={hint} icon={icon}>
       <Input
         {...props}
+        id={fieldId}
+        aria-describedby={[props['aria-describedby'], hint && `${fieldId}-hint`].filter(Boolean).join(' ') || undefined}
         className={cn("material-input h-11", className)}
       />
     </FieldShell>
@@ -52,11 +58,15 @@ type MaterialTextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> &
   icon?: LucideIcon;
 };
 
-export function MaterialTextarea({ label, hint, icon, className, ...props }: MaterialTextareaProps) {
+export function MaterialTextarea({ label, hint, icon, className, id, ...props }: MaterialTextareaProps) {
+  const generatedId = React.useId();
+  const fieldId = id ?? generatedId;
   return (
-    <FieldShell label={label} hint={hint} icon={icon}>
+    <FieldShell id={fieldId} label={label} hint={hint} icon={icon}>
       <Textarea
         {...props}
+        id={fieldId}
+        aria-describedby={[props['aria-describedby'], hint && `${fieldId}-hint`].filter(Boolean).join(' ') || undefined}
         className={cn("material-input min-h-[220px] py-4 leading-7", className)}
       />
     </FieldShell>
@@ -72,6 +82,9 @@ type MaterialSelectOption = {
 const EMPTY_SELECT_VALUE = "__material-empty__";
 
 type MaterialSelectProps = {
+  id?: string;
+  'aria-describedby'?: string;
+  'aria-invalid'?: React.AriaAttributes['aria-invalid'];
   label?: string;
   hint?: string;
   icon?: LucideIcon;
@@ -94,18 +107,26 @@ export function MaterialSelect({
   placeholder,
   className,
   contentClassName,
+  id,
+  'aria-describedby': describedBy,
+  'aria-invalid': invalid,
 }: MaterialSelectProps) {
+  const generatedId = React.useId();
+  const fieldId = id ?? generatedId;
   const normalizedValue = value === "" ? EMPTY_SELECT_VALUE : value;
 
   return (
-    <FieldShell label={label} hint={hint} icon={icon}>
+    <FieldShell id={fieldId} label={label} hint={hint} icon={icon}>
       <Select
         value={normalizedValue}
         onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_SELECT_VALUE ? "" : nextValue)}
       >
         <SelectTrigger
+          id={fieldId}
+          aria-invalid={invalid}
+          aria-describedby={[describedBy, hint && `${fieldId}-hint`].filter(Boolean).join(' ') || undefined}
           className={cn(
-            "material-input h-11 justify-between border-0 bg-white/75 px-4 py-0 shadow-[inset_0_0_0_1px_rgba(216,226,238,0.85)] focus:ring-0 focus-visible:ring-0",
+            "material-input h-11 w-full justify-between px-3",
             className,
           )}
         >
@@ -140,12 +161,6 @@ type MaterialDateInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 
 
 export function MaterialDateInput({ label, hint, className, ...props }: MaterialDateInputProps) {
   return (
-    <FieldShell label={label} hint={hint} icon={CalendarDays}>
-      <Input
-        {...props}
-        type="date"
-        className={cn("material-input h-11", className)}
-      />
-    </FieldShell>
+    <MaterialInput {...props} type="date" label={label} hint={hint} icon={CalendarDays} className={className} />
   );
 }

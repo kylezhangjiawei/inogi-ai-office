@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const source = ["RDTaskManagementPage.tsx", "rd/PersonTaskCockpit.tsx"]
+  .map((file) => readFileSync(new URL(`../src/app/${file}`, import.meta.url), "utf8")).join("\n");
 const ast = ts.createSourceFile("RDTaskManagementPage.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 function nodesWhere(root, predicate) {

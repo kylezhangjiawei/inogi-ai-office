@@ -20,6 +20,81 @@ const visualSources = {
 
 const mateAst = ts.createSourceFile('MateChatBubble.tsx', mateChat, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
+function reminderFixture({ pathname = '/proc-my-workspace', preview = false, hour = 10, todayDone = false } = {}) {
+  const slots = [], effects = [], records = new Map(), writes = [];
+  let cursor = 0, changed = false, check, opened = 0, requests = 0;
+  let user = { id: 'buyer-1' }, input = false, otherDialog = false;
+  const now = new Date(2026, 8, 20, hour).valueOf();
+  const data = { currentStreak: 3, bestStreak: 5, todayDone, weekActivity: [], totalQuestions: 10, milestone: false, message: 'Daily message', mascotUrl: null };
+  let request = async () => data;
+  const hooks = {
+    useState(initial) {
+      const index = cursor++;
+      if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial;
+      return [slots[index], next => { const value = typeof next === 'function' ? next(slots[index]) : next; if (!Object.is(value, slots[index])) { slots[index] = value; changed = true; } }];
+    },
+    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
+    useCallback(callback, deps) {
+      const index = cursor++, previous = slots[index];
+      if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) slots[index] = { deps, callback };
+      if (callback.constructor.name === 'AsyncFunction') check = slots[index].callback;
+      return slots[index].callback;
+    },
+    useEffect(callback, deps) {
+      const index = cursor++, previous = slots[index];
+      if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) {
+        const next = { deps }; slots[index] = next;
+        effects.push(() => { previous?.cleanup?.(); next.cleanup = callback(); });
+      }
+    },
+  };
+  const jsx = (type, props) => ({ type, props });
+  const dependencies = {
+    react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': new Proxy({}, { get: (_, name) => name }),
+    'react-router': { useLocation: () => ({ pathname, search: preview ? '?matechatReminder=preview' : '' }) },
+    '../../auth': { useAuth: () => ({ user }) },
+    '../../lib/chatStreakApi': { chatStreakApi: { invalidate() {}, getMyStreak: () => { requests++; return request(); } } },
+    '../../lib/i18n': { useI18n: () => ({ lang: 'zh', t: (value, args = {}) => value.replace(/\{(\w+)\}/g, (match, key) => args[key] ?? match) }) },
+    './openMateChat': { openMateChat: () => { opened++; } },
+    '../ui/button': { Button: 'Button' }, '../ui/dialog': new Proxy({}, { get: (_, name) => name }),
+  };
+  const globals = {
+    Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } },
+    document: { querySelector: () => otherDialog, activeElement: { matches: () => input }, addEventListener() {}, removeEventListener() {} },
+    localStorage: { getItem: key => records.get(key), setItem: (key, value) => { records.set(key, value); writes.push([key, value]); } },
+    setTimeout: () => 1, clearTimeout() {}, setInterval: () => 2, clearInterval() {},
+  };
+  const out = {};
+  const code = ts.transpileModule(reminderModal, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  new Function('exports', 'require', ...Object.keys(globals), code)(out, name => { assert.ok(name in dependencies, name); return dependencies[name]; }, ...Object.values(globals));
+  const view = {
+    data, writes,
+    render() {
+      for (let i = 0; i < 10; i++) {
+        cursor = 0; changed = false;
+        const tree = out.MateChatReminderModal();
+        while (effects.length) effects.shift()();
+        if (!changed) return tree;
+      }
+      assert.fail('reminder did not settle');
+    },
+    check: () => check(), requests: () => requests, opened: () => opened,
+    setRequest: callback => { request = callback; },
+    setInput: value => { input = value; }, setDialog: value => { otherDialog = value; },
+    setUser(next) { user = next; this.render(); }, setPath(next) { pathname = next; this.render(); },
+    setPreview(next) { preview = next; this.render(); },
+    async settle() { await Promise.resolve(); await Promise.resolve(); return this.render(); },
+  };
+  view.render();
+  return view;
+}
+
+function reminderNodes(tree) {
+  if (Array.isArray(tree)) return tree.flatMap(reminderNodes);
+  if (!tree || typeof tree !== 'object') return [];
+  return [tree, ...reminderNodes(tree.props?.children)];
+}
+
 function conversationFunction(name, scope) {
   let expression;
   function visit(node) {
@@ -127,12 +202,13 @@ test("MateChat 与 RAG 引用接入 Horizon 语义主题", () => {
   }
 });
 
-test("全局使用提醒使用 Dialog，并保留时段、账号、路由与稍后提醒契约", () => {
+test("全局使用提醒保留吉祥物封面 Dialog、时段、账号与稍后提醒契约", () => {
   assert.match(reminderModal, /<Dialog open=\{open && Boolean\(data\)\}/);
   assert.match(reminderModal, /<DialogContent/);
   assert.match(reminderModal, /<DialogTitle/);
   assert.match(reminderModal, /<DialogDescription/);
-  assert.doesNotMatch(reminderModal, /role="dialog"|aria-modal="true"|fixed inset-0|window\.addEventListener\('keydown'/);
+  assert.doesNotMatch(reminderModal, /<aside|matechat-reminder-banner|aria-modal="true"|fixed inset-0|window\.addEventListener\('keydown'/);
+  assert.match(reminderModal, /document\.activeElement/);
 
   assert.match(reminderModal, /function currentPeriod\(\): Period \| null/);
   assert.match(reminderModal, /storageKey\(user\.id, period\)/);
@@ -140,13 +216,102 @@ test("全局使用提醒使用 Dialog，并保留时段、账号、路由与稍�
   assert.match(reminderModal, /localStorage\.setItem\(key, 'shown'\)/);
   assert.match(reminderModal, /chatStreakApi\.getMyStreak\(\)/);
   assert.match(reminderModal, /if \(streak\.todayDone\)/);
-  assert.match(reminderModal, /isProcurementRoute/);
+  assert.doesNotMatch(reminderModal, /isProcurementRoute/);
+  assert.match(reminderModal, /src=\{data\.mascotUrl\}/);
+  assert.match(reminderModal, /今天还没用 MateChat 哦/);
+  assert.match(reminderModal, /data\.message/);
   assert.match(reminderModal, /matechatReminder'\) === 'preview'/);
   assert.match(reminderModal, /setTimeout\(\(\) => void maybeShow\(\), 3000\)/);
   assert.match(reminderModal, /setInterval\(\(\) => void maybeShow\(\), CHECK_INTERVAL\)/);
   assert.match(reminderModal, /document\.addEventListener\('visibilitychange', onVisible\)/);
   assert.match(reminderModal, /openMateChat\(\);[\s\S]*close\(\);/);
   assert.equal((reminderModal.match(/onClick=\{close\}/g) ?? []).length, 1, "应保留稍后再说入口");
+});
+
+test('提醒在所有工作页面全局展示并保留时段约束', async () => {
+  for (const [options, allowed] of [
+    [{}, true], [{ pathname: '/supply/mine' }, true],
+    [{ pathname: '/proc-mine' }, true], [{ pathname: '/' }, true],
+    [{ pathname: '/proc-cockpit' }, true], [{ pathname: '/purchase-orders/PO-1' }, true],
+    [{ pathname: '/inventory-management' }, true], [{ hour: 13 }, false],
+  ]) {
+    const view = reminderFixture(options);
+    await view.check();
+    assert.equal(view.render().props.open, allowed, JSON.stringify(options));
+    assert.equal(view.requests(), Number(allowed));
+  }
+});
+
+test('提醒读取前后都避让输入和其他弹窗，延后不消耗本时段次数', async () => {
+  for (const change of ['setInput', 'setDialog']) {
+    const view = reminderFixture();
+    view[change](true); await view.check();
+    assert.equal(view.requests(), 0);
+    view[change](false);
+    let resolve;
+    view.setRequest(() => new Promise(done => { resolve = done; }));
+    const pending = view.check();
+    view[change](true); resolve(view.data); await pending;
+    assert.equal(view.render().props.open, false);
+    assert.deepEqual(view.writes, []);
+    view[change](false); view.setRequest(async () => view.data); await view.check();
+    assert.equal(view.render().props.open, true);
+    assert.equal(view.writes.length, 1);
+  }
+});
+
+test('提醒旧请求不能在新账号弹出，已使用记录继续阻止重复请求', async () => {
+  for (const nextUser of [{ id: 'buyer-2' }, null]) {
+    const view = reminderFixture();
+    let resolve;
+    view.setRequest(() => new Promise(done => { resolve = done; }));
+    const pending = view.check(); view.setUser(nextUser); resolve(view.data); await pending;
+    assert.equal(view.render().props.open, false);
+    assert.deepEqual(view.writes, []);
+  }
+  const used = reminderFixture({ todayDone: true });
+  await used.check(); await used.check();
+  assert.equal(used.render().props.open, false);
+  assert.equal(used.requests(), 1);
+  assert.deepEqual(used.writes, [['matechat-reminder:buyer-1:2026-9-20:am', 'used']]);
+});
+
+test('全局提醒读取期间切换工作页面仍使用同一提醒记录', async () => {
+  const view = reminderFixture();
+  let resolve;
+  view.setRequest(() => new Promise(done => { resolve = done; }));
+  const pending = view.check();
+  view.setPath('/proc-cockpit'); resolve(view.data); await pending;
+  assert.equal(view.render().props.open, true);
+  assert.deepEqual(view.writes, [['matechat-reminder:buyer-1:2026-9-20:am', 'shown']]);
+  view.setPath('/purchase-orders/PO-1');
+  assert.equal(view.render().props.open, true);
+  await view.check();
+  assert.equal(view.requests(), 1);
+});
+
+test('预览不写提醒记录，打开和稍后保持真实关闭行为', async () => {
+  for (const action of ['立即去用 MateChat', '稍后再说']) {
+    const view = reminderFixture({ preview: true });
+    await view.settle(); await view.check();
+    assert.equal(view.render().props.open, true);
+    assert.equal(view.requests(), 1);
+    assert.deepEqual(view.writes, []);
+    const button = reminderNodes(view.render()).find(node => node.type === 'Button' && [node.props.children].flat().includes(action));
+    assert.ok(button, action); button.props.onClick();
+    assert.equal(view.render().props.open, false);
+    assert.equal(view.opened(), Number(action === '立即去用 MateChat'));
+    await view.check();
+    assert.deepEqual(view.writes, []);
+  }
+  const view = reminderFixture();
+  let resolve;
+  const response = new Promise(done => { resolve = done; });
+  view.setRequest(() => response);
+  const pending = view.check();
+  view.setPreview(true); resolve(view.data); await pending; await view.settle();
+  assert.equal(view.render().props.open, true);
+  assert.deepEqual(view.writes, [], '请求中途进入预览也不写真实提醒记录');
 });
 
 test("连胜卡片保留 compact/full、加载、周记录、里程碑和聊天入口", () => {

@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, Matches } from 'class-validator';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { AiParseQuotesDto, ImportSupplierQuotesDto, UpsertSupplierQuoteDto } from './dto/procurement.dto';
@@ -21,6 +22,26 @@ import type { ProcActor } from './procurement.types';
 type AuthedRequest = {
   user: { id: string; name?: string; username?: string; permissions: string[] };
 };
+
+export class SupplierProfileDto {
+  @IsString() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() @MaxLength(100) shortName?: string;
+  @IsOptional() @IsString() @MaxLength(100) contact?: string;
+  @IsOptional() @IsString() @MaxLength(100) phone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
+  @IsOptional() @IsString() @MaxLength(500) address?: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsString() @MaxLength(200) tags?: string;
+  @IsOptional() @Matches(/^$|^\d{4}-(0[1-9]|1[0-2])$/) cooperationStart?: string;
+  @IsOptional() @IsString() @MaxLength(500) supplyScope?: string;
+  @IsOptional() @IsString() @MaxLength(100) owner?: string;
+  @IsOptional() @IsIn(['', 'A', 'B', 'C', 'D']) grade?: string;
+}
+export class SupplierMaterialRoleDto {
+  @IsString() @MaxLength(100) materialId!: string;
+  @IsIn(['primary', 'alternative', '']) role!: string;
+}
 
 /**
  * 供应商报价库：同一商品跨厂家的比价基准维护（树形：商品 → 厂家 → 阶梯价）。
@@ -50,6 +71,22 @@ export class QuoteBookController {
   listSuppliers() {
     return this.service.listSuppliers();
   }
+
+  @Get('supplier-directory')
+  @Permissions('page:proc-quote-book')
+  supplierDirectory() { return this.service.supplierDirectory(); }
+
+  @Post('supplier-directory')
+  @Permissions('quote-book:manage', 'proc-task:inquiry')
+  createSupplier(@Body() dto: SupplierProfileDto) { return this.service.saveSupplierProfile(undefined, dto); }
+
+  @Put('supplier-directory/:id')
+  @Permissions('quote-book:manage', 'proc-task:inquiry')
+  updateSupplier(@Param('id') id: string, @Body() dto: SupplierProfileDto) { return this.service.saveSupplierProfile(id, dto); }
+
+  @Put('supplier-directory/:id/material-role')
+  @Permissions('quote-book:manage', 'proc-task:inquiry')
+  materialRole(@Param('id') id: string, @Body() dto: SupplierMaterialRoleDto) { return this.service.saveSupplierMaterialRole(id, dto.materialId, dto.role); }
 
   @Post('quotes')
   @Permissions('quote-book:manage', 'proc-task:inquiry')

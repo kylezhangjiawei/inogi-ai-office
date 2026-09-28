@@ -329,7 +329,8 @@ export async function parseQuoteBookFile(file: File): Promise<ParsedImport> {
       ].filter(Boolean) as string[];
       const note = [cell("note"), ...extras].filter(Boolean).join("；") || undefined;
 
-      const key = `${materialName}${GROUP_SEP}${supplierName}`;
+      const identity = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+      const key = [materialName, cell("spec"), supplierName].map(identity).join(GROUP_SEP);
       const opt = (field: string) => cell(field) || undefined;
       // 图片按锚定行关联到该行商品（同商品多行取首个有图行）
       const rowImage = sheetImages.get(sheetName)?.get(index);

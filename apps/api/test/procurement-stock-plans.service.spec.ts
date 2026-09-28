@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Prisma } from '@prisma/client';
+import { buildBomSnapshot } from '../src/modules/procurement/bom-revisions.model';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
@@ -126,6 +127,15 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
   const createdTasks: any[] = [];
   const createdBatches: any[] = [];
   const base: any = {
+    procBomRevision: { findUnique: async ({ where }: any) => {
+      if (where.id !== 'fixture-revision') return null;
+      const leaves = (options.bom ?? []).filter(node => node.code).map(node => {
+        const material = materials.find(row => row.tpInventoryCode === node.code)!;
+        return { nodeId: node.id, parentId: 'published-device', deviceId: 'published-device', materialId: material.id, code: node.code, name: material.name, unit: material.unit, qtyPer: Number(node.qtyPer) };
+      });
+      const snapshot = buildBomSnapshot({ deviceId: 'published-device', productRootId: 'product-root', structure: [{ id: 'published-device', parentId: null, name: 'Q5' }, ...leaves.map(leaf => ({ id: leaf.nodeId, parentId: leaf.parentId, name: leaf.name }))], leaves });
+      return { id: where.id, deviceId: 'published-device', productRootId: 'product-root', snapshot, fingerprint: snapshot.fingerprint, publishedAt: now, version: 1, retiredAt: null, device: { productLine: 'Q5' } };
+    } },
     runtimeState: { findMany: async () => [] },
     procStockPlan: {
       findUnique: async () => row,
@@ -148,7 +158,7 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
       findUnique: async ({ where }: any) => materials.find((entry) => entry.id === where.id) ?? null,
       findMany: async ({ where }: any) => materials.filter((entry) => where.tpInventoryCode.in.includes(entry.tpInventoryCode)),
     },
-    procTaskTreeNode: { findUnique: async () => ({ productId: 'prod-portable-o2' }), findFirst: async () => null },
+    procTaskTreeNode: { findUnique: async () => ({ id: 'product-root', parentId: null, productId: 'prod-portable-o2' }), findFirst: async () => null },
     procPurchaseOrderMirror: {
       findUnique: async () => options.mirror ?? null,
       findFirst: async ({ where }: any) => options.mirror?.tpOrderNo === where.tpOrderNo ? options.mirror : null,
@@ -156,7 +166,7 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
         ? [{ ...readMirror, tpOrderId: readMirror.tpOrderId ?? 'erp-order-1', tpLineNo: readMirror.tpLineNo ?? '1', unit: readMirror.unit ?? row.unit, receipts: [], orderedQty: new Prisma.Decimal(readMirror.orderedQty), receivedQty: new Prisma.Decimal(readMirror.receivedQty) }] : [],
     },
     procSupplier: { findUnique: async () => ({ name: '供应商甲' }) },
-    procBomNode: { findMany: async () => (options.bom ?? []).map((node) => ({ updatedAt: now, ...node })) },
+    procBomNode: { findUnique: async () => ({ id: 'published-device', parentId: null, productRootId: 'product-root', productLine: 'Q5' }), findMany: async () => (options.bom ?? []).map((node) => ({ updatedAt: now, ...node })) },
     procInventoryBalance: { findMany: async () => options.balances ?? [] },
     systemSetting: { findMany: async () => options.settings ?? [], findUnique: async () => ({ value: [{ id: 'prod-portable-o2' }] }) },
   };
@@ -166,6 +176,7 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
       let release: (() => void) | undefined;
       const tx = { ...base, $queryRaw: async (strings: TemplateStringsArray) => {
         locks.push(strings.join('?'));
+        if (release) return [];
         const previous = mutex;
         mutex = new Promise<void>((resolve) => { release = resolve; });
         await previous;
@@ -184,7 +195,7 @@ function mirror(overrides: Record<string, unknown> = {}) {
 }
 
 function balance(overrides: Record<string, unknown> = {}) {
-  return { tpInventoryCode: 'A', warehouse: '量产仓库', stockQty: 30, availableQty: 20, inTransitQty: 10, syncedAt: now, material: { safeStock: 0 }, ...overrides };
+  return { tpInventoryCode: 'A', unit: '件', warehouse: '量产仓库', stockQty: Math.max(30, Number(overrides.availableQty ?? 20)), availableQty: 20, inTransitQty: 10, syncedAt: now, material: { safeStock: 0 }, ...overrides };
 }
 
 test('计划筛选按类型、产品、子系统及完整月份范围查询', async () => {
@@ -193,6 +204,28 @@ test('计划筛选按类型、产品、子系统及完整月份范围查询', as
   await instance.listStockPlans({ type: 'packaging', productId: 'product-1', treeNodeId: 'node-1', month: '2026-12' });
   assert.deepEqual(where, { planType: 'packaging', productId: 'product-1', treeNodeId: 'node-1', targetDate: { gte: new Date('2026-12-01T00:00:00Z'), lt: new Date('2027-01-01T00:00:00Z') } });
   await assert.rejects(() => instance.listStockPlans({ month: '2026-13' }), /月份格式/);
+});
+
+test('整机备货不得从未发布工作稿新建或首次生成任务', async () => {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5' }), { bom: [{ id: 'd', parentId: null, productLine: 'Q5' }] });
+  await assert.rejects(h.instance.createStockPlan({ planType: 'machine', productId: 'prod-portable-o2', productLine: 'Q5', materialName: '整机', targetQty: 10 }, actor), /发布版本/);
+  await assert.rejects(h.instance.generateStockPlanTasks(h.row.id, actor), /BOM.*依据|发布版本/);
+  assert.equal(h.createdTasks.length, 0);
+});
+
+test('已确认 BOM 的整机计划不能转换类型绕过身份锁定', async () => {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', bomRevisionId: 'fixture-revision' }));
+  await assert.rejects(h.instance.updateStockPlan(h.row.id, { planType: 'material', productLine: '' }), /身份不能直接更改/);
+  assert.equal(h.row.planType, 'machine');
+});
+
+test('月度整机核算只合并相同发布版本的需求', async () => {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', bomRevisionId: 'revision-1' }));
+  let queried: any;
+  h.prisma.procStockPlan.findMany = async ({ where }: any) => { queried = where; return [h.row]; };
+  (h.instance as any).stockPlanReadiness = async () => ({});
+  await h.instance.getStockPlanReadiness(h.row.id, '2026-09');
+  assert.equal(queried.bomRevisionId, 'revision-1');
 });
 
 test('创建包材计划保留产品子系统，整机拒绝非整数套数或零部件物料', async () => {
@@ -206,7 +239,7 @@ test('创建包材计划保留产品子系统，整机拒绝非整数套数或�
   await assert.rejects(() => component.instance.createStockPlan({ planType: 'machine', materialId: 'material-1', materialName: '组件', productLine: 'Q5', targetQty: 10 }, actor), /零部件/);
 });
 
-test('Q5 资料未核实也可先登记总计划，但任一必需件或包材待核实仍禁止自动生成采购', async () => {
+test('Q5 未发布不能登记正式整机计划，历史待核实计划禁止首次生成采购', async () => {
   const materials = [
     { id: 'component', name: '零部件', spec: '', unit: '件', tpInventoryCode: 'A', safeStock: 0 },
     { id: 'packaging', name: '必需包材', spec: '', unit: '个', tpInventoryCode: 'B', safeStock: 0 },
@@ -221,20 +254,17 @@ test('Q5 资料未核实也可先登记总计划，但任一必需件或包材�
       ],
       balances: [balance({ availableQty: 20, inTransitQty: 0 }), ...(scenario === 'missing_inventory' ? [] : [balance({ tpInventoryCode: 'B', availableQty: 0, inTransitQty: 0 })])],
     });
-    const saved = await h.instance.createStockPlan({ planType: 'machine', materialName: 'Q5 整机', productLine: 'Q5', targetQty: 100, productId: 'prod-portable-o2' }, actor);
-    assert.equal(saved.planType, 'machine', scenario);
-    assert.equal(saved.targetQty, 100, scenario);
-    assert.equal(saved.status, 'not_started', scenario);
-    assert.equal(saved.tasks?.length, 0, '登记计划不会创建采购任务');
+    await assert.rejects(h.instance.createStockPlan({ planType: 'machine', materialName: 'Q5 整机', productLine: 'Q5', targetQty: 100, productId: 'prod-portable-o2' }, actor), /发布版本/);
+    Object.assign(h.row, { planType: 'machine', productLine: 'Q5', targetQty: 100 });
     const readiness = await h.instance.getStockPlanReadiness(h.row.id);
     assert.equal(readiness.dataQuality.provisional, true, scenario);
-    await assert.rejects(() => h.instance.generateStockPlanTasks(h.row.id, actor), /映射不完整/, scenario);
+    await assert.rejects(() => h.instance.generateStockPlanTasks(h.row.id, actor), /BOM.*依据/, scenario);
     assert.equal(h.createdTasks.length, 0, '待核实的必需包材不能被跳过后局部生成');
   }
 });
 
 test('必需包材有明确零库存时完整齐套为0，仍可为其生成补货采购任务', async () => {
-  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', targetQty: 100 }), {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', targetQty: 100, bomRevisionId: 'fixture-revision' }), {
     materials: [
       { id: 'component', name: '零部件', spec: '', unit: '件', tpInventoryCode: 'A', safeStock: 0 },
       { id: 'packaging', name: '必需包材', spec: '', unit: '个', tpInventoryCode: 'B', safeStock: 0 },
@@ -244,7 +274,7 @@ test('必需包材有明确零库存时完整齐套为0，仍可为其生成补�
       { id: 'component-row', parentId: 'root', name: '零部件', code: 'A', qtyPer: 1, productLine: 'Q5' },
       { id: 'packaging-row', parentId: 'root', name: '必需包材', code: 'B', qtyPer: 1, productLine: 'Q5' },
     ],
-    balances: [balance({ availableQty: 100, inTransitQty: 0 }), balance({ tpInventoryCode: 'B', stockQty: 0, availableQty: 0, inTransitQty: 0 })],
+    balances: [balance({ availableQty: 100, inTransitQty: 0 }), balance({ tpInventoryCode: 'B', unit: '个', stockQty: 0, availableQty: 0, inTransitQty: 0 })],
   });
   const readiness = await h.instance.getStockPlanReadiness(h.row.id);
   assert.equal(readiness.dataQuality.provisional, false);
@@ -299,8 +329,8 @@ test('物料计划单位为空时回填主数据，错误单位及历史错单�
   await assert.rejects(() => h.instance.createStockPlan({ materialName: '物料 A', materialId: 'material-1', targetQty: 10, unit: '箱' }, actor), /单位必须与物料/);
   const legacy = harness(fixture({ materialId: 'material-1', unit: '箱' }), { balances: [balance()] });
   await assert.rejects(() => legacy.instance.getStockPlanReadiness(legacy.row.id), /不能直接扣减库存/);
-  const machine = harness(fixture(), { bom: [{ id: 'root', parentId: null, materialId: null }] });
-  const whole = await machine.instance.createStockPlan({ materialName: '整机', planType: 'machine', productLine: 'Q5', targetQty: 10 }, actor);
+  const machine = harness(fixture(), { bom: [{ id: 'root', parentId: null, materialId: null }, { id: 'leaf', parentId: 'root', code: 'A', qtyPer: 1 }] });
+  const whole = await machine.instance.createStockPlan({ materialName: '整机', planType: 'machine', productId: 'prod-portable-o2', productLine: 'Q5', bomRevisionId: 'fixture-revision', targetQty: 10 }, actor);
   assert.equal(whole.unit, '套');
 });
 
@@ -418,7 +448,7 @@ test('并发生成按计划行锁只创建一批任务，保留产品子系统�
 });
 
 test('整机 BOM 按用量拆物料，整机自身已订购套数先扣除且组件不增加整机订单进度', async () => {
-  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', targetQty: 10, materialId: 'machine-1', batches: [batch({ purchaseQty: 2, receivedQty: 0 })] }), {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', bomRevisionId: 'fixture-revision', targetQty: 10, materialId: 'machine-1', batches: [batch({ purchaseQty: 2, receivedQty: 0 })] }), {
     bom: [{ id: 'root', parentId: null, name: '结构件', code: null, productLine: 'Q5', qtyPer: null, material: null }, { id: 'leaf', parentId: 'root', name: '物料 A', code: 'A', productLine: 'Q5', qtyPer: 2, material: { name: '物料 A', spec: '', unit: '件' } }],
     balances: [balance({ availableQty: 4, inTransitQty: 2 })],
   });

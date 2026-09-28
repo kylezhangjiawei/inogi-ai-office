@@ -45,7 +45,7 @@ function resourceProps(path, tag) {
 
 test("驾驶舱与个人工作区缩略图失败后按原任务附件续签，并继续使用缩略图", async () => {
   const consumers = [
-    ...resourceProps("src/app/RDTaskManagementPage.tsx", "RenewableImage"),
+    ...resourceProps("src/app/rd/TaskAttachmentGallery.tsx", "RenewableImage"),
     ...resourceProps("src/app/RDMyWorkspacePage.tsx", "RenewableImage"),
   ];
   assert.equal(consumers.length, 3);
@@ -63,7 +63,7 @@ test("驾驶舱与个人工作区缩略图失败后按原任务附件续签，�
 });
 
 test("驾驶舱大图预览打开时先续签，恢复时使用原图而非缩略图", async () => {
-  const ast = parse("src/app/RDTaskManagementPage.tsx");
+  const ast = parse("src/app/rd/TaskAttachmentGallery.tsx");
   const gallery = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "ImageGallery");
   const hook = select(gallery, (node) => ts.isCallExpression(node) && node.expression.getText(ast) === "useRenewableResource")[0];
   assert.ok(hook, "相册必须接入实际资源恢复 hook");

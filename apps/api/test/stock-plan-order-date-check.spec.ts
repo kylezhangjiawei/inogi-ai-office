@@ -64,7 +64,7 @@ test('endpoint requires cockpit plus one existing order-read permission before a
   }
   for (const permissions of [['*'], ['page:proc-cockpit', 'page:purchase-orders'], actor.permissions]) {
     const f = fixture();
-    const controller = new ProcurementController(f.service, {} as never, {} as never, {} as never);
+    const controller = new ProcurementController(f.service, {} as never, {} as never);
     await controller.getStockPlanOrderDateCheck('plan-1', {}, { user: { ...actor, permissions } });
     assert.equal(f.reads[0].operation, 'plan');
   }

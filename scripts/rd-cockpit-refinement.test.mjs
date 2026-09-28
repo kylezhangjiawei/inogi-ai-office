@@ -4,6 +4,8 @@ import test from "node:test";
 import ts from "typescript";
 
 const page = readFileSync(new URL("../src/app/RDTaskManagementPage.tsx", import.meta.url), "utf8");
+const taskModel = readFileSync(new URL("../src/app/rd/taskModel.ts", import.meta.url), "utf8");
+const cockpitModel = readFileSync(new URL("../src/app/rd/cockpitModel.ts", import.meta.url), "utf8");
 
 function section(startMarker, endMarker) {
   const start = page.indexOf(startMarker);
@@ -14,10 +16,10 @@ function section(startMarker, endMarker) {
 }
 
 const systemPanorama = section("function SystemHealthCard(", "// ─── DETAIL VIEW components");
-const personCockpit = section("function PersonTaskCockpit(", "// ─── Local helper functions");
-const executiveOverview = section("function ExecutiveOverview(", "// ─── 移动目标产品树");
+const personCockpit = readFileSync(new URL("../src/app/rd/PersonTaskCockpit.tsx", import.meta.url), "utf8");
+const executiveOverview = section("function ExecutiveOverview(", "// ─── MoveTasksDialog");
 const reassignDialog = section("function TaskReassignModal(", "// ─── ClearDataDialog");
-const moveTaskDialog = section("export function MoveTaskDialog(", "// ─── MoveTasksDialog");
+const moveTaskDialog = readFileSync(new URL("../src/app/rd/MoveTaskDialog.tsx", import.meta.url), "utf8");
 const moveTasksDialog = section("function MoveTasksDialog(", "// ─── TaskCompletedCelebration");
 const taskManagementPage = page.slice(page.indexOf("export function RDTaskManagementPage("));
 const coreCockpit = `${systemPanorama}\n${personCockpit}\n${executiveOverview}`;
@@ -59,7 +61,7 @@ test("首屏摘要、加载、失败、空态和重试使用真实派生数据",
 });
 
 test("搜索延迟派生且人员任务通过 Map / Set 单遍分组", () => {
-  assert.match(page, /import React, \{[^}]*useDeferredValue/);
+  assert.match(personCockpit, /import React, \{[^}]*useDeferredValue/);
   assert.match(personCockpit, /const deferredCockpitSearch = useDeferredValue\(cockpitSearch\)/);
   assert.match(personCockpit, /const filteredTasks = useMemo/);
   assert.match(personCockpit, /taskMatches\(task, deferredCockpitSearch/);
@@ -114,7 +116,12 @@ test("工作区、权限、API、镜像只读与沉浸模式契约保持完整",
 });
 
 test("任务参与者删除权限与服务端使用相同的 id 优先、历史姓名归一化口径", () => {
-  const helpers = section("function normalizeIdentity(", "function taskVisibleTitle(");
+  const helpers = [cockpitModel, page].flatMap((source) => {
+    const ast = ts.createSourceFile("helpers.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    return ast.statements.filter((node) => ts.isFunctionDeclaration(node) &&
+      ["normalizeIdentity", "matchesCurrentTaskParticipant", "resolveDeleteDialogTargetAfterSuccess"].includes(node.name?.text))
+      .map((node) => node.getText(ast));
+  }).join("\n");
   const javascript = ts.transpileModule(helpers, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -173,8 +180,9 @@ test("转派筛选和移动位置控件具备可访问名称与选中状态", ()
     "move-tasks-category",
     "move-tasks-subproject",
   ]) {
-    assert.match(page, new RegExp(`htmlFor="${id}"`));
-    assert.match(page, new RegExp(`id="${id}"`));
+    const dialog = id.startsWith("move-task-") ? moveTaskDialog : moveTasksDialog;
+    assert.match(dialog, new RegExp(`htmlFor="${id}"`));
+    assert.match(dialog, new RegExp(`id="${id}"`));
   }
 });
 
@@ -194,8 +202,8 @@ test("删除确认等待请求完成、即时防重并隔离旧请求状态", ()
 });
 
 test("任务卡片及相关弹层使用统一的可见标题兜底", () => {
-  assert.match(page, /function taskVisibleTitle\(/);
-  assert.match(page, /t\("未命名任务（\{id\}）", \{ id: taskId \}\)/);
+  assert.match(taskModel, /function taskVisibleTitle\(/);
+  assert.match(taskModel, /t\("未命名任务（\{id\}）", \{ id: taskId \}\)/);
   assert.match(personCockpit, /const visibleTaskTitle = taskVisibleTitle\(task\)/);
   assert.match(personCockpit, /aria-label=\{t\("打开任务：\{title\}", \{ title: visibleTaskTitle \}\)\}/);
   assert.match(personCockpit, /<AutoTranslatedText text=\{visibleTaskTitle\} \/>/);

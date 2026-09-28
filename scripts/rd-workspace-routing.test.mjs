@@ -214,8 +214,12 @@ test('真实移动守卫把自定义协同页转到协同移动页，恢复宽�
   const app = appFunctions(view);
   assert.equal(app.ProtectedLayout().props.to, '/us-collab-m?tab=mine#task');
   assert.equal(app.desktopTargetFromMobileLocation('/us-collab-m', '?tab=mine', '#task'), '/team-board?tab=mine#task');
-  for (const [path, target] of [['/rd-task-management', '/m'], ['/production-dashboard', '/production-m'], ['/rd-director-dashboard', '/production-m']]) {
+  for (const [path, target] of [['/rd-task-management', '/m']]) {
     view.window.location.pathname = path;
     assert.equal(app.ProtectedLayout().props.to, `${target}?tab=mine#task`);
+  }
+  for (const path of ['/production-dashboard', '/rd-director-dashboard']) {
+    view.window.location.pathname = path;
+    assert.equal(app.ProtectedLayout().type, 'Root', '自适应驾驶舱不跳到任务池');
   }
 });

@@ -201,9 +201,8 @@ export function InspectionReleasePage() {
     <div className="horizon-theme hz-page flex min-h-full min-w-0 flex-col gap-3 overflow-y-auto px-3 py-3 sm:px-4 xl:h-full xl:min-h-0 xl:overflow-hidden xl:px-5 xl:py-4">
       <HorizonPageHeader
         Icon={ShieldCheck}
-        eyebrow="QUALITY CONTROL · RELEASE"
+        eyebrow="质量与生产"
         title="检验与放行"
-        description="集中管理来料、过程与成品检验，确保放行动作经过明确复核。"
         meta={<><span>{records.length} 条检验记录</span><span aria-hidden="true">·</span><span>当前批次 {selected.batch}</span></>}
         actions={<Button type="button" className="hz-primary-action" onClick={() => setShowNewForm(true)}><Plus className="size-4" />新建检验</Button>}
       />
@@ -217,7 +216,7 @@ export function InspectionReleasePage() {
 
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
         <nav className="hz-surface flex min-w-0 flex-col overflow-hidden" aria-label="检验记录">
-          <HorizonSectionHeader title="检验记录" description="按批次选择并查看放行状态" trailing={<span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600 tabular-nums">{records.length} 条</span>} />
+          <HorizonSectionHeader title="检验记录" trailing={<span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600 tabular-nums">{records.length} 条</span>} />
           <div className="flex gap-2 overflow-x-auto p-3 xl:block xl:flex-1 xl:space-y-1 xl:overflow-y-auto">
             {records.map((record) => {
               const selectedNow = selectedId === record.id;
@@ -270,7 +269,7 @@ export function InspectionReleasePage() {
               <div className="rounded-xl border border-[#dce4f8] bg-[#f8faff] p-4">
                 <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><BadgeCheck className="size-5" /></span><div><h3 className="text-sm font-semibold text-[#1b2559]">QA 放行审批</h3><p className="mt-1 text-pretty text-xs leading-5 text-slate-600">确认后将更新批次放行状态。请复核批号、检验结论和检验人信息。</p></div></div>
                 {selected.result === "不合格" ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs font-medium text-amber-800">当前整体判定为不合格；如需让步接收，请先核对 NCR 处置依据。</div> : null}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row"><Button type="button" className="hz-primary-action sm:flex-1" onClick={() => setReleaseConfirmOpen(true)}><CheckCircle2 className="size-4" />批准放行</Button><Button type="button" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50 sm:flex-1" onClick={() => { setRejectAttempted(false); setRejectConfirmOpen(true); }}><XCircle className="size-4" />拒绝放行</Button></div>
+                <div className="mt-4 flex flex-wrap gap-2"><Button type="button" onClick={() => setReleaseConfirmOpen(true)}><CheckCircle2 className="size-4" />批准放行</Button><Button type="button" variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setRejectAttempted(false); setRejectConfirmOpen(true); }}><XCircle className="size-4" />拒绝放行</Button></div>
               </div>
             ) : (
               <div className={cn("flex items-start gap-3 rounded-xl border p-4", selected.releaseStatus === "已放行" ? "border-emerald-100 bg-emerald-50" : "border-rose-100 bg-rose-50")}>

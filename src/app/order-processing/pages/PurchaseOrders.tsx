@@ -264,9 +264,9 @@ export function PurchaseOrders() {
         Icon={PackageCheck}
         eyebrow={t('订单与库存')}
         title={t('采购订单')}
-        description={t('集中查看采购单履约、到货和异常状态，业务数据保持畅捷通 T+ 只读。')}
         meta={(
           <>
+            <span>{t('数据来源：畅捷通 T+（只读）')} · </span>
             <span>{t('最后同步')}：{syncedAt ? new Date(syncedAt).toLocaleString(i18nLocale()) : '-'}</span>
             {syncProgress ? <span role="status" aria-live="polite" className="text-blue-700">· {syncProgress}</span> : null}
             {syncError ? <span role="alert" className="text-rose-700">· {syncError}</span> : null}
@@ -303,9 +303,9 @@ export function PurchaseOrders() {
         <OrderMetric Icon={AlertCircle} label={t('异常')} value={stats.abnormal} tone="danger" />
       </OrderMetricGrid>
 
-      <div className="order-horizon-data-surface flex min-h-[30rem] flex-1 flex-col overflow-hidden border bg-white" aria-busy={loading}>
+      <div className="order-horizon-data-surface flex min-h-fit flex-1 shrink-0 flex-col overflow-hidden border bg-white" aria-busy={loading}>
         <div className="order-horizon-toolbar shrink-0 border-b border-slate-100 px-4 py-3">
-          <div role="search" aria-label={t('采购订单筛选')} className="flex flex-wrap items-center gap-2">
+          <div role="search" aria-label={t('采购订单筛选')} className="flex flex-wrap items-end gap-2">
             <div className="relative w-full min-w-0 sm:min-w-[220px] sm:flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -358,6 +358,8 @@ export function PurchaseOrders() {
                 ))}
               </SelectContent>
             </Select>
+            <fieldset className="flex min-w-0 w-full flex-wrap items-center gap-2 sm:w-auto">
+              <legend className="mb-1 text-xs font-medium text-muted-foreground">{t('下单日期')}</legend>
             <Input
               type="date"
               aria-label={t('下单开始日期')}
@@ -367,8 +369,9 @@ export function PurchaseOrders() {
                 setDateFrom(event.target.value);
                 setPage(1);
               }}
-              className="h-9 w-full border-slate-200 bg-white text-sm sm:w-[156px]"
+              className="h-9 min-w-0 flex-1 border-slate-200 bg-white text-sm sm:w-[146px] sm:flex-none"
             />
+            <span className="text-xs text-muted-foreground">{t('至')}</span>
             <Input
               type="date"
               aria-label={t('下单结束日期')}
@@ -378,8 +381,9 @@ export function PurchaseOrders() {
                 setDateTo(event.target.value);
                 setPage(1);
               }}
-              className="h-9 w-full border-slate-200 bg-white text-sm sm:w-[156px]"
+              className="h-9 min-w-0 flex-1 border-slate-200 bg-white text-sm sm:w-[146px] sm:flex-none"
             />
+            </fieldset>
             {hasActiveFilters ? (
               <Button
                 type="button"
@@ -416,7 +420,7 @@ export function PurchaseOrders() {
           role="region"
           aria-label={t('采购订单列表，可横向滚动查看更多字段')}
           tabIndex={0}
-          className="relative min-h-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+          className="relative min-h-72 flex-1 lg:min-h-64 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
           <span role="status" aria-live="polite" className="sr-only">
             {loading ? t('正在加载采购订单') : t('采购订单加载完成，共 {count} 条', { count: total })}
           </span>

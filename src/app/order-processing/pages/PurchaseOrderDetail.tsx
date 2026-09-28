@@ -242,8 +242,8 @@ export function PurchaseOrderDetail() {
     return (
       <div className="order-horizon flex min-h-[520px] flex-1 flex-col gap-3 px-4 py-4 sm:px-5" aria-busy="true">
         <span role="status" aria-live="polite" className="sr-only">{t('正在加载采购订单详情')}</span>
-        <div className="order-horizon-command min-h-24 animate-pulse" />
-        <div className="order-horizon-metric-grid min-h-20 animate-pulse" />
+        <div className="horizon-theme hz-command min-h-24 animate-pulse" />
+        <div className="horizon-theme hz-stat-strip min-h-20 animate-pulse" />
         <div className="order-horizon-data-surface flex flex-1 items-center justify-center border text-sm text-slate-500">
           <Loader2 className="mr-2 size-4 animate-spin text-blue-700" />
           {t('正在加载采购订单详情')}

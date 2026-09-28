@@ -1,4 +1,4 @@
-import { IsIn, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, IsInt, IsObject } from 'class-validator';
 
 export class ProcurementOperationsQueryDto {
   @IsString() @MaxLength(120) productId!: string;
@@ -32,7 +32,7 @@ export class SaveQualityRecordDto {
   @IsOptional() @IsString() @MaxLength(120) materialId?: string | null;
   @IsOptional() @IsString() @MaxLength(120) supplierId?: string | null;
   @IsOptional() @IsString() @MaxLength(120) productionReportId?: string | null;
-  @IsIn(['procurement', 'production']) source!: 'procurement' | 'production';
+  @IsIn(['procurement', 'production', 'warehouse', 'after_sales']) source!: 'procurement' | 'production' | 'warehouse' | 'after_sales';
   @IsString() @MaxLength(120) batchNo!: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) inspectionDate!: string;
   @IsString() @MaxLength(24) unit!: string;
@@ -53,6 +53,14 @@ export class VerifyQualityRecordDto {
   @IsNumber({ maxDecimalPlaces: 3 }) @Min(0.001) @Max(99999999999.999) inspectedQty!: number;
   @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) passedQty!: number;
   @IsString() @MaxLength(4000) evidence!: string;
+}
+
+export class QualityAnalysisCommandDto {
+  @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId!: string;
+  @IsInt() @Min(0) version!: number;
+  @IsString() @MaxLength(50) baseUpdatedAt!: string;
+  @IsIn(['save', 'confirm']) action!: string;
+  @IsObject() data!: Record<string, unknown>;
 }
 
 export class ReopenQualityRecordDto {

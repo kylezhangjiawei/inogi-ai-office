@@ -166,7 +166,7 @@ export function InspectionPreviewPage() {
         <div><span>{t('报检来源 / 数量')}</span><strong>{task.reportCode} · {task.quantity} {task.unit}</strong><p>{task.date} · {t(task.stage === 'final' ? '终检' : '过程检')} · {t(statusName(task))}</p></div>
         <div className="ip-source-links"><span>{t('本任务受控版本')}</span><div>{task.documents.map((doc) => <Button variant="unstyled" key={doc.id} onClick={() => setSource(doc)}><FileText className="size-4" aria-hidden="true" />{doc.code} · {doc.version}{doc.status !== 'published' ? ` · ${t('待发布')}` : ''}</Button>)}</div></div>
       </section>
-      <div className="ip-workflow" aria-label={t('质量跟进状态')}>
+      <div className="ip-status-summary" aria-label={t('质量跟进状态')}>
         <span className={cn(task.acceptedAt && 'ip-complete')}>{t('报检')}{' · '}{t(task.acceptedAt ? '已接受' : '待接受')}</span>
         <span>{t('初检')}{' · '}{progress.initial}/{task.quantity} {task.unit}</span>
         <span className={cn(progress.unresolved > 0 && 'ip-attention')}>{t('尚未解决不良')}{' · '}{progress.unresolved} {task.unit}</span>

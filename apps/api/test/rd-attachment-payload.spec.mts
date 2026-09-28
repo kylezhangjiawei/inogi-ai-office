@@ -50,7 +50,7 @@ test('legacy fallback keeps the full attachment count while limiting only card p
 
 test('cockpit pagination cannot stall when the first six cards do not create a scrollbar', async () => {
   const source = await readFile(
-    new URL('../../../src/app/RDTaskManagementPage.tsx', import.meta.url),
+    new URL('../../../src/app/rd/PersonTaskCockpit.tsx', import.meta.url),
     'utf8',
   );
 

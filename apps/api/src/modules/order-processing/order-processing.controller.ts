@@ -1,15 +1,27 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Request, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { OrderProcessingService } from './order-processing.service';
+import { OrderStockService, type ConfirmOrderMaterial } from './order-stock.service';
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import { retiredInventoryWrite } from './retired-inventory';
+type Authed = { user: { id: string; name?: string; username?: string; permissions?: string[] } };
 
 @Controller('order-processing')
 export class OrderProcessingController {
-  constructor(private readonly service: OrderProcessingService) {}
+  constructor(private readonly service: OrderProcessingService, private readonly stock: OrderStockService) {}
+  private actor(req: Authed) { return { id: req.user.id, name: req.user.name ?? req.user.username ?? '', permissions: req.user.permissions ?? [] }; }
+
+  @Get('material-options') @Permissions('page:order-workbench')
+  materialOptions(@Query() query: Record<string, unknown>, @Request() req: Authed) { return this.stock.options(query, this.actor(req)); }
+
+  @Post('orders/:orderId/lines/:lineId/material-mapping') @Permissions('order-processing:material-map')
+  confirmMaterial(@Param('orderId') orderId: string, @Param('lineId') lineId: string, @Body() body: ConfirmOrderMaterial, @Request() req: Authed) { return this.stock.confirm(orderId, lineId, body, this.actor(req)); }
 
   @Get('workbench')
-  getWorkbench(@Query() query: Record<string, unknown>) {
-    return this.service.getWorkbench(query);
+  @Permissions('page:order-workbench')
+  getWorkbench(@Query() query: Record<string, unknown>, @Request() req: Authed) {
+    return this.service.getWorkbench(query, this.actor(req));
   }
 
   @Post('orders/upload')
@@ -61,29 +73,31 @@ export class OrderProcessingController {
   }
 
   @Get('inventory')
-  getInventory(@Query() query: Record<string, unknown>) {
-    return this.service.getInventory(query);
+  @Permissions('page:inventory-management')
+  getInventory(@Query() query: Record<string, unknown>, @Request() req: Authed) {
+    return this.service.getInventory(query, this.actor(req));
   }
 
   @Get('inventory/:itemId')
-  getInventoryDetail(@Param('itemId') itemId: string) {
-    return this.service.getInventoryDetail(itemId);
+  @Permissions('page:inventory-management')
+  getInventoryDetail(@Param('itemId') itemId: string, @Request() req: Authed) {
+    return this.service.getInventoryDetail(itemId, this.actor(req));
   }
 
   @Post('inventory/ai-recognize')
-  @UseInterceptors(FilesInterceptor('files', 10))
   recognizeStockIn(@UploadedFiles() files: Array<{ originalname: string; size?: number; mimetype?: string; buffer?: Buffer }> | undefined) {
-    return this.service.recognizeStockIn(files ?? []);
+    return retiredInventoryWrite();
   }
 
   @Post('inventory/stock-in')
   createStockIn(@Body() payload: Record<string, unknown>) {
-    return this.service.createStockIn(payload);
+    return retiredInventoryWrite();
   }
 
   @Post('inventory/export')
-  exportInventory(@Query() query: Record<string, unknown>) {
-    return this.service.exportInventory(query);
+  @Permissions('page:inventory-management')
+  exportInventory(@Query() query: Record<string, unknown>, @Request() req: Authed) {
+    return this.service.exportInventory(query, this.actor(req));
   }
 
   @Get('purchase-orders')
@@ -106,11 +120,11 @@ export class OrderProcessingController {
 
   @Post('inventory/:itemId/stock-out')
   createStockOut(@Param('itemId') itemId: string, @Body() payload: Record<string, unknown>) {
-    return this.service.createStockOut(itemId, payload);
+    return retiredInventoryWrite();
   }
 
   @Patch('inventory/:itemId/adjust')
   adjustInventory(@Param('itemId') itemId: string, @Body() payload: Record<string, unknown>) {
-    return this.service.adjustInventory(itemId, payload);
+    return retiredInventoryWrite();
   }
 }

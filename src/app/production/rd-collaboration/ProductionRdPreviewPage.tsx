@@ -20,7 +20,6 @@ import { Input } from "../../components/ui/input";
 
 type Scenario = 'normal' | 'readonly' | 'empty' | 'error';
 const actionKinds = Object.keys(rdActionLabels) as RdActionKind[];
-const stages = ['生产提报', '指定处理人', '研发处理', '现场验证', '技术协同关闭'];
 const time = (value: string) => new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
 export function ProductionRdPreviewPage() {
@@ -45,7 +44,6 @@ export function ProductionRdPreviewPage() {
   const issue = params.has('issue') ? issues.find((item) => item.id === params.get('issue')) : issues[0];
   const record = issue ? getRdCase(state, defects, issue.id) : undefined; const collaboration = defects.collaborations.find((entry) => entry.issueId === issue?.id && entry.direction === 'rd');
   const progress = issue ? getDefectProgress(defects, issue.id) : undefined; const status = record?.status ?? 'unassigned'; const latestOpinion = record?.opinions.at(-1); const verification = record?.verifications.at(-1);
-  const stage = !record ? 1 : record.status === 'closed' ? 4 : ['verified', 'verifying'].includes(record.status) ? 3 : 2;
   const available = scenario === 'normal' && issue ? actionKinds.filter((kind) => canOperateRd(state, defects, issue.id, actorId, kind)) : [];
   const context = useRef({ generation, issueId: issue?.id, actorId, editing, scenario }); context.current = { generation, issueId: issue?.id, actorId, editing, scenario };
   useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
@@ -81,7 +79,7 @@ export function ProductionRdPreviewPage() {
     <div className="prd-scope" role="group" aria-label={t('协同任务范围')}>{[['all', '全部（授权）'], ['mine', '待我处理'], ['initiated', '我发起的']].map(([value, label]) => <Button variant="unstyled" key={value} aria-pressed={scope === value} onClick={() => filter(() => setScope(value))}>{t(label)}</Button>)}</div>
     {flash ? <p className="prd-feedback" role="status"><CheckCircle2 size={16}/>{t(flash)}</p> : null}
     {scenario === 'error' ? <OrderEmptyState Icon={ClipboardList} title={t('研发协同读取失败')} description={t('已有记录保留，重试后继续。')} action={<Button onClick={() => setScenario('normal')}>{t('重试读取')}</Button>}/> : !issue || !progress ? <OrderEmptyState Icon={ClipboardList} title={t('当前范围没有研发问题')} description={t('可清除筛选，或在 P08 指定研发处理方向后进入。')} action={<Button onClick={() => filter(() => { setQuery(''); setStatusFilter('all'); setScope('all'); setScenario('normal'); })}>{t('清除筛选')}</Button>}/> : <>
-      <ol className="prd-steps" aria-label={t('生产问题协同流程')}>{stages.map((label, index) => <li key={label} className={index === stage ? 'is-current' : index < stage ? 'is-done' : ''} aria-current={index === stage ? 'step' : undefined}><span>{index < stage ? <CheckCircle2 size={16}/> : index + 1}</span><strong>{t(label)}</strong></li>)}</ol>
+      <section className="prd-status-summary" aria-label={t('当前研发协同状态')}><div><span>{t('当前状态')}</span><strong className="prd-badge">{t(rdStatusLabels[status])}</strong></div><div><span>{t('当前负责人')}</span><strong>{collaboration ? person(getRdCurrentActorId(state, defects, issue.id) ?? issue.ownerId) : t('待指定研发')}</strong><small>{issue.dueDate ? `${t('截止')} ${issue.dueDate}` : t('期限待确认')}</small></div><div><span>{t('下一动作')}</span><strong>{available.length ? t(rdActionLabels[available[0]]) : t('等待协同条件')}</strong><small>{t('剩余 {count} 件',{count:progress.remaining})}</small></div></section>
       <div className="prd-board">
         <aside className="prd-queue" aria-label={t('研发问题列表')}><div className="prd-section-heading"><h2>{t('问题列表')}</h2><span>{issues.length} {t('项')}</span></div><p>{t('沿用 P08 原异常号')}</p><ul>{issues.map((item) => { const itemStatus = getRdCase(state, defects, item.id)?.status ?? 'unassigned'; return <li key={item.id}><Button variant="unstyled" aria-current={item.id === issue.id ? 'true' : undefined} onClick={() => selectIssue(item.id)}><span className="prd-code">{item.code}</span><strong>{item.phenomenon}</strong><span>{item.batchCode} · {item.material}</span><span className="prd-queue-meta"><em>{t(({ high: '高优先', medium: '中优先', low: '低优先' })[item.priority])}</em>{t(rdStatusLabels[itemStatus])}</span></Button></li>; })}</ul></aside>
         <div className="prd-detail">

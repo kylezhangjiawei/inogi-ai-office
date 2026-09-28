@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
+import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem } from "../components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,19 +13,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ArrowLeft, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackagePlus, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
+import { Activity, AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, ClipboardList, Download, FolderTree, LayoutGrid, Layers3, MoreHorizontal, PackageCheck, PackageSearch, Plus, Search, Table2, Truck, UserCog, Users, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { toast } from "sonner";
 import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell, useBuyerDirectory } from "./components/common";
-import { uniqueRosterUserIdsByName } from "./procurementLogic";
+import { procurementTasksForBuyer, uniqueRosterUserIdsByName } from "./procurementLogic";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
+import { ProcurementTaskTable } from "./components/ProcurementTaskTable";
 import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
-import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
+import { ProcurementTaskSummaryDrawer } from "./components/ProcurementTaskSummaryDrawer";
 import { MoveTaskDialog } from "./components/MoveTaskDialog";
 import { StockPlanPanel } from "./components/StockPlanPanel";
 import { ProcurementSampleWorkspace } from "./components/ProcurementSampleWorkspace";
@@ -32,7 +34,7 @@ import { ProcSampleNavigationGuard } from "./components/ProcSampleNavigationGuar
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
-import { getProcCoreMaterialConfig, setProcCoreMaterialConfig, type ProcCoreMaterialConfig, type ProcTaskTreeNode } from "../lib/procurementApi";
+import { type ProcTaskTreeNode } from "../lib/procurementApi";
 import { procurementWorkspaceReturnPath } from "../lib/procurementWorkspaceNavigation";
 import { routePath } from "../lib/routePaths";
 import { clearStockPlanViewParams } from "../lib/stockPlanNavigation";
@@ -111,9 +113,6 @@ export function ProcurementCockpitPage() {
   const [poMatchOpen, setPoMatchOpen] = useState(false);
   const [sampleInteraction, setSampleInteraction] = useState({ dirty: false, busy: false });
   const approvedSampleNavigationRef = useRef<string | null>(null);
-  const [coreMaterialConfig, setCoreMaterialConfig] = useState<ProcCoreMaterialConfig>({ maxItems: 30, products: {} });
-  const [coreConfigLoading, setCoreConfigLoading] = useState(true);
-  const [coreConfigError, setCoreConfigError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const workspaceReturn = procurementWorkspaceReturnPath(location.state);
@@ -123,33 +122,25 @@ export function ProcurementCockpitPage() {
   const canCreate = usePermission("proc-task:create");
   const canReassign = usePermission("proc-task:reassign");
   const canOrder = usePermission("proc-task:order");
+  const canReadProduction = usePermission("page:production-execution"), canPlanProduction = usePermission("production:plan"), canViewProduction = usePermission("production:view-all");
   const canViewKeyMaterials = usePermission("page:proc-key-materials");
   const { users: procurementDepartmentUsers } = useBuyerDirectory({ departmentOnly: true });
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
-  const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
+  const openTask = (task: ProcurementTask) => {
+    setOpen(task);
+    if (params.has("task")) setParams(current => {
+      const next = new URLSearchParams(current);
+      next.set("task", task.id);
+      return next;
+    }, { replace: true });
+  };
+  const taskAction = useProcTaskAction({ onOpenDetail: openTask });
 
-  // 页面级 Tab 与业务线筛选是两层信息架构：?tab= 切换栏目，?line= 只筛选采购任务。
+  // 默认展示采购任务；保留已有业务链接的栏目参数，?line= 只筛选采购任务。
   const cockpitTab: CockpitTab = params.get("tab") === "stock-plans" ? "stock-plans" : params.get("tab") === "samples" ? "samples" : "tasks";
   const lineParam = params.get("line");
   const line: "all" | "rd" | "production" = lineParam === "rd" || lineParam === "production" ? lineParam : "all";
-  const setCockpitTab = (nextTab: "tasks" | "samples" | "stock-plans") => setParams((p) => {
-    const next = new URLSearchParams(p);
-    if (nextTab !== cockpitTab) clearStockPlanViewParams(next);
-    next.delete("sample");
-    if (nextTab !== "tasks") {
-      next.set("tab", nextTab);
-      next.delete("view");
-      next.delete("module");
-      next.delete("product");
-      next.delete("core");
-      next.delete("material");
-      next.delete("task");
-    } else {
-      next.delete("tab");
-    }
-    return next;
-  }, { replace: true });
   const setLine = (nextLine: "all" | "rd" | "production") => {
     // 生产任务不经过询价阶段；切换时同步清掉已选中的询价筛选，避免出现隐藏筛选。
     if (nextLine === "production" && stat === "inquiring") setStat(null);
@@ -179,7 +170,6 @@ export function ProcurementCockpitPage() {
   }, { replace: true });
   const moduleParam = params.get("module");
   const systemProductParam = params.get("product");
-  const coreMode = params.get("core") === "1";
   const openSystemModule = useCallback((node: ProcTaskTreeNode, productId: string) => {
     setTreeNode(node);
     setParams((current) => {
@@ -208,46 +198,14 @@ export function ProcurementCockpitPage() {
       return next;
     }, { replace: true });
   }, [setParams]);
-  const setCoreMode = useCallback((active: boolean) => {
-    setParams((current) => {
-      const next = clearStockPlanViewParams(new URLSearchParams(current));
-      next.set("view", "systems");
-      next.delete("module");
-      if (active) next.set("core", "1");
-      else next.delete("core");
-      return next;
-    }, { replace: true });
-  }, [setParams]);
-  const saveCoreMaterials = useCallback(async (productId: string, materialIds: string[]) => {
-    const saved = await setProcCoreMaterialConfig(productId, materialIds);
-    setCoreMaterialConfig((current) => ({
-      maxItems: saved.maxItems,
-      products: { ...current.products, [saved.productId]: saved.materialIds },
-    }));
-  }, []);
-
-  const loadCoreMaterialConfig = useCallback(async (signal?: AbortSignal) => {
-    setCoreConfigLoading(true);
-    setCoreConfigError(null);
-    try {
-      setCoreMaterialConfig(await getProcCoreMaterialConfig(signal));
-    } catch (cause) {
-      if (signal?.aborted) return;
-      setCoreConfigError(cause instanceof Error ? cause.message : t("核心配件配置加载失败"));
-    } finally {
-      if (!signal?.aborted) setCoreConfigLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadCoreMaterialConfig(controller.signal);
-    return () => controller.abort();
-  }, [loadCoreMaterialConfig]);
-
   const materialParam = params.get("material");
   const taskParam = params.get("task");
-  // 从物料页跳转：?task= 自动打开详情；?material= 过滤瀑布流。
+  // 旧整页链接统一使用抽屉，保留任务及其他筛选参数。
+  useEffect(() => {
+    if (!params.has("detail")) return;
+    setParams(current => { const next = new URLSearchParams(current); next.delete("detail"); return next; }, { replace: true });
+  }, [params, setParams]);
+  // 从物料页跳转：?task= 自动打开详情；?material= 过滤采购任务。
   useEffect(() => {
     if (taskParam) {
       const t = tasks.find((x) => x.id === taskParam);
@@ -275,28 +233,6 @@ export function ProcurementCockpitPage() {
     return lineTasks.filter((task) => taskIds.has(task.id));
   }, [lineTasks, treeNode]);
 
-  const counts = useMemo(() => ({
-    inprogress: treeScopedTasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length,
-    pending: treeScopedTasks.filter((t) => t.status === "pending_confirm").length,
-    inquiring: treeScopedTasks.filter((t) => t.status === "inquiring").length,
-    transit: treeScopedTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
-    overdue: treeScopedTasks.filter(isProcurementTaskOverdue).length,
-    week: treeScopedTasks.filter(isProcurementTaskArrivingThisWeek).length,
-  }), [treeScopedTasks]);
-
-  const coreInventorySummary = useMemo(() => {
-    const configuredIds = new Set(Object.values(coreMaterialConfig.products).flat());
-    let total = 0;
-    let shortage = 0;
-    let low = 0;
-    for (const material of materials) {
-      if (!configuredIds.has(material.id) || !material.tpInventoryCode?.trim() || !material.inventorySyncedAt) continue;
-      total += 1;
-      if (material.availableQty <= 0) shortage += 1;
-      else if (material.safeStock > 0 && material.availableQty < material.safeStock) low += 1;
-    }
-    return { total, shortage, low, abnormal: shortage + low };
-  }, [coreMaterialConfig.products, materials]);
 
   // 人员泳道只看采购部门正式成员；任务按采购负责人归属，不看研发对接人或需求提出人。
   const uniqueBuyerIdsByName = useMemo(
@@ -316,10 +252,19 @@ export function ProcurementCockpitPage() {
       .sort((a, b) => b.taskCount - a.taskCount || a.name.localeCompare(b.name, "zh-CN"));
   }, [procurementDepartmentUsers, treeScopedTasks, uniqueBuyerIdsByName]);
 
-  const buyerNameById = useMemo(
-    () => new Map(procurementDepartmentUsers.map((user) => [user.id, user.name])),
-    [procurementDepartmentUsers],
+  const buyerScopedTasks = useMemo(
+    () => procurementTasksForBuyer(treeScopedTasks, buyerUserId, uniqueBuyerIdsByName),
+    [treeScopedTasks, buyerUserId, uniqueBuyerIdsByName],
   );
+  const counts = useMemo(() => ({
+    inprogress: buyerScopedTasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length,
+    pending: buyerScopedTasks.filter((t) => t.status === "pending_confirm").length,
+    inquiring: buyerScopedTasks.filter((t) => t.status === "inquiring").length,
+    transit: buyerScopedTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
+    overdue: buyerScopedTasks.filter(isProcurementTaskOverdue).length,
+    week: buyerScopedTasks.filter(isProcurementTaskArrivingThisWeek).length,
+  }), [buyerScopedTasks]);
+
 
   useEffect(() => {
     if (buyerUserId && !procurementDepartmentUsers.some((user) => user.id === buyerUserId)) {
@@ -328,7 +273,7 @@ export function ProcurementCockpitPage() {
   }, [buyerUserId, procurementDepartmentUsers]);
 
   const filtered = useMemo(() => {
-    let list = treeScopedTasks.filter((t) => {
+    let list = buyerScopedTasks.filter((t) => {
       if (!stat) return true;
       if (stat === "inprogress") return ACTIVE_STATUSES.includes(t.status);
       if (stat === "pending") return t.status === "pending_confirm";
@@ -338,13 +283,6 @@ export function ProcurementCockpitPage() {
       if (stat === "week") return isProcurementTaskArrivingThisWeek(t);
       return true;
     });
-    if (buyerUserId) {
-      const buyerName = buyerNameById.get(buyerUserId);
-      list = list.filter((task) =>
-        task.buyerUserId === buyerUserId
-        || (!task.buyerUserId && buyerName !== undefined && task.buyer === buyerName && uniqueBuyerIdsByName.get(buyerName) === buyerUserId),
-      );
-    }
     if (materialParam) list = list.filter((t) => t.materialName === materialParam);
     const keyword = kw.trim().toLowerCase();
     if (keyword) list = list.filter((t) => `${t.code} ${t.materialName} ${t.spec} ${t.buyer} ${t.rdContact ?? ""} ${taskRequester(t).name}`.toLowerCase().includes(keyword));
@@ -355,12 +293,15 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [treeScopedTasks, stat, buyerUserId, buyerNameById, uniqueBuyerIdsByName, materialParam, kw]);
+  }, [buyerScopedTasks, stat, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
   // 任务分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
+  const [taskDisplay, setTaskDisplay] = useState<"masonry" | "table">("table");
+  const [taskTablePage, setTaskTablePage] = useState(1);
+  const [taskTablePageSize, setTaskTablePageSize] = useState(10);
   const [taskStreamElement, setTaskStreamElement] = useState<HTMLDivElement | null>(null);
   const [openTaskOverlays, setOpenTaskOverlays] = useState<Set<string>>(() => new Set());
   const onTaskOverlayOpenChange = useCallback((taskId: string, open: boolean) => {
@@ -376,9 +317,10 @@ export function ProcurementCockpitPage() {
   const [sentinelElement, setSentinelElement] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     setVisibleCount(WATERFALL_PAGE_SIZE);
+    setTaskTablePage(1);
   }, [line, treeNode?.id, buyerUserId, stat, materialParam, kw]);
   useEffect(() => {
-    if (cockpitTab !== "tasks" || view !== "tasks" || !sentinelElement || visibleCount >= filtered.length) return;
+    if (cockpitTab !== "tasks" || view !== "tasks" || taskDisplay !== "masonry" || !taskStreamElement || !sentinelElement || visibleCount >= filtered.length) return;
     let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -386,15 +328,33 @@ export function ProcurementCockpitPage() {
           setVisibleCount((count) => Math.min(count + WATERFALL_PAGE_SIZE, filtered.length));
         }
       },
-      { rootMargin: "200px" },
+      { root: taskStreamElement, rootMargin: "200px" },
     );
     observer.observe(sentinelElement);
     return () => {
       active = false;
       observer.disconnect();
     };
-  }, [cockpitTab, view, sentinelElement, visibleCount, filtered]);
+  }, [cockpitTab, view, taskDisplay, taskStreamElement, sentinelElement, visibleCount, filtered]);
   const visibleTasks = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const taskTablePageCount = Math.max(1, Math.ceil(filtered.length / taskTablePageSize));
+  const currentTaskTablePage = Math.min(taskTablePage, taskTablePageCount);
+  const tablePageTasks = useMemo(() => filtered.slice((currentTaskTablePage - 1) * taskTablePageSize, currentTaskTablePage * taskTablePageSize), [filtered, currentTaskTablePage, taskTablePageSize]);
+  const tablePageNumbers = [...new Set([
+    1,
+    ...Array.from({ length: Math.min(5, taskTablePageCount) }, (_, index) => Math.max(1, Math.min(currentTaskTablePage - 2, taskTablePageCount - 4)) + index),
+    taskTablePageCount,
+  ])];
+  useEffect(() => {
+    setTaskTablePage((page) => Math.min(page, taskTablePageCount));
+  }, [taskTablePageCount]);
+  useEffect(() => {
+    if (taskDisplay === "table") taskStreamElement?.scrollTo({ top: 0, behavior: "instant" });
+  }, [taskDisplay, currentTaskTablePage, taskTablePageSize, line, treeNode?.id, buyerUserId, stat, materialParam, kw, taskStreamElement]);
+  const tablePaginationDisabled = loading || openTaskOverlays.size > 0;
+  const changeTaskTablePage = (page: number) => {
+    if (!tablePaginationDisabled) setTaskTablePage(Math.max(1, Math.min(page, taskTablePageCount)));
+  };
   const hasActiveFilters = line !== "all" || Boolean(stat || buyerUserId || treeNode || materialParam || kw.trim());
   const clearFilters = () => {
     setStat(null);
@@ -408,28 +368,6 @@ export function ProcurementCockpitPage() {
       return next;
     }, { replace: true });
   };
-
-  const cockpitTabs = <>
-    <Tabs value={cockpitTab} className="proc-horizon-page-tabs" onValueChange={(value) => {
-      if (value === cockpitTab) return;
-      setCockpitTab(value as CockpitTab);
-    }}>
-      <TabsList aria-label={t("供应链驾驶舱栏目")}>
-        <TabsTrigger value="tasks">
-          <ClipboardList aria-hidden="true" className="size-4" />
-          {t("采购任务")}
-        </TabsTrigger>
-        <TabsTrigger value="samples">
-          <PackageCheck aria-hidden="true" className="size-4" />
-          {t("样品协同")}
-        </TabsTrigger>
-        <TabsTrigger value="stock-plans">
-          <PackagePlus aria-hidden="true" className="size-4" />
-          {t("备货计划")}
-        </TabsTrigger>
-      </TabsList>
-    </Tabs>
-  </>;
 
   const businessLineFilter = (
     <div className="proc-horizon-line-filter">
@@ -451,13 +389,15 @@ export function ProcurementCockpitPage() {
     </div>
   );
 
+  // 兼容旧核心配件入口，统一进入关键物料目录。
+  if (params.get("core") === "1") return <Navigate replace to={routePath("page:proc-key-materials", "/proc-key-materials")} />;
+
+
   if (cockpitTab === "samples") {
-    return <div className="proc-horizon proc-horizon-cockpit-shell min-h-full min-w-0 w-full">
-      <div className="proc-horizon-layout flex min-h-full min-w-0 flex-col">
-        {canOpenWorkspace && <div><Button type="button" variant="ghost" disabled={sampleInteraction.busy} onClick={() => navigate(workspaceReturn ?? routePath("page:proc-my-workspace", "/proc-my-workspace"))} className="min-h-10 gap-1.5"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回采购工作台")}</Button></div>}
-        <div className="hidden md:block">{cockpitTabs}</div>
+    return <div className="proc-horizon proc-horizon-cockpit-shell h-full min-h-0 min-w-0 w-full">
+      <div className="proc-horizon-layout flex h-full min-h-0 min-w-0 flex-col">
         <ProcSampleNavigationGuard dirty={sampleInteraction.dirty} busy={sampleInteraction.busy} approvedSampleNavigationRef={approvedSampleNavigationRef} />
-        <ProcurementSampleWorkspace tasks={tasks} loading={loading} error={error} selectedId={params.get("sample")} onInteractionStateChange={setSampleInteraction} onSelect={(id) => {
+        <ProcurementSampleWorkspace tasks={tasks} materials={materials} loading={loading} error={error} selectedId={params.get("sample")} onInteractionStateChange={setSampleInteraction} onSelect={(id) => {
           approvedSampleNavigationRef.current = id;
           setParams((current) => {
             const next = new URLSearchParams(current);
@@ -472,10 +412,9 @@ export function ProcurementCockpitPage() {
 
   if (cockpitTab === "stock-plans") {
     return (
-      <div className="proc-horizon proc-horizon-cockpit-shell h-full min-w-0 w-full">
+      <div className="proc-horizon proc-horizon-cockpit-shell h-full min-h-0 min-w-0 w-full">
         <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
           {canOpenWorkspace && workspaceReturn && <div><Button type="button" variant="ghost" onClick={() => navigate(workspaceReturn)} className="min-h-10 gap-1.5"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回采购工作台")}</Button></div>}
-          {cockpitTabs}
           <StockPlanPanel materials={materials} canCreate={canCreate} />
         </div>
       </div>
@@ -483,9 +422,8 @@ export function ProcurementCockpitPage() {
   }
 
   return (
-    <div className={cn("proc-horizon proc-horizon-cockpit-shell min-w-0 w-full", view === "systems" ? "h-full" : "min-h-full")}>
-      <div className={cn("proc-horizon-layout flex min-h-0 flex-col", view === "systems" ? "h-full" : "min-h-full")}>
-      {cockpitTabs}
+    <div className="proc-horizon proc-horizon-cockpit-shell h-full min-h-0 min-w-0 w-full">
+      <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
       {/* Horizon 指挥区：业务范围、全局操作与 KPI 共用一个信息焦点。 */}
       {view === "tasks" && (
         <section className="proc-horizon-command proc-horizon-command-cockpit mb-3">
@@ -493,9 +431,7 @@ export function ProcurementCockpitPage() {
             <div className="proc-horizon-command-heading">
               <div className="proc-horizon-command-copy">
                 <h2 className="text-balance">{t("任务概览")}</h2>
-                {treeNode ? (
-                  <p className="text-pretty">{t("当前聚焦「{name}」，共 {count} 个任务", { name: treeNode.name, count: treeScopedTasks.length })}</p>
-                ) : null}
+                <p className="text-pretty">{treeNode?.name || t("权限范围内的采购任务")} · {buyerUserId ? procurementDepartmentUsers.find(person => person.id === buyerUserId)?.name || t("当前负责人") : t("全部负责人")}<span className="ml-2 tabular-nums">{buyerScopedTasks.length} {t("个任务")}</span></p>
               </div>
             </div>
 
@@ -503,21 +439,9 @@ export function ProcurementCockpitPage() {
               <Button variant="unstyled" type="button" aria-label={t("子系统全景")} title={t("子系统全景")} onClick={() => setView("systems")} className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
                 <Layers3 className="size-4" /><span className="proc-horizon-action-label">{t("子系统全景")}</span>
               </Button>
-              <Button variant="unstyled"
-                type="button"
-                aria-label={coreConfigError ? t("核心配件配置加载失败，打开查看详情") : t("核心配件")}
-                title={coreConfigError ? t("核心配件配置加载失败，打开后可重试") : t("核心配件")}
-                onClick={() => setCoreMode(true)}
-                className="material-button-secondary inline-flex items-center gap-1.5 text-xs"
-              >
+              {canViewKeyMaterials && <Button variant="unstyled" type="button" aria-label={t("核心配件")} title={t("全部关键物料")} onClick={() => navigate(routePath("page:proc-key-materials", "/proc-key-materials"))} className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
                 <PackageSearch className="size-4" /><span className="proc-horizon-action-label">{t("核心配件")}</span>
-                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{coreConfigLoading ? "—" : coreInventorySummary.total}</span>
-                {coreConfigError ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 text-[10px] font-semibold text-rose-700"><AlertTriangle className="size-3" />{t("配置异常")}</span>
-                ) : coreInventorySummary.abnormal > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 text-[10px] tabular-nums text-rose-700"><AlertTriangle className="size-3" />{t("异常")} {coreInventorySummary.abnormal}</span>
-                ) : null}
-              </Button>
+              </Button>}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="unstyled" type="button" className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
@@ -525,6 +449,7 @@ export function ProcurementCockpitPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="proc-horizon-menu min-w-48 rounded-xl border-slate-200 p-1.5 shadow-lg data-[state=open]:animate-none data-[state=closed]:animate-none">
+                  {canReadProduction && (canPlanProduction || canViewProduction) && <DropdownMenuItem onSelect={() => navigate(`/production-dashboard?${new URLSearchParams({ ...(params.get("month") ? { month: params.get("month")! } : {}), ...(systemProductParam ? { riskProduct: systemProductParam } : {}) })}`)}><AlertTriangle className="size-4" />交付风险与齐套</DropdownMenuItem>}
                   <DropdownMenuItem
                     onSelect={() => {
                       void exportProcTasksXlsx(filtered)
@@ -533,11 +458,11 @@ export function ProcurementCockpitPage() {
                     }}
                   ><Download className="size-4" />{t('导出当前列表')}</DropdownMenuItem>
                   {canOrder && <DropdownMenuItem onSelect={() => setPoMatchOpen(true)}><Truck className="size-4" />{t('单据匹配')}</DropdownMenuItem>}
-                  {canViewKeyMaterials && <DropdownMenuItem onSelect={() => navigate(routePath('page:proc-key-materials', '/proc-key-materials'))}><PackageSearch className="size-4" />{t('全部关键物料')}</DropdownMenuItem>}
+                  {canViewKeyMaterials && <DropdownMenuItem onSelect={() => navigate(`${routePath('page:proc-key-materials', '/proc-key-materials')}?${new URLSearchParams({ ...(params.get('month') ? { month: params.get('month')! } : {}), ...(systemProductParam ? { product: systemProductParam } : {}) })}`)}><PackageSearch className="size-4" />{t('全部关键物料')}</DropdownMenuItem>}
                   {(canOrder || canReassign || canCreate) && <DropdownMenuSeparator />}
                   {canReassign && <DropdownMenuItem onSelect={() => setBatchOpen(true)}><Users className="size-4" />{t('批量转派')}</DropdownMenuItem>}
                   {(canCreate || canReassign) && <DropdownMenuItem onSelect={() => setBatchMoveOpen(true)}><FolderTree className="size-4" />{t('批量归类')}</DropdownMenuItem>}
-                  <DropdownMenuItem onSelect={() => navigate('/proc-people-management')}><UserCog className="size-4" />{t('人员管理')}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/proc-people-management')}><UserCog className="size-4" />{t('人员与负载')}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               {canCreate && <Button variant="unstyled" type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</Button>}
@@ -568,18 +493,10 @@ export function ProcurementCockpitPage() {
             onCloseModule={closeSystemModule}
             onOpenModule={openSystemModule}
             onProductChange={setSystemProduct}
-            coreMode={coreMode}
-            coreMaterialsByProduct={coreMaterialConfig.products}
-            coreMaterialLimit={coreMaterialConfig.maxItems}
-            coreConfigLoading={coreConfigLoading}
-            coreConfigError={coreConfigError}
-            onRetryCoreConfig={() => void loadCoreMaterialConfig()}
-            onCoreModeChange={setCoreMode}
-            onSaveCoreMaterials={saveCoreMaterials}
           />
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="proc-horizon-task-body flex min-h-0 flex-1 flex-col gap-3">
         <section className="proc-horizon-task-stream flex min-h-0 min-w-0 flex-1 flex-col">
       {/* 人员泳道 */}
       <div className="proc-horizon-people-nav">
@@ -640,11 +557,21 @@ export function ProcurementCockpitPage() {
             </Button>
           )}
         </div>
-        <span className="shrink-0 font-semibold tabular-nums text-slate-500">{t("显示 {count} 个任务", { count: filtered.length })}</span>
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <span className="font-semibold tabular-nums text-slate-500">{t("显示 {count} 个任务", { count: filtered.length })}</span>
+          <ToggleGroup type="single" size="sm" value={taskDisplay} disabled={openTaskOverlays.size > 0} aria-label={t("任务显示模式")} className="proc-horizon-display-toggle" onValueChange={(value) => {
+            if ((value !== "masonry" && value !== "table") || value === taskDisplay || openTaskOverlays.size > 0) return;
+            taskStreamElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+            setTaskDisplay(value);
+          }}>
+            <ToggleGroupItem value="masonry" aria-label={t("瀑布流视图")} title={t("瀑布流视图")}><LayoutGrid aria-hidden="true" className="size-4" /></ToggleGroupItem>
+            <ToggleGroupItem value="table" aria-label={t("表格视图")} title={t("表格视图")}><Table2 aria-hidden="true" className="size-4" /></ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       {/* 任务展示区 */}
-        <div ref={setTaskStreamElement} className="proc-horizon-task-scroll">
+        <div ref={setTaskStreamElement} className="proc-horizon-task-scroll cockpit-scroll" data-display={taskDisplay} role="region" aria-label={t("采购任务列表")} tabIndex={0}>
           {error ? (
             <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/40 px-4 py-12 text-center text-sm text-rose-700">
               <AlertTriangle className="size-7 text-rose-500" />
@@ -655,8 +582,12 @@ export function ProcurementCockpitPage() {
               <Button variant="unstyled" type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</Button>
             </div>
           ) : loading && tasks.length === 0 ? (
-            <div aria-label={t("正在加载采购任务")} className="proc-horizon-task-masonry">
-              {Array.from({ length: masonryColumns }, (_, item) => (
+            <div aria-label={t("正在加载采购任务")} role="status" className={taskDisplay === "table" ? "space-y-2" : "proc-horizon-task-masonry"}>
+              {taskDisplay === "table" ? Array.from({ length: 6 }, (_, item) => (
+                <div key={item} className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-6 rounded-lg border border-border bg-card px-4 py-5">
+                  <span className="h-4 rounded bg-muted" /><span className="h-4 rounded bg-muted" /><span className="h-4 rounded bg-muted" /><span className="h-4 rounded bg-muted" />
+                </div>
+              )) : Array.from({ length: masonryColumns }, (_, item) => (
                 <div key={item} className="min-h-52 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
                   <div className="mt-4 h-5 w-3/4 rounded bg-slate-100" />
@@ -678,7 +609,18 @@ export function ProcurementCockpitPage() {
             </div>
           ) : (
               <>
-                <div className="proc-horizon-task-masonry">
+                {taskDisplay === "table" ? (
+                  <ProcurementTaskTable
+                    tasks={tablePageTasks}
+                    materials={materials}
+                    selectedTaskId={open?.id}
+                    onOpen={openTask}
+                    onNext={(nextTask) => taskAction.runNext(nextTask, "card")}
+                    onReassign={taskAction.reassign}
+                    onRemove={taskAction.remove}
+                    onOverlayOpenChange={onTaskOverlayOpenChange}
+                  />
+                ) : <div className="proc-horizon-task-masonry">
                   {distributeIntoColumns(visibleTasks, masonryColumns).map((column, columnIndex) => (
                     <div key={columnIndex} className="proc-horizon-task-masonry-column">
                       {column.map((task) => (
@@ -686,7 +628,7 @@ export function ProcurementCockpitPage() {
                           key={task.id}
                           task={task}
                           materials={materials}
-                          onOpen={setOpen}
+                          onOpen={openTask}
                           onNext={(nextTask) => taskAction.runNext(nextTask, "card")}
                           onReassign={taskAction.reassign}
                           onRemove={taskAction.remove}
@@ -695,18 +637,52 @@ export function ProcurementCockpitPage() {
                       ))}
                     </div>
                   ))}
-                </div>
-                {visibleCount < filtered.length ? (
+                </div>}
+                {taskDisplay === "masonry" && (visibleCount < filtered.length ? (
                   <div ref={setSentinelElement} className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
                     <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-primary motion-reduce:animate-none" />
                     {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (
                   <div className="py-4 text-center text-xs text-muted-foreground">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
-                ) : null}
+                ) : null)}
               </>
             )}
         </div>
+        {taskDisplay === "table" && !error && (
+          <div className="proc-horizon-task-pagination">
+            <span role="status" aria-live="polite" className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {filtered.length === 0
+                ? t("共 0 个任务")
+                : t("第 {start}–{end} 条，共 {total} 个任务", { start: (currentTaskTablePage - 1) * taskTablePageSize + 1, end: Math.min(currentTaskTablePage * taskTablePageSize, filtered.length), total: filtered.length })}
+            </span>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+              <Select value={String(taskTablePageSize)} disabled={tablePaginationDisabled} onValueChange={(value) => {
+                const size = Number(value);
+                if (tablePaginationDisabled || ![10, 20, 50].includes(size)) return;
+                setTaskTablePageSize(size);
+                setTaskTablePage(1);
+              }}>
+                <SelectTrigger size="sm" aria-label={t("每页条数")} className="w-auto min-w-28 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 50].map((size) => <SelectItem key={size} value={String(size)}>{t("{count} 条 / 页", { count: size })}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Pagination aria-label={t("采购任务分页")} className="mx-0 w-auto">
+                <PaginationContent>
+                  <PaginationItem><Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("上一页")} title={t("上一页")} disabled={tablePaginationDisabled || currentTaskTablePage === 1} onClick={() => changeTaskTablePage(currentTaskTablePage - 1)}><ChevronLeft className="size-4" aria-hidden="true" /></Button></PaginationItem>
+                  {tablePageNumbers.map((page, index) => (
+                    <PaginationItem key={page} className="flex items-center gap-1">
+                      {index > 0 && page - tablePageNumbers[index - 1] > 1 && <PaginationEllipsis className="size-8" />}
+                      <Button type="button" variant={page === currentTaskTablePage ? "secondary" : "ghost"} size="icon" className="size-8 text-xs tabular-nums" aria-label={t("第 {page} 页", { page })} aria-current={page === currentTaskTablePage ? "page" : undefined} disabled={tablePaginationDisabled} onClick={() => changeTaskTablePage(page)}>{page}</Button>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem><Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("下一页")} title={t("下一页")} disabled={tablePaginationDisabled || currentTaskTablePage === taskTablePageCount} onClick={() => changeTaskTablePage(currentTaskTablePage + 1)}><ChevronRight className="size-4" aria-hidden="true" /></Button></PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          </div>
+        )}
 
       </div>
 
@@ -714,7 +690,7 @@ export function ProcurementCockpitPage() {
       </div>
       )}
 
-      {open && <TaskDetailDrawer task={open} onClose={() => { setOpen(null); if (taskParam) setParams((p) => { const n = new URLSearchParams(p); n.delete("task"); return n; }, { replace: true }); }} />}
+      {open && <ProcurementTaskSummaryDrawer materials={materials} task={open} onClose={() => { setOpen(null); if (taskParam) setParams((p) => { const n = new URLSearchParams(p); n.delete("task"); return n; }, { replace: true }); }} />}
       {taskAction.modal}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
       {batchOpen && <BatchReassignModal tasks={treeScopedTasks} onClose={() => setBatchOpen(false)} />}

@@ -27,6 +27,7 @@ export interface RecordSupplierCommitmentInput {
   evidence: string; reason: string; declareOriginal: boolean; expectedVersion: number; expectedSourceUpdatedAt: string;
 }
 export interface DeliveryScheduleRow {
+  calendarDate?: string | null; availableDate?: string | null; dateNeedsReconfirmation?: boolean; timingNote?: string; latestSource?: string;
   lineId: string; orderNo: string; lineNo: string; inventoryCode: string; inventoryName: string; spec: string;
   supplierName: string; unit: string; orderedQty: number; receivedQty: number; orderDate: string | null;
   erpExpectedDate: string | null; sourceUpdatedAt: string; supplierPromisedDate: string | null; supplierSourceChanged: boolean;
@@ -37,7 +38,13 @@ export interface DeliverySchedule {
   summary: { all: number; inMonth: number; undated: number; outside: number }; days: Array<{ date: string; count: number }>;
   rows: DeliveryHistoryPage<DeliveryScheduleRow>;
 }
-export interface DeliveryScheduleQuery { month: string; bucket?: 'month' | 'all' | 'undated' | 'outside'; date?: string; q?: string; supplier?: string; page?: number; pageSize?: number; snapshot?: string }
+export interface DeliveryScheduleQuery { dateBasis?: 'erp' | 'latest' | 'available'; month: string; bucket?: 'month' | 'all' | 'undated' | 'outside'; date?: string; q?: string; supplier?: string; page?: number; pageSize?: number; snapshot?: string }
+export interface PurchaseDeliveryImpact {
+  scopeId: string; planId: string; month: string; productName: string; productLine: string; batchId: string | null; batchCode: string | null;
+  needDate: string | null; availableDate: string | null; unit: string; assignedQty: number; effectiveQty: number | null; onTimeQty: number | null;
+  delayDays: number | null; status: 'pending' | 'late' | 'on_time'; note: string;
+}
+export interface PurchaseDeliveryImpacts extends DeliveryHistoryPage<PurchaseDeliveryImpact> { lineId: string; orderNo: string; unresolvedCount: number; readAt: string; notice: string }
 export class PurchaseDeliveryError extends Error { constructor(message: string, public status: number) { super(message); this.name = 'PurchaseDeliveryError'; } }
 export function isDeliveryDay(value: unknown): value is string {
   return typeof value === 'string' && /^(?!0000)\d{4}-\d{2}-\d{2}$/.test(value)
@@ -80,6 +87,7 @@ export function isDeliverySchedule(value: unknown): value is DeliverySchedule {
     && Array.isArray(value.days) && value.days.every((item: any) => object(item) && isDeliveryDay(item.date) && item.date.startsWith(value.month + '-') && Number.isSafeInteger(item.count) && item.count > 0)
     && new Set(value.days.map((item: any) => item.date)).size === value.days.length && value.days.reduce((sum: number, item: any) => sum + item.count, 0) === value.summary.inMonth
     && page(value.rows, (row) => object(row) && ['lineId', 'orderNo', 'lineNo', 'inventoryCode', 'inventoryName', 'spec', 'supplierName', 'unit'].every((key) => typeof row[key] === 'string')
+      && (row.calendarDate === undefined || nullableDay(row.calendarDate)) && (row.availableDate === undefined || nullableDay(row.availableDate))
       && Boolean(row.lineId) && nullableDay(row.erpExpectedDate) && nullableDay(row.orderDate) && nullableDay(row.supplierPromisedDate) && instant(row.sourceUpdatedAt)
       && typeof row.supplierSourceChanged === 'boolean' && Number.isFinite(row.orderedQty) && Number.isFinite(row.receivedQty)
       && (row.status === null || typeof row.status === 'string') && (row.approvalStatus === null || typeof row.approvalStatus === 'string'))
@@ -104,6 +112,17 @@ function checkedDetail(value: unknown, lineId: string, orderNo: string) {
 }
 export async function getPurchaseDelivery(lineId: string, orderNo: string, supplierPage = 1, erpPage = 1, signal?: AbortSignal) {
   return checkedDetail(await request(`/lines/${encodeURIComponent(lineId)}?${new URLSearchParams({ orderNo, supplierPage: String(supplierPage), erpPage: String(erpPage) })}`, { signal }), lineId, orderNo);
+}
+export async function getPurchaseDeliveryImpacts(lineId: string, orderNo: string, requestedPage = 1, signal?: AbortSignal): Promise<PurchaseDeliveryImpacts> {
+  const value = await request(`/lines/${encodeURIComponent(lineId)}/impacts?${new URLSearchParams({ orderNo, page: String(requestedPage) })}`, { signal });
+  const qty = (number: unknown) => number === null || (typeof number === 'number' && Number.isFinite(number) && number >= 0);
+  if (!object(value) || value.lineId !== lineId || value.orderNo !== orderNo || !instant(value.readAt) || typeof value.notice !== 'string' || !Number.isSafeInteger(value.unresolvedCount) || value.unresolvedCount < 0
+    || !page(value, row => object(row) && ['scopeId', 'planId', 'month', 'productName', 'productLine', 'unit', 'note'].every(key => typeof row[key] === 'string')
+      && Boolean(row.scopeId) && Boolean(row.planId) && /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(row.month)
+      && (row.batchId === null || typeof row.batchId === 'string') && (row.batchCode === null || typeof row.batchCode === 'string')
+      && nullableDay(row.needDate) && nullableDay(row.availableDate) && typeof row.assignedQty === 'number' && qty(row.assignedQty)
+      && qty(row.effectiveQty) && qty(row.onTimeQty) && qty(row.delayDays) && ['pending', 'late', 'on_time'].includes(row.status))) throw new PurchaseDeliveryError('影响计划返回内容或订单行关联无效，请重新核对', 502);
+  return value as PurchaseDeliveryImpacts;
 }
 export async function recordSupplierCommitment(lineId: string, input: RecordSupplierCommitmentInput, signal?: AbortSignal) {
   return checkedDetail(await request(`/lines/${encodeURIComponent(lineId)}/commitments`, { method: 'POST', body: JSON.stringify(input), signal }), lineId, input.orderNo);

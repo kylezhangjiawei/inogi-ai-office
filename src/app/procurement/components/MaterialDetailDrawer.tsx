@@ -23,6 +23,7 @@ import { isTaskOfMaterial, materialAggregates, refreshProcurement, useProcuremen
 import { ImageLightbox, StatusPill, fmtMoney, useProcCan } from "./common";
 import { materialSupplyRisk, type MaterialSupplyRisk } from "./MaterialTable";
 import { MaterialFormModal } from "./modals";
+import { SupplierQualificationsPanel } from "./SupplierQualificationsPanel";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 
 const RISK_STYLE: Record<MaterialSupplyRisk, string> = {
@@ -61,6 +62,7 @@ function ReviewBadge({ material }: { material: Material }) {
 export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { material: Material; onClose: () => void; onOpenTask: (taskId: string) => void }) {
   const { t } = useI18n();
   const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const [qualificationOpen, setQualificationOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
@@ -290,8 +292,8 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
 
               <div className="proc-horizon-material-inventory-stats mt-3 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200">
                 {[
-                  { label: t("现存量"), value: material.stockQty.toLocaleString(), className: "text-slate-900" },
-                  { label: t("可用量"), value: inventoryReady ? material.availableQty.toLocaleString() : "—", className: risk.tone === "shortage" || risk.tone === "low" ? "text-rose-700" : "text-slate-900" },
+                  { label: t("现存量"), value: material.stockQty == null ? t("待核对") : material.stockQty.toLocaleString(), className: "text-slate-900" },
+                  { label: t("可用量"), value: inventoryReady && material.availableQty != null ? material.availableQty.toLocaleString() : "—", className: risk.tone === "shortage" || risk.tone === "low" ? "text-rose-700" : "text-slate-900" },
                   { label: t("安全库存"), value: material.safeStock.toLocaleString(), className: "text-slate-900" },
                   { label: t("采购在途"), value: inTransit.toLocaleString(), className: inTransit > 0 ? "text-primary" : "text-slate-900" },
                 ].map((item) => (
@@ -317,9 +319,9 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                     <tbody>
                       {warehouses.map((warehouse) => (
                         <tr key={warehouse.name} className="border-t border-slate-100">
-                          <td className="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-slate-800" title={warehouse.name}><AutoTranslatedText className="line-clamp-2 break-words" text={warehouse.name} /></td>
+                          <td className="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-slate-800" title={warehouse.name}><AutoTranslatedText className="line-clamp-2 break-words" text={warehouse.name} /><p className="mt-1 text-[11px] text-muted-foreground">ERP {warehouse.syncedAt ? new Date(warehouse.syncedAt).toLocaleString(i18nLocale()) : t("未同步")}</p></td>
                           <td className="break-words border-t border-slate-100 px-3 py-2 text-right font-semibold tabular-nums text-slate-900">{warehouse.stock.toLocaleString()}</td>
-                          <td className="break-words border-t border-slate-100 px-3 py-2 text-right tabular-nums text-slate-700">{warehouse.available.toLocaleString()}</td>
+                          <td className="break-words border-t border-slate-100 px-3 py-2 text-right tabular-nums text-slate-700">{warehouse.available == null ? t("待核对") : warehouse.available.toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -358,6 +360,8 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               </div>
               <Button variant="unstyled" type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded-md px-2 py-1.5 text-xs font-semibold text-primary hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">{t("打开对比")}</Button>
             </section>
+
+            <section className="rounded-xl border border-border p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">{t("供货资格")}</h3><p className="mt-1 text-xs text-muted-foreground">{t("按供应商查看审核依据与适用产品")}</p></div><Button variant="outline" size="sm" aria-expanded={qualificationOpen} onClick={() => setQualificationOpen(value => !value)}>{t(qualificationOpen ? "收起" : "查看供货关系")}</Button></div>{qualificationOpen && <div className="mt-4 border-t border-border pt-4"><SupplierQualificationsPanel key={material.id} materialId={material.id} compact /></div>}</section>
 
             <section aria-labelledby="material-related-title" className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

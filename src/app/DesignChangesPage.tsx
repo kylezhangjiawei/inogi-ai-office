@@ -190,10 +190,10 @@ export function DesignChangesPage() {
             {selectedCount > 0 ? <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#dce4f8] bg-[#f4f7fe] px-4 py-3 text-sm text-slate-700"><span>已选 <strong className="tabular-nums">{selectedCount}</strong> 条，可批量发起评审或同步 DHF。</span><Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows({})}>清除选择</Button></div> : null}
 
             {pagedChanges.length > 0 ? (
-              <div className="material-scrollbar overflow-x-auto rounded-xl border border-[#e9edf7]">
+              <div className="material-scrollbar min-h-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto rounded-xl border border-[#e9edf7] [scrollbar-gutter:stable]">
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <caption className="sr-only">设计开发变更清单，包含编号、标题、类型、负责人、影响、状态和版本</caption>
-                  <thead className="bg-slate-50 text-xs text-slate-600">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-xs text-slate-600">
                     <tr>
                       {["选择", "编号", "标题", "状态", "影响", "负责人", "类型", "版本"].map((title) => <th key={title} scope="col" className="px-4 py-3 font-semibold">{title}</th>)}
                     </tr>

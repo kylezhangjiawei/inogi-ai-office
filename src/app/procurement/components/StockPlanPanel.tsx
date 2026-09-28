@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleDashed,
   PackagePlus,
@@ -21,6 +22,7 @@ import { refreshProcurement, useProcurementProducts } from "../data";
 
 import { useI18n } from "../../lib/i18n";
 import { usePermission } from "../../hooks/usePermission";
+import { StockPlanBomBasis } from "./StockPlanBomBasis";
 import { buildPurchaseOrderLinePath } from "../../lib/purchaseOrderLineNavigation";
 import { buildStockPlanReturnPath, parseStockPlanViewState, writeStockPlanViewParams, type StockPlanViewState } from "../../lib/stockPlanNavigation";
 import {
@@ -30,6 +32,8 @@ import {
   generateProcStockPlanTasks,
   getProcStockPlanReadiness,
   getInventoryReadiness,
+  readBomDeviceOptions,
+  type BomDeviceOption,
   listProcTaskTree,
   listPoMirror,
   listQuoteSuppliers,
@@ -70,6 +74,7 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem } from "../../components/ui/pagination";
 import { Textarea } from "../../components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { cn } from "../../components/ui/utils";
@@ -86,6 +91,21 @@ const STATUS_LABELS: Record<ProcStockPlanStatus, string> = {
 };
 const PLAN_TYPE_LABELS: Record<ProcStockPlanType, string> = { machine: "整机", packaging: "包材", material: "物料" };
 
+function partyFilterKey(id?: string, name?: string) {
+  return id?.trim() ? `id:${id.trim()}` : name?.trim() ? `name:${name.trim()}` : "";
+}
+
+function partyFilterOptions(parties: Array<{ id?: string; name: string }>) {
+  const entries = new Map<string, { value: string; label: string; id?: string }>();
+  for (const party of parties) {
+    const value = partyFilterKey(party.id, party.name);
+    if (value) entries.set(value, { value, label: party.name.trim() || party.id!, id: party.id });
+  }
+  const options = [...entries.values()];
+  return options.map((option) => ({ value: option.value, label: options.some((other) => other.value !== option.value && other.label === option.label)
+    ? `${option.label} · ${option.id || "名称记录"}` : option.label })).sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+}
+
 function flattenNodes(nodes: ProcTaskTreeNode[], prefix = ""): Array<{id: string; name: string}> {
   return nodes.flatMap((node) => {
     const name = prefix ? `${prefix} / ${node.name}` : node.name;
@@ -93,7 +113,8 @@ function flattenNodes(nodes: ProcTaskTreeNode[], prefix = ""): Array<{id: string
   });
 }
 
-function quantity(value: number) {
+function quantity(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return '待核对';
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 }).format(value);
 }
 
@@ -145,7 +166,7 @@ function StockPlanFormDialog({
   const { t } = useI18n();
   const products = useProcurementProducts();
   const [nodes, setNodes] = useState<Array<{id: string; name: string}>>([]);
-  const [models, setModels] = useState<InventoryReadinessResponse["models"]>([]);
+  const [bomDevices, setBomDevices] = useState<BomDeviceOption[]>([]);
   const [contextError, setContextError] = useState("");
   const targetLocked = Boolean(plan?.tasks?.length);
   const locked = plan?.contextLocked ?? targetLocked;
@@ -155,6 +176,7 @@ function StockPlanFormDialog({
     productId: plan?.productId ?? defaults?.productId ?? "",
     treeNodeId: plan?.treeNodeId ?? defaults?.treeNodeId ?? "",
     productLine: plan?.productLine ?? defaults?.productLine ?? "",
+    bomRevisionId: plan?.bomRevisionId ?? "",
     productionTaskId: plan?.productionTaskId ?? defaults?.productionTaskId ?? "",
     materialId: plan?.materialId ?? defaults?.materialId ?? "",
     materialName: plan?.materialName ?? defaults?.materialName ?? "",
@@ -178,11 +200,12 @@ function StockPlanFormDialog({
   useEffect(() => {
     if (form.planType !== "machine") return;
     const controller = new AbortController();
-    void getInventoryReadiness({targetSets: 0}, controller.signal)
-      .then((data) => { if (!controller.signal.aborted) setModels(data.models); })
+    void readBomDeviceOptions(controller.signal)
+      .then((data) => { if (!controller.signal.aborted) setBomDevices(data.devices); })
       .catch((error) => { if (!controller.signal.aborted) setContextError(error.message); });
     return () => controller.abort();
   }, [form.planType]);
+  const models = bomDevices.filter(row => row.productRoot.productId === form.productId && row.revisions.length > 0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
   // 名称可以自由填写；同名的不同档案只能在“关联物料编码”中按 ID 明确选择。
@@ -217,11 +240,16 @@ function StockPlanFormDialog({
       setSaveError(t("目标备货量必须大于 0"));
       return;
     }
+    if (!plan && form.planType === "machine" && !models.some(model => model.productLine === form.productLine && model.revisions.some(revision => revision.id === form.bomRevisionId))) {
+      setSaveError(t("请选择本产品的有效 BOM 发布版本"));
+      return;
+    }
     const input: ProcStockPlanInput = {
       planType: form.planType,
       productId: form.productId,
       treeNodeId: form.treeNodeId,
       productLine: form.productLine,
+      ...(form.bomRevisionId ? { bomRevisionId: form.bomRevisionId } : {}),
       productionTaskId: form.productionTaskId,
       materialId: form.materialId,
       materialName: form.materialName.trim(),
@@ -266,13 +294,13 @@ function StockPlanFormDialog({
             {locked && <p className="text-xs text-slate-500 sm:col-span-2">{t(targetLocked ? "已生成采购任务，计划来源和目标量已锁定。" : "已有生产或质量记录，计划归属和物料已锁定。")}</p>}
             {form.productionTaskId && <p className="break-words text-xs text-slate-500 sm:col-span-2">{t("来自生产任务")}：{form.productionTaskId}</p>}
             <Field label={t("计划类型")} required>
-              <StockPlanSelect label={t("计划类型")} required disabled={materialLocked} value={form.planType}
+              <StockPlanSelect label={t("计划类型")} required disabled={materialLocked || plan?.planType === 'machine'} value={form.planType}
                 onValueChange={(value) => setForm((v) => ({...v, planType: value as ProcStockPlanType, unit: value === "machine" ? "套" : v.unit, productLine: ""}))}
                 options={Object.entries(PLAN_TYPE_LABELS).map(([value, label]) => ({ value, label: t(label) }))} />
             </Field>
             <Field label={t("所属产品")}>
-              <StockPlanSelect label={t("所属产品")} disabled={locked || Boolean(defaults?.productId)} value={form.productId}
-                onValueChange={(value) => setForm((v) => ({...v, productId: value, treeNodeId: ""}))}
+              <StockPlanSelect label={t("所属产品")} disabled={locked || plan?.planType === 'machine' || Boolean(defaults?.productId)} value={form.productId}
+                onValueChange={(value) => setForm((v) => ({...v, productId: value, treeNodeId: "", productLine: "", bomRevisionId: ""}))}
                 emptyLabel={t("请选择产品")} options={products.map((p) => ({ value: p.id, label: p.name }))} />
             </Field>
             <Field label={t("所属子系统")}>
@@ -281,10 +309,11 @@ function StockPlanFormDialog({
                 emptyLabel={t("请选择子系统")} options={nodes.map((node) => ({ value: node.id, label: node.name }))} />
             </Field>
             {form.planType === "machine" && <Field label={t("整机 BOM 型号")} required>
-              <StockPlanSelect label={t("整机 BOM 型号")} required disabled={materialLocked} value={form.productLine}
-                onValueChange={(value) => setForm((v) => ({...v, productLine: value}))}
-                emptyLabel={t("选择 BOM 型号")} options={models.map((m) => ({ value: m.id, label: m.label }))} />
+              <StockPlanSelect label={t("整机 BOM 型号")} required disabled={materialLocked || Boolean(plan)} value={form.productLine}
+                onValueChange={(value) => setForm((v) => ({...v, productLine: value, bomRevisionId: ""}))}
+                emptyLabel={t("选择 BOM 型号")} options={plan ? [{ value: plan.productLine || '', label: plan.productLine || '' }] : models.map((m) => ({ value: m.productLine, label: m.productLine }))} />
             </Field>}
+            {form.planType === "machine" && !plan && <Field label={t("已发布 BOM 版本")} required><StockPlanSelect label={t("已发布 BOM 版本")} required value={form.bomRevisionId} onValueChange={value => setForm(v => ({ ...v, bomRevisionId: value }))} emptyLabel={t("请先在 BOM 页面发布版本")} options={(models.find(row => row.productLine === form.productLine)?.revisions ?? []).map(row => ({ value: row.id, label: `V${row.version}` }))} /></Field>}
             <Field label={t("物料名称")} required>
               <ComboInput
                 value={form.materialName}
@@ -552,7 +581,7 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h4 className="text-xs font-semibold text-slate-700">{plan.planType === "machine" ? "整机物料齐套" : "量产库存覆盖"}</h4>
       <div className="flex gap-2">
-        {plan.planType === "machine" && <Button size="sm" variant="outline" onClick={() => navigate(`/proc-inventory-readiness?${new URLSearchParams({productLine: plan.productLine || "", targetSets: String(plan.targetQty)})}`)}>查看物料明细</Button>}
+        {plan.planType === "machine" && <Button size="sm" variant="outline" onClick={() => navigate(`/proc-inventory-readiness?${new URLSearchParams({productLine: plan.productLine || "", targetSets: String(plan.targetQty), ...(plan.bomRevisionId ? { revisionId: plan.bomRevisionId } : {})})}`)}>查看物料明细</Button>}
         {canCreate && <Button size="sm" disabled={busy || !complete || !plan.productId || Boolean(plan.tasks?.length)} onClick={() => void generate()}>{busy ? "生成中…" : plan.tasks?.length ? "已关联采购任务" : "按缺口生成采购任务"}</Button>}
       </div>
     </div>
@@ -577,8 +606,9 @@ function MonthlyPlanOverview({plans, month}: {plans: ProcStockPlan[]; month: str
   const groups = useMemo(() => {
     const byKey = new Map<string, {key: string; label: string; unit: string; plans: ProcStockPlan[]}>();
     for (const plan of plans) {
-      const key = [plan.planType, plan.productId, plan.planType === "machine" ? plan.productLine : plan.materialId || `${plan.materialName}/${plan.spec}`, plan.unit].join(":");
-      const group = byKey.get(key) || {key, label: `${PLAN_TYPE_LABELS[plan.planType]} · ${plan.materialName} ${plan.productLine || plan.spec} (${plan.unit || "未设单位"})`, unit: plan.unit, plans: []};
+      const key = JSON.stringify([plan.planType, plan.productId, plan.planType === "machine" ? [plan.productLine, plan.bomRevisionId ?? null] : plan.materialId || `${plan.materialName}/${plan.spec}`, plan.unit]);
+      const basis = plan.planType === 'machine' ? ` · ${plan.bomRevisionId ? `BOM V${plan.bomVersion ?? '?'} · ${plan.code}` : '历史依据待确认'}` : '';
+      const group = byKey.get(key) || {key, label: `${PLAN_TYPE_LABELS[plan.planType]} · ${plan.materialName} ${plan.productLine || plan.spec}${basis} (${plan.unit || "未设单位"})`, unit: plan.unit, plans: []};
       group.plans.push(plan); byKey.set(key, group);
     }
     return [...byKey.values()];
@@ -623,7 +653,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   const canOpenCockpit = usePermission("page:proc-cockpit");
   const [params, setParams] = useSearchParams();
   const view = useMemo(() => parseStockPlanViewState(params), [params]);
-  const { planType, month, keyword, status, focusId } = view;
+  const { planType, month, keyword, status, supplier, creator, page, pageSize, focusId } = view;
   const expanded = useMemo(() => new Set(view.expanded), [view.expanded]);
   const updateView = (update: Partial<StockPlanViewState> | ((current: StockPlanViewState) => StockPlanViewState)) => {
     setParams((current) => {
@@ -631,8 +661,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       return writeStockPlanViewParams(new URLSearchParams(current), typeof update === "function" ? update(previous) : { ...previous, ...update });
     }, { replace: true, state: location.state });
   };
-  const setPlanType = (value: StockPlanViewState["planType"]) => updateView({ planType: value, focusId: undefined });
-  const setMonth = (value: string) => updateView({ month: value, focusId: undefined });
+  const setPlanType = (value: StockPlanViewState["planType"]) => updateView({ planType: value, page: 1, focusId: undefined });
+  const setMonth = (value: string) => updateView({ month: value, page: 1, focusId: undefined });
   const setExpanded = (update: (current: Set<string>) => Set<string>) => updateView((current) => {
     const next = update(new Set(current.expanded));
     return { ...current, expanded: [...next], focusId: current.focusId && next.has(current.focusId) ? current.focusId : undefined };
@@ -670,15 +700,15 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   const focusedPlanNavigation = useRef<string | null>(null);
 
   const changeKeyword = (value: string) => {
-    updateView({ keyword: value, focusId: undefined });
+    updateView({ keyword: value, page: 1, focusId: undefined });
     if (listRef.current) listRef.current.scrollTop = 0;
   };
   const changeStatus = (value: StatusFilter) => {
-    updateView({ status: value, focusId: undefined });
+    updateView({ status: value, page: 1, focusId: undefined });
     if (listRef.current) listRef.current.scrollTop = 0;
   };
   const clearFilters = () => {
-    updateView({ keyword: "", status: "all", focusId: undefined });
+    updateView({ planType: "all", month: "", keyword: "", status: "all", supplier: "", creator: "", page: 1, focusId: undefined });
     if (listRef.current) listRef.current.scrollTop = 0;
   };
 
@@ -715,7 +745,12 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
     }
   };
 
-  const scopedPlans = useMemo(() => plans.filter((plan) => (planType === "all" || plan.planType === planType) && (!month || plan.targetDate?.startsWith(month))), [plans, planType, month]);
+  const supplierOptions = useMemo(() => partyFilterOptions(plans.flatMap((plan) => plan.batches.map((batch) => ({ id: batch.supplierId, name: batch.supplierName })))), [plans]);
+  const creatorOptions = useMemo(() => partyFilterOptions(plans.map((plan) => ({ id: plan.createdBy, name: plan.createdByName }))), [plans]);
+  const scopedPlans = useMemo(() => plans.filter((plan) => (planType === "all" || plan.planType === planType)
+    && (!month || plan.targetDate?.startsWith(month))
+    && (!supplier || plan.batches.some((batch) => partyFilterKey(batch.supplierId, batch.supplierName) === supplier))
+    && (!creator || partyFilterKey(plan.createdBy, plan.createdByName) === creator)), [plans, planType, month, supplier, creator]);
   const counts = useMemo(() => ({
     all: scopedPlans.length,
     not_started: scopedPlans.filter((plan) => plan.status === "not_started").length,
@@ -740,12 +775,28 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
     });
   }, [keyword, scopedPlans, status]);
 
-  const navigationSnapshot = useRef({ scopeKey, loading, error, filtered, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId });
-  navigationSnapshot.current = { scopeKey, loading, error, filtered, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId };
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visiblePlans = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageNumbers = [...new Set([1, ...Array.from({ length: Math.min(5, pageCount) }, (_, index) => Math.max(1, Math.min(currentPage - 2, pageCount - 4)) + index), pageCount])];
+  const hasActiveFilters = planType !== "all" || Boolean(month || keyword.trim() || status !== "all" || supplier || creator);
+  const paginationDisabled = loading || Boolean(error || editingPlan || editingBatch || deletingBatch);
+  const changePage = (nextPage: number) => {
+    if (!paginationDisabled) updateView({ page: Math.max(1, Math.min(nextPage, pageCount)), focusId: undefined });
+  };
+  useEffect(() => {
+    if (!loading && !error && page > pageCount) updateView({ page: pageCount });
+  }, [loading, error, page, pageCount]);
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [currentPage, pageSize, planType, month, keyword, status, supplier, creator]);
+
+  const navigationSnapshot = useRef({ scopeKey, loading, error, visiblePlans, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId });
+  navigationSnapshot.current = { scopeKey, loading, error, visiblePlans, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId };
   const openPlanOrderLine = (planId: string, expectedScope: string, orderNo: string, lineId: string) => {
     const current = navigationSnapshot.current;
     if (current.scopeKey !== expectedScope || current.loading || current.error || !current.canOpenOrder || !current.canOpenCockpit
-      || !current.expanded.has(planId) || !current.filtered.some((plan) => plan.id === planId)) return;
+      || !current.expanded.has(planId) || !current.visiblePlans.some((plan) => plan.id === planId)) return;
     const destination = buildPurchaseOrderLinePath(orderNo, lineId);
     const returnPath = buildStockPlanReturnPath({ ...current.view, focusId: planId }, { productId: current.productId, treeNodeId: current.treeNodeId });
     if (!destination || !returnPath) return;
@@ -758,6 +809,11 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
     if (!focusId || loading || error || !focusedPlan || focusOutsideFilters || !expanded.has(focusId)) return;
     const key = JSON.stringify([location.key, scopeKey, focusId]);
     if (focusedPlanNavigation.current === key) return;
+    const focusPage = Math.floor(filtered.findIndex((plan) => plan.id === focusId) / pageSize) + 1;
+    if (focusPage !== currentPage) {
+      updateView({ page: focusPage });
+      return;
+    }
     const article = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[data-stock-plan-id]') ?? [])
       .find((element) => element.dataset.stockPlanId === focusId);
     if (!article?.isConnected) return;
@@ -765,7 +821,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
     article.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     const active = document.activeElement;
     if (active === document.body || active === document.documentElement || !active?.isConnected) article.focus({ preventScroll: true });
-  }, [location.key, scopeKey, focusId, loading, error, focusedPlan, focusOutsideFilters, expanded]);
+  }, [location.key, scopeKey, focusId, loading, error, focusedPlan, focusOutsideFilters, expanded, currentPage, pageSize, filtered]);
 
   const removeBatch = async () => {
     if (!deletingBatch) return;
@@ -784,8 +840,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   };
 
   return (
-    <div ref={panelRef} tabIndex={-1} className="proc-stock-plan-panel flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
-      <section className="proc-horizon-command proc-horizon-command-cockpit">
+    <div ref={panelRef} tabIndex={-1} className="proc-stock-plan-panel flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+      <section className="proc-horizon-command proc-horizon-command-cockpit shrink-0">
         <div className="proc-horizon-command-layout">
           <div className="proc-horizon-command-heading">
             <span className="proc-horizon-command-mark"><PackagePlus aria-hidden="true" className="size-5" /></span>
@@ -836,7 +892,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="proc-stock-plan-filters flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3" role="group" aria-label={t("备货计划筛选")}>
         <ToggleGroup
           type="single"
           size="sm"
@@ -853,26 +909,42 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-          <Label htmlFor="stock-plan-month" className="shrink-0 text-xs text-slate-500">{t("目标月份")}</Label>
-          <StockPlanMonthInput id="stock-plan-month" label={t("目标月份")} className="w-40" value={month} onChange={setMonth} />
+        <div className="proc-stock-plan-filter-fields ml-auto flex min-w-0 flex-wrap items-center gap-3">
+          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+            <Label htmlFor="stock-plan-status" className="shrink-0 text-xs text-slate-500">{t("计划状态")}</Label>
+            <StockPlanSelect id="stock-plan-status" label={t("计划状态")} className="w-32 text-xs" value={status} onValueChange={(value) => changeStatus(value as StatusFilter)} options={[{ value: "all", label: t("全部状态") }, ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label: t(label) }))]} />
+          </div>
+          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+            <Label htmlFor="stock-plan-supplier" className="shrink-0 text-xs text-slate-500">{t("供应商")}</Label>
+            <StockPlanSelect id="stock-plan-supplier" label={t("供应商")} searchable className="w-44 text-xs" value={supplier} emptyLabel={t("全部供应商")} onValueChange={(value) => updateView({ supplier: value, page: 1, focusId: undefined })}
+              options={supplier && !supplierOptions.some((option) => option.value === supplier) ? [{ value: supplier, label: t("已选供应商（当前无记录）") }, ...supplierOptions] : supplierOptions} />
+          </div>
+          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+            <Label htmlFor="stock-plan-creator" className="shrink-0 text-xs text-slate-500">{t("创建人")}</Label>
+            <StockPlanSelect id="stock-plan-creator" label={t("创建人")} searchable className="w-36 text-xs" value={creator} emptyLabel={t("全部创建人")} onValueChange={(value) => updateView({ creator: value, page: 1, focusId: undefined })}
+              options={creator && !creatorOptions.some((option) => option.value === creator) ? [{ value: creator, label: t("已选创建人（当前无记录）") }, ...creatorOptions] : creatorOptions} />
+          </div>
+          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+            <Label htmlFor="stock-plan-month" className="shrink-0 text-xs text-slate-500">{t("目标月份")}</Label>
+            <StockPlanMonthInput id="stock-plan-month" label={t("目标月份")} className="w-40 text-xs" value={month} onChange={setMonth} />
+          </div>
+          <Button size="sm" variant="ghost" disabled={!hasActiveFilters} onClick={clearFilters} className="text-xs">{t("重置筛选")}</Button>
         </div>
-        {month && <Button size="sm" variant="ghost" onClick={() => setMonth("")}>全部月份</Button>}
       </div>
-      {!loading && !error && month && <MonthlyPlanOverview month={month} plans={scopedPlans} />}
-      {!loading && !error && focusId && (!focusedPlan || focusOutsideFilters) ? <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{t(focusedPlan ? "原备货计划已不在当前筛选范围内，请调整筛选后核对。" : "原备货计划不存在或已不在当前产品、模块范围内。")}</p> : null}
-      <section className="proc-horizon-task-feed flex min-h-[280px] flex-1 flex-col">
+      <section className="proc-horizon-task-feed flex min-h-0 flex-1 flex-col">
         <div className="proc-horizon-filter-bar">
           <span className="font-semibold text-slate-600">
             {status === "all" ? t("全部备货计划") : t(STATUS_LABELS[status])}
           </span>
           <div className="flex flex-wrap items-center gap-3">
-            {status !== "all" || keyword.trim() ? <Button type="button" variant="link" size="sm" onClick={clearFilters} className="h-auto px-0 py-0 text-xs font-semibold">{t("清除筛选")}</Button> : null}
+            {hasActiveFilters ? <Button type="button" variant="link" size="sm" onClick={clearFilters} className="h-auto px-0 py-0 text-xs font-semibold">{t("清除筛选")}</Button> : null}
             <span aria-live="polite" className="font-semibold tabular-nums text-slate-500">{loading ? t("正在加载备货计划") : t("显示 {count} 个计划", { count: filtered.length })}</span>
           </div>
         </div>
 
-        <div ref={listRef} className="proc-stock-plan-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background p-3">
+        <div ref={listRef} className="proc-stock-plan-scroll cockpit-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background" role="region" aria-label={t("备货计划列表")} tabIndex={0}>
+          {!loading && !error && month && <div className="mb-3"><MonthlyPlanOverview month={month} plans={scopedPlans} /></div>}
+          {!loading && !error && focusId && (!focusedPlan || focusOutsideFilters) ? <p role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{t(focusedPlan ? "原备货计划已不在当前筛选范围内，请调整筛选后核对。" : "原备货计划不存在或已不在当前产品、模块范围内。")}</p> : null}
           {error ? (
             <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/50 px-4 py-12 text-center text-sm text-rose-700">
               <AlertTriangle aria-hidden="true" className="size-7 text-rose-500" />
@@ -894,8 +966,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
               {plans.length > 0 ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>{t("清除筛选")}</Button> : null}
             </div>
           ) : (
-            <div className="proc-stock-plan-list overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="proc-stock-plan-table-header hidden items-center gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500" aria-hidden="true">
+            <div className="proc-stock-plan-list bg-white">
+              <div className="proc-stock-plan-table-header sticky top-0 z-10 hidden items-center gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500" aria-hidden="true">
                 <span />
                 <span>{t("计划 / 物料")}</span>
                 <span>{t("目标备货量")}</span>
@@ -905,10 +977,10 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 <span className="text-right">{t("操作")}</span>
               </div>
 
-              {filtered.map((plan) => {
+              {visiblePlans.map((plan) => {
                 const isExpanded = expanded.has(plan.id);
                 const overQty = Math.max(plan.purchasedQty - plan.targetQty, 0);
-                const supplierCount = new Set(plan.batches.map((batch) => batch.supplierName)).size;
+                const supplierCount = new Set(plan.batches.map((batch) => partyFilterKey(batch.supplierId, batch.supplierName)).filter(Boolean)).size;
                 return (
                   <article key={plan.id} data-stock-plan-id={plan.id} tabIndex={plan.id === focusId ? -1 : undefined} aria-current={plan.id === focusId ? 'true' : undefined} aria-label={`${plan.code} · ${plan.materialName}`} className="proc-stock-plan-item border-b border-slate-100 last:border-b-0 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary">
                     <div className="proc-stock-plan-row grid min-w-0 items-center gap-3 px-3 py-3">
@@ -995,7 +1067,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
 
                     {isExpanded ? (
                       <div id={`proc-stock-plan-batches-${plan.id}`} className="proc-stock-plan-batches min-w-0 border-t border-slate-100 bg-slate-50/70 px-3 py-3">
-                        <PlanReadiness plan={plan} canCreate={canCreate} onSaved={replacePlan} />
+                        <StockPlanBomBasis plan={plan} canCreate={canCreate} onSaved={() => void load()} />
+                        <PlanReadiness plan={plan} canCreate={canCreate && (plan.planType !== 'machine' || Boolean(plan.bomRevisionId))} onSaved={replacePlan} />
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs font-semibold text-slate-600">
                             {t("采购批次")} <span className="ml-1 font-normal text-slate-500">{plan.batches.length} {t("批")}，{supplierCount} {t("家供应商")}</span>
@@ -1043,6 +1116,23 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             </div>
           )}
         </div>
+        {!error && <div className="proc-horizon-task-pagination">
+          <span role="status" aria-live="polite" className="shrink-0 text-xs tabular-nums text-muted-foreground">{loading ? t("正在加载备货计划") : filtered.length === 0 ? t("共 0 个计划") : t("第 {start}–{end} 条，共 {total} 个计划", { start: (currentPage - 1) * pageSize + 1, end: Math.min(currentPage * pageSize, filtered.length), total: filtered.length })}</span>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+            <StockPlanSelect label={t("每页条数")} value={String(pageSize)} disabled={paginationDisabled} className="h-8 w-28 text-xs" onValueChange={(value) => {
+              const size = Number(value);
+              if (!paginationDisabled && [10, 20, 50].includes(size)) updateView({ pageSize: size, page: 1, focusId: undefined });
+            }} options={[10, 20, 50].map((size) => ({ value: String(size), label: t("{count} 条 / 页", { count: size }) }))} />
+            <Pagination aria-label={t("备货计划分页")} className="mx-0 w-auto"><PaginationContent>
+              <PaginationItem><Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("上一页")} title={t("上一页")} disabled={paginationDisabled || currentPage === 1} onClick={() => changePage(currentPage - 1)}><ChevronLeft aria-hidden="true" className="size-4" /></Button></PaginationItem>
+              {pageNumbers.map((number, index) => <PaginationItem key={number} className="flex items-center gap-1">
+                {index > 0 && number - pageNumbers[index - 1] > 1 && <PaginationEllipsis className="size-8" />}
+                <Button type="button" variant={number === currentPage ? "secondary" : "ghost"} size="icon" className="size-8 text-xs tabular-nums" aria-label={t("第 {page} 页", { page: number })} aria-current={number === currentPage ? "page" : undefined} disabled={paginationDisabled} onClick={() => changePage(number)}>{number}</Button>
+              </PaginationItem>)}
+              <PaginationItem><Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("下一页")} title={t("下一页")} disabled={paginationDisabled || currentPage === pageCount} onClick={() => changePage(currentPage + 1)}><ChevronRight aria-hidden="true" className="size-4" /></Button></PaginationItem>
+            </PaginationContent></Pagination>
+          </div>
+        </div>}
       </section>
 
       {editingPlan ? (

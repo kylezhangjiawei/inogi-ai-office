@@ -755,7 +755,7 @@ export function AuditLogPage() {
               </div>
             </div>
 
-            <div className="rd-horizon-audit-table-scroll min-w-0 overflow-x-auto" tabIndex={0} aria-label={t("审计结果表格")}>
+            <div className="rd-horizon-audit-table-scroll min-w-0" tabIndex={0} aria-label={t("审计结果表格")}>
               <table className="rd-horizon-audit-table w-full" aria-busy={loading}>
                 <caption className="sr-only">{t("审计结果：时间、操作人、动作、对象与摘要、来源及变更数量")}</caption>
                 <thead>

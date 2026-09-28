@@ -54,7 +54,8 @@ import {
   type TaskQuoteBookOption,
 } from "../../lib/procurementApi";
 import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement } from "../data";
-import { BuyerComboInput, DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
+import { DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { TplusSupplierSelect } from "./TplusSupplierSelect";
 import { SampleTestAssignmentDialog } from "./SampleTestAssignmentDialog";
 
@@ -424,7 +425,7 @@ function ActionModal({
 }) {
   const { t } = useI18n();
   const { kind, task, confirm } = pending;
-  const { resolveUserId } = useBuyerDirectory();
+  const { users: departmentMembers } = useBuyerDirectory({ departmentOnly: true });
   const navigate = useNavigate();
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDraft[]>([]);
@@ -437,7 +438,8 @@ function ActionModal({
   const [orderedQtyEdited, setOrderedQtyEdited] = useState(false);
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
-  const [buyer, setBuyer] = useState(task.buyer);
+  const [buyerUserId, setBuyerUserId] = useState("");
+  const selectedBuyer = departmentMembers.find(member => member.id === buyerUserId && member.canReceiveTasks !== false);
   const [quotes, setQuotes] = useState<Quotation[]>([]);
   const [quoteBookOptions, setQuoteBookOptions] = useState<TaskQuoteBookOption[]>([]);
   const [quoteBookMaterialId, setQuoteBookMaterialId] = useState<string | null>(task.materialId ?? null);
@@ -742,12 +744,11 @@ function ActionModal({
       return;
     }
     if (kind === "reassign") {
-      if (!buyer.trim()) {
-        fail(t("请填写采购负责人"));
+      if (!selectedBuyer) {
+        fail(t("请选择当前采购部门中可接收任务的成员"));
         return;
       }
-      // 命中用户目录时同步落 buyerUserId（同名冲突时只存名字）
-      void execute(() => reassignProcTask(task.id, buyer.trim(), resolveUserId(buyer.trim())), t("已转派"));
+      void execute(() => reassignProcTask(task.id, selectedBuyer.name, selectedBuyer.id), t("已转派"));
     }
   };
 
@@ -769,7 +770,7 @@ function ActionModal({
       : kind === "receive"
         ? qty.trim() ? 1 : 0
         : kind === "reassign"
-          ? buyer.trim() ? 1 : 0
+          ? selectedBuyer ? 1 : 0
           : 0;
 
   return (
@@ -1199,7 +1200,17 @@ function ActionModal({
           )}
 
           {kind === "reassign" && (
-            <div><span className={label}>{t("采购负责人")}</span><BuyerComboInput ariaLabel={t("采购负责人")} value={buyer} onChange={(value) => { setBuyer(value); setFormError(""); }} className={field} /></div>
+            <div><span className={label}>{t("采购负责人")}</span>
+              <Select disabled={busy} value={selectedBuyer?.id ?? ""} onValueChange={(value) => { setBuyerUserId(value); setFormError(""); }}>
+                <SelectTrigger aria-label={t("采购负责人")} className={field}><SelectValue placeholder={t("请选择采购部门成员")} /></SelectTrigger>
+                <SelectContent>
+                  {departmentMembers.map(member => <SelectItem key={member.id} value={member.id} disabled={member.canReceiveTasks === false}>
+                    {member.name}{departmentMembers.filter(other => other.name === member.name).length > 1 ? `（${member.id}）` : ""}{member.canReceiveTasks === false ? ` · ${t("暂无接收权限")}` : ""}
+                  </SelectItem>)}
+                  {departmentMembers.length === 0 && <div role="status" className="px-3 py-2 text-sm text-muted-foreground">{t("暂无可选部门成员，请稍后重试")}</div>}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </div>
 

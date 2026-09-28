@@ -14,7 +14,7 @@ function deferred() { let resolve; const promise = new Promise((res) => { resolv
 function fixture(editor, overrides = {}) {
   let slot = 0, initialized = false;
   const slots = [], effects = [], cleanups = [], writes = [], saved = [];
-  const options = { nodes: [{ id: 'root', productId: 'p1', parentId: null, name: '制氧机' }, { id: 'sub', productId: 'p1', parentId: 'root', name: '阀系统' }], models: ['Q7'], users: [{ id: 'u1', name: '现场人', canReport: true, canCollaborate: true }] };
+  const options = { nodes: [{ id: 'root', productId: 'p1', parentId: null, name: '制氧机' }, { id: 'root2', productId: 'p2', parentId: null, name: '其他产品' }, { id: 'sub', productId: 'p1', parentId: 'root', name: '阀系统' }], devices: [{ id: 'd1', productRootId: 'root', productLine: 'Q7', name: 'Q7', revisions: [{ id: 'r1', version: 1 }] }, { id: 'd2', productRootId: 'root2', productLine: 'Other', name: 'Other', revisions: [{ id: 'r2', version: 1 }] }], models: ['Q7'], users: [{ id: 'u1', name: '现场人', canReport: true, canCollaborate: true }] };
   const plan = { id: 'plan-1', productId: 'p1', productLine: 'Q7', version: 3, targetQty: 200, shipmentTargetQty: 180, bom: [{ id: 'bom1', code: 'V01', name: '阀体', unit: '件', qtyPer: 2 }], batches: [{ id: 'b1', code: '第一批', quantity: 100 }, { id: 'b2', code: '第二批', quantity: 100 }] };
   const bindings = {
     React: { createElement: (type, props, ...children) => { const resolved = { ...props, children: children.length === 1 ? children[0] : children }; return typeof type === 'function' ? type(resolved) : { type, props: resolved }; } },
@@ -36,12 +36,59 @@ function fixture(editor, overrides = {}) {
 }
 const change = (f, label, value) => { const field = find(f.render(), (row) => row.type === 'Field' && row.props.label === label); assert.ok(field, label); find(field, (row) => ['Input', 'NativeSelect', 'Textarea'].includes(row.type)).props.onChange({ target: { value } }); };
 const submit = (f) => find(f.render(), (row) => row.type === 'form').props.onSubmit({ preventDefault() {} });
+
+test('协同转派提交原异常、期限、待补资料与验证安排',async()=>{
+ const f=fixture({action:'assign-quality',quality:{id:'q1',updatedAt:'2026-09-16T01:00:00.000Z'}});await flush();
+ for(const [label,value] of [['研发或协同处理人','u1'],['协同期限','2026-09-30'],['待补资料','尺寸复核记录'],['验证安排','现场复测三件'],['操作依据与原因','需研发核对']])change(f,label,value);
+ await submit(f);assert.equal(f.writes[0].data.qualityId,'q1');assert.equal(f.writes[0].data.dueDate,'2026-09-30');assert.equal(f.writes[0].data.requiredInfo,'尺寸复核记录');assert.equal(f.writes[0].data.verificationPlan,'现场复测三件');
+});
+
+
+test('调整作业预填原日期负责人数量，仅提交可调整字段与原任务ID', async () => {
+  const task = {id:'task-1',name:'装配',date:'2026-09-03',line:'一线',ownerId:'u1',ownerName:'现场人',quantity:200,unit:'台'};
+  const f=fixture({action:'adjust',task});await flush();
+  const field=(label)=>find(find(f.render(),row=>row.type==='Field'&&row.props.label===label),row=>['Input','NativeSelect'].includes(row.type));
+  assert.equal(field('调整后作业日期').props.value,'2026-09-03');
+  assert.equal(field('现场负责人').props.value,'u1'); assert.equal(field('调整后目标（台）').props.value,'200');
+  change(f,'调整后目标（台）','180'); change(f,'产线或工位','二线'); change(f,'操作依据与原因','剩余作业转线');
+  await submit(f); assert.deepEqual(f.writes[0].data,{reason:'剩余作业转线',taskId:'task-1',date:'2026-09-03',line:'二线',ownerId:'u1',quantity:180});
+  assert.equal(f.writes[0].action,'adjust');assert.equal(task.quantity,200);
+});
+test('检验必须选类型工序，派工 SIP 只读，提交本次初检而不提交复验数量', async () => {
+  const task={id:'task-1',name:'装配',line:'一线',ownerName:'现场人',unit:'台',reports:[{id:'r1',date:'2026-09-03',quantity:50,actorName:'现场人'}],basis:{sip:'SIP V1'}};
+  const f=fixture({action:'inspect',task});
+  change(f,'操作依据与原因','按固定规范检验'); await submit(f); assert.equal(f.writes.length,0);
+  const sip=find(f.render(),row=>row.type==='Field'&&row.props.label==='SIP 依据（派工快照）');
+  assert.equal(find(sip,row=>row.type==='Input').props.readOnly,true);
+  for(const [label,value] of [['检验类型','process'],['检验工序','气密检查'],['对应报工','r1'],['本次初检数（台）','50'],['首次合格数（台）','50']])change(f,label,value);
+  await submit(f);assert.equal(f.writes[0].data.kind,'process');assert.equal(f.writes[0].data.process,'气密检查');assert.equal(f.writes[0].data.reportId,'r1');
+  assert.equal(f.writes[0].data.verifiedGoodQty,undefined);assert.equal(f.writes[0].data.document,undefined);
+});
+
 test('月度计划失败保留输入，网络重试复用请求编号，目标和月份准确提交', async () => {
   const writes = []; let count = 0;
   const f = fixture({ action: 'create' }, { createExecutionPlan: async (input) => { writes.push(input); if (++count === 1) throw new Error('网络暂时不可用'); return { id: 'new-plan' }; } }); await flush();
-  for (const [label, value] of [['所属产品', 'p1'], ['生产 BOM 型号', 'Q7'], ['月度生产目标（台）', '300'], ['月度发货目标（台）', '180'], ['操作依据与原因', '已确认目标']]) change(f, label, value);
+  for (const [label, value] of [['所属产品', 'p1'], ['生产 BOM 型号', 'd1'], ['已发布 BOM 版本', 'r1'], ['月度生产目标（台）', '300'], ['月度发货目标（台）', '180'], ['操作依据与原因', '已确认目标']]) change(f, label, value);
   await submit(f); assert.ok(find(f.render(), (row) => row.props?.role === 'alert')); assert.equal(f.saved.length, 0);
   await submit(f); assert.equal(writes.length, 2); assert.equal(writes[0].requestId, writes[1].requestId); assert.equal(writes[0].targetQty, 300); assert.equal(writes[0].shipmentTargetQty, 180); assert.equal(writes[0].month, '2026-09'); assert.deepEqual(f.saved, ['new-plan']);
+  assert.equal(writes[0].deviceId, 'd1'); assert.equal(writes[0].bomRevisionId, 'r1');
+});
+
+test('同产品多个目录根仍按设备的明确归属提供版本选择', async () => {
+  const f = fixture({ action: 'create' }, { getExecutionOptions: async () => ({ nodes: [{ id: 'root', productId: 'p1', parentId: null, name: '产品' }, { id: 'root-extra', productId: 'p1', parentId: null, name: '其他分类' }], devices: [{ id: 'd1', productRootId: 'root', productLine: 'Q7', revisions: [{ id: 'r1', version: 1 }] }], users: [] }) });
+  await flush(); change(f, '所属产品', 'p1');
+  const field = find(f.render(), n => n.type === 'Field' && n.props.label === '生产 BOM 型号');
+  assert.ok(find(field, n => n.type === 'option' && n.props.value === 'd1'));
+});
+
+test('切换产品清空设备和版本，不能残留跨产品发布选择', async () => {
+  const f = fixture({ action: 'create' }); await flush();
+  change(f, '所属产品', 'p1'); change(f, '生产 BOM 型号', 'd1'); change(f, '已发布 BOM 版本', 'r1');
+  change(f, '所属产品', 'p2');
+  for (const label of ['生产 BOM 型号', '已发布 BOM 版本']) {
+    const field = find(f.render(), row => row.type === 'Field' && row.props.label === label);
+    assert.equal(find(field, row => row.type === 'NativeSelect').props.value, '');
+  }
 });
 test('指定批次编制作业保持原批次，领料提交编码与每件用量而非伪造库存', async () => {
   const f = fixture({ action: 'task', batchId: 'b2' }); await flush();

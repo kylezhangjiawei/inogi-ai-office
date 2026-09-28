@@ -117,7 +117,7 @@ export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocale
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
   pending_rd_review: { label: "待继续转采购", pill: "border-[var(--primary-soft-border)] bg-accent text-primary" },
-  pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
+  pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "接收采购需求" },
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
   inquiring: { label: "询价中", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "完成询价" },
   pending_sample: { label: "待到样", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "样品已到" },
@@ -129,6 +129,15 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
   completed: { label: "已完成", pill: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   cancelled: { label: "已取消", pill: "border-slate-200 bg-slate-100 text-slate-500" },
 };
+
+/**
+ * 卡片上的动作文案必须说明真实业务动作。
+ * 研发流转的 pending_confirm 是审核节点，采购自建任务则是接收需求。
+ */
+export function procurementNextAction(task: Pick<ProcurementTask, "status" | "source">) {
+  if (task.status === "pending_confirm" && task.source === "rd") return "审核通过";
+  return PROC_STATUS_META[task.status].next;
+}
 
 /**
  * 只能登记免费样品来货的状态，与服务端 PROC_FREE_SAMPLE_ONLY_STATUSES 一致。
@@ -144,7 +153,17 @@ export const QUOTE_RESETTABLE_STATUSES: ProcStatus[] = ["inquiring", "pending_sa
 
 /** 询价长流程 / 直购短流程步骤条节点。 */
 export const INQUIRY_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
-export const DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "completed"];
+export const DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "partial_arrival", "completed"];
+
+export function procurementStepsOf(task: Pick<ProcurementTask, "method" | "status" | "needSample">) {
+  const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
+  const currentIndex = flow.indexOf(task.status);
+  return flow.map((status, index) => {
+    const skipped = !task.needSample && (status === "pending_sample" || status === "testing")
+      && task.status !== "pending_sample" && task.status !== "testing";
+    return { status, skipped, current: index === currentIndex, completed: !skipped && index < currentIndex };
+  });
+}
 
 // 与服务端回退规则一致；关联研发任务的需求还可退回研发继续转采购。
 const ROLLBACK_MAIN_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];

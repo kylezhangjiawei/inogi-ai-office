@@ -28,6 +28,14 @@ function text(tree) {
 const plan = { id: "plan-q5", planType: "machine", productId: "product-q5", treeNodeId: "assembly", productLine: "Q5", productionTaskId: "production-1", materialName: "Q5整机", targetQty: 100, unit: "套", remainingQty: 100, batches: [], tasks: [], updatedAt: "2026-09-08T12:00:00Z" };
 const readiness = { summary: { currentBuildableSets: 1, withTransitBuildableSets: 2, targetGapAfterTransit: 98 }, dataQuality: { provisional: false, totalBomLines: 136 } };
 
+test('备货核算未知库存不显示为零，已知零仍显示 0', () => {
+  const ast = ts.createSourceFile('StockPlanPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const fn = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'quantity');
+  const compiled = ts.transpileModule(fn.getText(ast) + '\nreturn quantity;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const quantity = new Function(compiled)();
+  assert.equal(quantity(null), '待核对'); assert.equal(quantity(undefined), '待核对'); assert.equal(quantity(0), '0');
+});
+
 function fixture(component, props, api = {}) {
   const states = [], effects = [], calls = [], saved = [], navigations = [];
   let cursor = 0, tree, closed = 0;
@@ -48,6 +56,8 @@ function fixture(component, props, api = {}) {
   };
   const request = (name) => async (...args) => {
     calls.push({ name, args });
+    if (!api[name] && name === 'readBomDeviceOptions') return { devices: [{ productRoot: { productId: 'product-q5' }, productLine: 'Q5', revisions: [{ id: 'revision-q5', version: 1 }] }] };
+    if (!api[name] && name === 'listProcTaskTree') return { roots: [] };
     return api[name] ? api[name](...args) : plan;
   };
   const deps = {
@@ -56,6 +66,7 @@ function fixture(component, props, api = {}) {
     "react-router": { useNavigate: () => (value) => navigations.push(value), useSearchParams: () => [new URLSearchParams(), () => {}], useLocation: () => ({ pathname: '/proc-cockpit', search: '', state: null }) },
     "../../hooks/usePermission": { usePermission: () => true },
     "./StockPlanOrderDateCheck": { StockPlanOrderDateCheck: 'StockPlanOrderDateCheck' },
+    "./StockPlanBomBasis": { StockPlanBomBasis: 'StockPlanBomBasis' },
     "../../lib/i18n": { useI18n: () => ({ t: (value, params = {}) => value.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match) }) },
     "../../components/ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
     "../data": { useProcurementProducts: () => [{ id: "product-q5", name: "Q5" }, { id: "product-q7", name: "Q7" }], refreshProcurement: async () => {} },
@@ -135,13 +146,15 @@ test("整机表单保留来源型号和目标，同步防重入且失败后行�
   view.render();
   assert.equal(view.field("所属产品").props.disabled, true);
   assert.equal(view.field("所属子系统").props.disabled, true);
+  await view.runEffects();
+  view.change('已发布 BOM 版本', 'revision-q5');
   const submit = view.form().props.onSubmit;
   const first = submit({ preventDefault() {} });
   await submit({ preventDefault() {} });
   view.close();
   assert.equal(view.closed, 0);
-  assert.equal(view.calls.length, 1);
-  const input = view.calls[0].args[0];
+  assert.equal(view.calls.filter(call => call.name === 'createProcStockPlan').length, 1);
+  const input = view.calls.find(call => call.name === 'createProcStockPlan').args[0];
   assert.deepEqual([input.planType, input.productId, input.treeNodeId, input.productLine, input.productionTaskId, input.targetQty, input.materialName], ["machine", "product-q5", "assembly", "Q5", "production-1", 100, "Q5整机"]);
   rejectSave(new Error("当前版本已变化，请刷新"));
   await first;
@@ -203,8 +216,8 @@ test("物料自由输入只绑定唯一名称，同名需明确选择编码且�
   assert.deepEqual([input.materialId, input.materialName, input.spec, input.unit], ["", "电容", "100nF", "只"]);
 });
 
-test("切换产品清除旧子系统，切换计划类型清除 BOM 型号，日期可清空", async () => {
-  const view = fixture("StockPlanFormDialog", { materials: [], plan: { ...plan, targetDate: "2026-09-30" } });
+test("新计划切换产品清除旧子系统，切换计划类型清除 BOM 型号，日期可清空", async () => {
+  const view = fixture("StockPlanFormDialog", { materials: [], defaults: { planType: 'machine', materialName: '整机', targetQty: 100, targetDate: "2026-09-30" } });
   view.render();
   view.change("所属产品", "product-q7");
   assert.equal(view.field("所属子系统").props.value, "");
@@ -221,11 +234,11 @@ test("切换产品清除旧子系统，切换计划类型清除 BOM 型号，日
   view.change("计划类型", "packaging");
   view.change("计划完成日期", "");
   await view.form().props.onSubmit({ preventDefault() {} });
-  const input = view.calls.find((call) => call.name === "updateProcStockPlan").args[1];
+  const input = view.calls.find((call) => call.name === "createProcStockPlan").args[0];
   assert.deepEqual([input.productId, input.treeNodeId, input.productLine, input.targetDate, input.planType], ["", "", "", "", "packaging"]);
 });
 
-test("整机缺 BOM 型号时行内提示且不发送请求，补选后可以提交", async () => {
+test("整机缺 BOM 型号或有效发布版本时不提交，补选产品版本后可以提交", async () => {
   const view = fixture("StockPlanFormDialog", { materials: [], defaults: { planType: "machine", materialName: "Q5 整机", targetQty: 3, unit: "套" } });
   view.render();
   await view.form().props.onSubmit({ preventDefault() {} });
@@ -234,9 +247,14 @@ test("整机缺 BOM 型号时行内提示且不发送请求，补选后可以提
   assert.ok(nodes(view.tree).some((node) => node.props?.role === "alert" && /BOM.*型号/.test(text(node))));
   assert.equal(view.closed, 0);
   assert.equal(view.field("目标备货量").props.value, "3");
+  view.change('所属产品', 'product-q5');
   view.change("整机 BOM 型号", "Q5");
   await view.form().props.onSubmit({ preventDefault() {} });
-  assert.equal(view.calls[0].args[0].productLine, "Q5");
+  assert.equal(view.calls.filter(call => call.name === 'createProcStockPlan').length, 0);
+  await view.runEffects();
+  view.change('已发布 BOM 版本', 'revision-q5');
+  await view.form().props.onSubmit({ preventDefault() {} });
+  assert.equal(view.calls.find(call => call.name === 'createProcStockPlan').args[0].productLine, "Q5");
   assert.equal(view.closed, 1);
 });
 

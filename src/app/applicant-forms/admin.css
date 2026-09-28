@@ -114,8 +114,9 @@
 .af-record-custom-filter { grid-column: 1 / 4; align-self: end; }
 .af-record-custom-filter .af-form-two { margin-top: 12px; }
 .af-filter-actions { grid-column: 4 / -1; display: flex; justify-content: flex-end; align-items: flex-end; gap: 7px; }
-.af-table-scroll { overflow-x: auto; min-width: 0; }
+.af-table-scroll { max-height: min(48rem, max(18rem, calc(100dvh - 25rem))); overflow: auto; min-width: 0; scrollbar-gutter: stable; }
 .af-record-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; white-space: nowrap; }
+.af-record-table thead { position: sticky; top: 0; z-index: 2; }
 .af-record-table th { color: var(--muted-foreground); font-weight: 600; padding: 15px 12px; background: #fafbff; border-bottom: 1px solid var(--border-subtle); }
 .af-record-table td { padding: 15px 12px; border-bottom: 1px solid var(--border-subtle); }
 .af-record-table tbody > tr:hover { background: #fafbff; }

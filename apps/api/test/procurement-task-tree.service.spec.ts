@@ -33,6 +33,8 @@ function row(input: Partial<TreeRow> & Pick<TreeRow, 'id' | 'name'>): TreeRow {
 }
 
 function createService(prisma: Record<string, unknown>) {
+  prisma.procBomNode ??= { findFirst: async () => null };
+  prisma.procBomRevision ??= { findFirst: async () => null };
   prisma.$executeRawUnsafe ??= async () => 0;
   prisma.$transaction ??= async (callback: (client: Record<string, unknown>) => unknown) => callback(prisma);
   return new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
@@ -190,6 +192,17 @@ test('受保护的修改和删除会同时锁定目录写入与采购任务写�
     'LOCK TABLE "ProcTaskTreeNode" IN SHARE ROW EXCLUSIVE MODE',
     'LOCK TABLE "ProcTask" IN SHARE MODE',
   ]);
+});
+
+test('设备已绑定的产品根不能删除，返回可理解的冲突而非数据库错误', async () => {
+  let deletes = 0;
+  const service = createService({
+    $executeRawUnsafe: async () => undefined,
+    procTaskTreeNode: { count: async () => 1, findMany: async () => [row({ id: 'root-bound', name: '已绑定产品' })], delete: async () => { deletes++; } },
+    procTask: { findMany: async () => [] }, procBomNode: { findFirst: async () => ({ id: 'device' }) },
+  });
+  await assert.rejects(service.deleteProcTaskTreeNode('root-bound'), /BOM.*归属/);
+  assert.equal(deletes, 0);
 });
 
 test('主档后补链优先使用 T+ 编码，ERP 编码有歧义时安全跳过', async () => {

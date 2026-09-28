@@ -8,7 +8,9 @@ import { test } from "node:test";
  */
 
 const read = (rel) => readFile(new URL(rel, import.meta.url), "utf8");
-const cockpitSource = await read("../src/app/RDTaskManagementPage.tsx");
+const cockpitSource = (await Promise.all([
+  "RDTaskManagementPage.tsx", "rd/PersonTaskCockpit.tsx", "rd/CategoryTree.tsx", "rd/cockpitModel.ts", "rd/TaskAttachmentGallery.tsx",
+].map((file) => read(`../src/app/${file}`)))).join("\n");
 const workspaceSource = await read("../src/app/RDMyWorkspacePage.tsx");
 const metricsSource = await read("../src/app/lib/rdCockpitMetrics.ts");
 const hookSource = await read("../src/app/hooks/useRDCockpitData.ts");
@@ -57,14 +59,14 @@ test("一级分类的默认子项不进导航树、不进部件选择器，且�
   assert.match(rdServiceSource, /categories: ensureDefaultSubProject\(normalized\)/);
 });
 
-test("驾驶舱与个人工作台任务卡采用同一信息层级", () => {
-  // 驾驶舱：标签/附件/三点菜单 → 标题 → 摘要 → 小图带 → 进度 → 底部元数据。
+test("研发驾驶舱突出更新，个人工作台保留执行层级，两者均保留摘要和附件", () => {
+  // 驾驶舱更新流减少进度装饰，非研发分支和个人工作台仍保留进度条。
   assert.match(cockpitSource, /const taskAttachmentCount = attachmentPreview\?\.attachment_count \?\? task\.attachments/);
   assert.match(cockpitSource, /const cardPreviewSlots = 4/);
   assert.match(cockpitSource, /flex min-h-\[220px\] min-w-0 flex-col/);
   assert.match(cockpitSource, /<MoreVertical className="h-4 w-4"/);
   assert.doesNotMatch(cockpitSource, /\{\/\* 左侧渐变竖条 \*\/\}/);
-  const cockpitSummary = cockpitSource.indexOf("摘要优先使用最新进度");
+  const cockpitSummary = cockpitSource.indexOf('text={cardSummary}', cockpitSource.indexOf('const renderTaskCard = ('));
   const cockpitAttachments = cockpitSource.indexOf("<TaskAttachmentStrip", cockpitSummary);
   const cockpitProgress = cockpitSource.indexOf("进度条：与参考卡片一致");
   const cockpitMetadata = cockpitSource.indexOf("参考卡片尾部：优先级 / 截止 / 风险在左");
@@ -72,6 +74,8 @@ test("驾驶舱与个人工作台任务卡采用同一信息层级", () => {
     cockpitSummary > 0 && cockpitAttachments > cockpitSummary && cockpitProgress > cockpitAttachments && cockpitMetadata > cockpitProgress,
     "驾驶舱卡片应按摘要、附件、进度、元数据顺序展示",
   );
+  assert.match(cockpitSource, /!researchCard && <div className="mt-auto flex items-center gap-2 pt-0.5"/);
+  assert.match(cockpitSource, /researchCard && task\.progress > 0/);
 
   // 个人工作台保持相同结构；批量加载当前可见任务附件，协同池不误用研发池预览。
   assert.match(workspaceSource, /fetchRdTaskAttachmentPreviews\(missingIds/);

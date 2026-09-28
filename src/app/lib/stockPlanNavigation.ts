@@ -5,29 +5,41 @@ export interface StockPlanViewState {
   month: string;
   keyword: string;
   status: 'all' | 'not_started' | 'in_progress' | 'completed';
+  supplier: string;
+  creator: string;
+  page: number;
+  pageSize: number;
   expanded: string[];
   focusId?: string;
 }
 export interface StockPlanScope { productId?: string; treeNodeId?: string }
 export const MAX_STOCK_PLAN_EXPANDED = 50;
-const STOCK_KEYS = ['stockType', 'stockMonth', 'stockQ', 'stockStatus', 'stockOpen', 'stockFocus'];
+const STOCK_KEYS = ['stockType', 'stockMonth', 'stockQ', 'stockStatus', 'stockSupplier', 'stockCreator', 'stockPage', 'stockPageSize', 'stockOpen', 'stockFocus'];
 const ALLOWED_KEYS = new Set([...STOCK_KEYS, 'tab', 'view', 'product', 'module', 'moduleTab']);
 const TYPES = new Set(['all', 'machine', 'packaging', 'material']);
 const STATUSES = new Set(['all', 'not_started', 'in_progress', 'completed']);
+const PAGE_SIZES = new Set(['10', '20', '50']);
 const UNSAFE = /[\\\u0000-\u001f\u007f]/;
 const validText = (value: unknown, limit: number): value is string => typeof value === 'string' && value.length > 0
   && value.length <= limit && value === value.trim() && !UNSAFE.test(value);
 const validMonth = (value: string) => /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(value);
+const validPage = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100_000;
+const validPageText = (value: unknown): value is string => typeof value === 'string' && /^[1-9]\d{0,5}$/.test(value) && validPage(Number(value));
 
 export function parseStockPlanViewState(input: string | URLSearchParams): StockPlanViewState {
   const params = typeof input === 'string' ? new URLSearchParams(input.length <= 16_384 ? input : '') : input;
   const one = (key: string) => params.getAll(key).length === 1 ? params.get(key) : null;
   const type = one('stockType'), month = one('stockMonth'), keyword = one('stockQ'), status = one('stockStatus'), focusId = one('stockFocus');
+  const supplier = one('stockSupplier'), creator = one('stockCreator'), page = one('stockPage'), pageSize = one('stockPageSize');
   return {
     planType: TYPES.has(type ?? '') ? type as StockPlanViewState['planType'] : 'all',
     month: month && validMonth(month) ? month : '',
     keyword: keyword && keyword.length <= 200 && !UNSAFE.test(keyword) ? keyword : '',
     status: STATUSES.has(status ?? '') ? status as StockPlanViewState['status'] : 'all',
+    supplier: validText(supplier, 256) ? supplier : '',
+    creator: validText(creator, 256) ? creator : '',
+    page: validPageText(page) ? Number(page) : 1,
+    pageSize: PAGE_SIZES.has(pageSize ?? '') ? Number(pageSize) : 10,
     expanded: [...new Set(params.getAll('stockOpen').filter((id) => validText(id, 128)))].slice(0, MAX_STOCK_PLAN_EXPANDED),
     ...(validText(focusId, 128) ? { focusId } : {}),
   };
@@ -46,6 +58,10 @@ export function writeStockPlanViewParams(params: URLSearchParams, view: StockPla
   if (validMonth(view.month)) params.set('stockMonth', view.month);
   if (view.keyword && view.keyword.length <= 200 && !UNSAFE.test(view.keyword)) params.set('stockQ', view.keyword);
   if (STATUSES.has(view.status) && view.status !== 'all') params.set('stockStatus', view.status);
+  if (validText(view.supplier, 256)) params.set('stockSupplier', view.supplier);
+  if (validText(view.creator, 256)) params.set('stockCreator', view.creator);
+  if (validPage(view.page) && view.page !== 1) params.set('stockPage', String(view.page));
+  if (typeof view.pageSize === 'number' && PAGE_SIZES.has(String(view.pageSize)) && view.pageSize !== 10) params.set('stockPageSize', String(view.pageSize));
   const expanded = [...new Set(view.expanded.filter((id) => validText(id, 128)))].slice(0, MAX_STOCK_PLAN_EXPANDED);
   for (const id of expanded) params.append('stockOpen', id);
   if (validText(view.focusId, 128)) params.set('stockFocus', view.focusId);
@@ -81,6 +97,9 @@ export function stockPlanReturnPath(state: unknown): string | null {
       if (!validText(value, 128) || expanded.has(value)) return null;
       expanded.add(value); if (expanded.size > MAX_STOCK_PLAN_EXPANDED) return null;
     } else if (['product', 'module', 'stockFocus'].includes(key)) { if (!validText(value, 128)) return null;
+    } else if (['stockSupplier', 'stockCreator'].includes(key)) { if (!validText(value, 256)) return null;
+    } else if (key === 'stockPage') { if (!validPageText(value)) return null;
+    } else if (key === 'stockPageSize') { if (!PAGE_SIZES.has(value)) return null;
     } else if (key === 'stockQ') { if (!value || value.length > 200 || UNSAFE.test(value)) return null;
     } else if (key === 'stockType') { if (!TYPES.has(value)) return null;
     } else if (key === 'stockStatus') { if (!STATUSES.has(value)) return null;

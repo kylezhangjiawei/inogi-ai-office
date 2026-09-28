@@ -280,3 +280,21 @@ test("转派选择刷新后剔除已完成和删除任务，保留搜索隐藏�
   assert.deepEqual([...retainAvailableProcurementSelection(deselectedVisible, reopenedIds)], ["hidden-active"], "已剔除选择不会随任务重新开放而恢复");
   assert.deepEqual([...retainAvailableProcurementSelection(refreshed, new Set())], [], "所有任务均失效时提交集合为空");
 });
+
+test('保存后的任务状态不被在途旧刷新覆盖，后续新快照仍正常合并', async () => {
+  const store = procurementStoreFixture();
+  const initial = store.api.refreshProcurement();
+  store.requests[0].resolve([{ id: 'task-1', status: 'pending_inquiry' }]);
+  await initial;
+  const older = store.api.refreshProcurement();
+  store.api.applyProcTaskUpdate({ id: 'task-1', status: 'inquiring' }, store.api.captureProcurementScope());
+  const queued = store.api.refreshProcurement();
+  store.requests[1].resolve([{ id: 'task-1', status: 'pending_inquiry' }]);
+  await older;
+  assert.equal(store.render().tasks[0].status, 'inquiring', '旧响应不能使步骤回退');
+  await new Promise(setImmediate);
+  store.requests[2].resolve([{ id: 'task-1', status: 'inquiring', quotationTotal: 100 }]);
+  await queued;
+  assert.equal(store.render().tasks[0].quotationTotal, 100);
+  assert.equal(store.render().loading, false);
+});

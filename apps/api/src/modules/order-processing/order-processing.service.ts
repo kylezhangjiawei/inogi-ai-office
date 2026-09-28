@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InventoryStockService } from '../inventory-stock/inventory-stock.service';
+import { OrderStockService } from './order-stock.service';
+import { retiredInventoryWrite } from './retired-inventory';
+import type { ProcActor } from '../procurement/procurement.types';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PDFParse } from 'pdf-parse';
 
@@ -135,10 +139,12 @@ export class OrderProcessingService {
     private readonly ocrService: OcrService,
     private readonly mailIngestionService: MailIngestionService,
     private readonly secureConfigService: SecureConfigService,
+    private readonly inventoryStock: InventoryStockService = new InventoryStockService(prisma),
+    private readonly orderStock: OrderStockService = new OrderStockService(prisma, inventoryStock),
   ) {}
 
-  async getWorkbench(query: Record<string, unknown>) {
-    await this.ensureInitialized();
+  async getWorkbench(query: Record<string, unknown>, actor: ProcActor) {
+    this.orderStock.access(actor);
     const source = this.toSource(query.source);
     const orderQ = this.toString(query.q);
     const orderPage = this.toPage(query.orderPage);
@@ -170,6 +176,13 @@ export class OrderProcessingService {
     const selectedOrderSummary = requestedOrder ? this.toOrderSummary(requestedOrder) : queue.items[0] ?? null;
     const selectedOrder = selectedOrderSummary ? await this.getOrderRow(selectedOrderSummary.id) : null;
     const orderDetails = selectedOrder ? this.toOrderDetail(selectedOrder) : null;
+    const rawWarehouses = query.warehouses;
+    if (rawWarehouses !== undefined && (typeof rawWarehouses !== 'string' || rawWarehouses.length > 5000)) throw new BadRequestException('仓库范围无效');
+    const warehouses = typeof rawWarehouses === 'string' ? rawWarehouses.split('|').map(value => value.trim()).filter(Boolean) : [];
+    if (orderDetails && selectedOrder) {
+      const checks = await this.orderStock.check(selectedOrder.products, { kind: 'selected', warehouses });
+      orderDetails.products = orderDetails.products.map(product => ({ ...product, stockCheck: checks.find(row => row.lineId === product.lineId) }));
+    }
     const productRows = orderDetails ? this.paginate(orderDetails.products, productPage, productPageSize) : this.paginate([], productPage, productPageSize);
 
     return {
@@ -536,236 +549,44 @@ export class OrderProcessingService {
     return { reminderRule, message: '提醒规则已保存' };
   }
 
-  async getInventory(query: Record<string, unknown>) {
-    await this.ensureInitialized();
-    const q = this.toString(query.q);
-    const category = this.toString(query.category);
-    const status = this.toString(query.status);
-    const page = this.toPage(query.page);
-    const pageSize = this.toPageSize(query.pageSize, DEFAULT_PAGE_SIZE);
-    const dateRange = this.resolveInventoryDateRange(query);
-    const movementDateWhere = this.buildMovementDateWhere(dateRange);
-    const scopedMovementItems = dateRange
-      ? await this.prisma.orderProcessingStockMovement.findMany({
-          where: movementDateWhere,
-          distinct: ['itemId'],
-          select: { itemId: true },
-        })
-      : [];
-    const scopedItemIds = dateRange ? scopedMovementItems.map((item) => item.itemId) : null;
-    const where = this.buildInventoryWhere(q, category, status, scopedItemIds);
-
-    const [total, rows, allRows, categories, recentMovements] = await Promise.all([
-      this.prisma.orderProcessingInventoryItem.count({ where }),
-      this.prisma.orderProcessingInventoryItem.findMany({
-        where,
-        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.orderProcessingInventoryItem.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] }),
-      this.prisma.orderProcessingInventoryItem.findMany({
-        distinct: ['category'],
-        select: { category: true },
-        orderBy: { category: 'asc' },
-      }),
-      this.prisma.orderProcessingStockMovement.findMany({
-        where: movementDateWhere,
-        orderBy: { createdAt: 'desc' },
-        take: 8,
-      }),
-    ]);
-
-    return {
-      summary: this.buildInventorySummary(allRows.map((item) => this.toInventoryItem(item))),
-      inventory: this.paginateRows(rows.map((item) => this.toInventoryItem(item)), total, page, pageSize),
-      categories: categories.map((item) => item.category),
-      statuses: ['正常', '偏低', '缺货'] satisfies InventoryStatus[],
-      recentMovements: recentMovements.map((movement) => this.toStockMovement(movement)),
-    };
+  async getInventory(query: Record<string, unknown>, actor: ProcActor) {
+    this.inventoryAccess(actor);
+    return this.inventoryStock.inventory(query);
   }
 
-  async getInventoryDetail(itemId: string) {
-    await this.ensureInitialized();
-    const item = await this.prisma.orderProcessingInventoryItem.findUnique({ where: { id: itemId } });
-    if (!item) throw new NotFoundException(`商品 ${itemId} 不存在`);
-
-    const [movements, relatedProducts] = await Promise.all([
-      this.prisma.orderProcessingStockMovement.findMany({
-        where: { itemId },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      }),
-      this.prisma.orderProcessingOrderProduct.findMany({
-        where: { sku: itemId },
-        include: { order: true },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      }),
-    ]);
-
-    return {
-      item: this.toInventoryItem(item),
-      movements: movements.map((movement) => this.toStockMovement(movement)),
-      relatedOrders: relatedProducts.map((product) => ({
-        ...this.toOrderProduct(product),
-        orderId: product.orderId,
-        customer: product.order.customer,
-        date: this.formatDate(product.order.shipDate),
-      })),
-    };
+  async getInventoryDetail(itemId: string, actor: ProcActor) {
+    this.inventoryAccess(actor);
+    const view = await this.inventoryStock.inventory({ q: itemId, pageSize: 10000 });
+    const item = view.inventory.items.find(row => row.id === itemId);
+    if (!item) throw new NotFoundException('库存物料不存在');
+    return { item, movements: view.ledgerMovements.filter(row => row.itemId === itemId), relatedOrders: [], source: 'tplus', readOnly: true };
   }
 
   async recognizeStockIn(files: UploadedFileLike[] = []) {
-    await this.ensureInitialized();
-    if (files.length === 0) throw new BadRequestException('请选择入库单据文件');
-    const stockIn = await this.parseStockInFiles(files);
-    const fields = [
-      stockIn.businessDate ? 'date' : null,
-      stockIn.supplier ? 'supplier' : null,
-      stockIn.poNumber ? 'po' : null,
-      stockIn.handler ? 'handler' : null,
-      ...stockIn.items.map((_, index) => `item-${index}`),
-    ].filter(Boolean);
-    return {
-      files: files.map((file) => ({ name: file.originalname, size: this.formatFileSize(file.size ?? 0) })),
-      fields,
-      stockIn,
-      confidence: stockIn.items.length > 0 ? 0.86 : 0,
-      message: '单据已解析，请人工复核后入库',
-    };
+    return retiredInventoryWrite();
   }
 
   async createStockIn(payload: Record<string, unknown>) {
-    await this.ensureInitialized();
-    const items = this.toStockItems(payload.items);
-    if (items.length === 0) throw new BadRequestException('至少需要一项入库商品');
-    const handler = this.toString(payload.handler) || '当前用户';
-    const supplier = this.toString(payload.supplier);
-    const poNumber = this.toString(payload.poNumber);
-    const documentNo = this.toString(payload.documentNo);
-    const warehouse = this.toString(payload.warehouse);
-    const businessDate = this.toOptionalDate(payload.businessDate, '入库日期');
-    const remark = this.toString(payload.remark);
-    const changedSkus = items.map((item) => item.id);
-
-    await this.prisma.$transaction(async (tx) => {
-      for (const row of items) {
-        const item = await tx.orderProcessingInventoryItem.findUnique({ where: { id: row.id } });
-        if (!item) throw new NotFoundException(`商品 ${row.id} 不存在`);
-        const updated = await tx.orderProcessingInventoryItem.update({
-          where: { id: row.id },
-          data: {
-            stock: { increment: row.qty },
-            inboundPending: Math.max(0, item.inboundPending - row.qty),
-          },
-        });
-        await tx.orderProcessingInventoryItem.update({
-          where: { id: row.id },
-          data: { status: this.computeInventoryStatus({ stock: updated.stock, safe: updated.safe }) },
-        });
-        await tx.orderProcessingStockMovement.create({
-          data: {
-            id: `MV-${Date.now()}-${row.id}-${Math.random().toString(36).slice(2, 7)}`,
-            itemId: item.id,
-            itemName: item.name,
-            type: 'in',
-            qty: row.qty,
-            operator: handler,
-            note: `${supplier ? `${supplier} · ` : ''}${poNumber ? `关联 ${poNumber}` : documentNo ? `入库单 ${documentNo}` : '手工入库'}${warehouse ? ` · ${warehouse}` : ''}${remark ? ` · ${remark}` : ''}`,
-            relatedOrderId: poNumber || undefined,
-            documentNo: documentNo || undefined,
-            warehouse: warehouse || undefined,
-            supplier: supplier || undefined,
-            businessDate: businessDate ?? undefined,
-            metadata: { stockInType: this.toString(payload.type) || 'purchase' },
-          },
-        });
-      }
-    });
-
-    await this.refreshProductChecksForSkus(changedSkus);
-    const inventory = await this.prisma.orderProcessingInventoryItem.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
-    return { message: '入库已确认', summary: this.buildInventorySummary(inventory.map((item) => this.toInventoryItem(item))), inventory: inventory.map((item) => this.toInventoryItem(item)) };
+    return retiredInventoryWrite();
   }
 
   async createStockOut(itemId: string, payload: Record<string, unknown>) {
-    await this.ensureInitialized();
-    const qty = this.toPositiveInteger(payload.qty, '出库数量');
-    const operator = this.toString(payload.operator) || '当前用户';
-
-    await this.prisma.$transaction(async (tx) => {
-      const item = await tx.orderProcessingInventoryItem.findUnique({ where: { id: itemId } });
-      if (!item) throw new NotFoundException(`商品 ${itemId} 不存在`);
-      const updatedRows = await tx.orderProcessingInventoryItem.updateMany({
-        where: { id: itemId, stock: { gte: qty } },
-        data: {
-          stock: { decrement: qty },
-          outboundPending: Math.max(0, item.outboundPending - qty),
-        },
-      });
-      if (updatedRows.count === 0) throw new BadRequestException('出库数量不能超过当前库存');
-      const updated = await tx.orderProcessingInventoryItem.findUnique({ where: { id: itemId } });
-      if (!updated) throw new NotFoundException(`商品 ${itemId} 不存在`);
-      await tx.orderProcessingInventoryItem.update({
-        where: { id: itemId },
-        data: { status: this.computeInventoryStatus({ stock: updated.stock, safe: updated.safe }) },
-      });
-      await tx.orderProcessingStockMovement.create({
-        data: {
-          id: `MV-${Date.now()}-${item.id}-${Math.random().toString(36).slice(2, 7)}`,
-          itemId: item.id,
-          itemName: item.name,
-          type: 'out',
-          qty,
-          operator,
-          note: this.toString(payload.note) || '手工出库',
-        },
-      });
-    });
-
-    await this.refreshProductChecksForSkus([itemId]);
-    return this.getInventoryDetail(itemId);
+    return retiredInventoryWrite();
   }
 
   async adjustInventory(itemId: string, payload: Record<string, unknown>) {
-    await this.ensureInitialized();
-    const operator = this.toString(payload.operator) || '当前用户';
-    const nextStock = this.toNonNegativeInteger(payload.stock, '调整后库存');
-
-    await this.prisma.$transaction(async (tx) => {
-      const item = await tx.orderProcessingInventoryItem.findUnique({ where: { id: itemId } });
-      if (!item) throw new NotFoundException(`商品 ${itemId} 不存在`);
-      const diff = nextStock - item.stock;
-      await tx.orderProcessingInventoryItem.update({
-        where: { id: itemId },
-        data: {
-          stock: nextStock,
-          status: this.computeInventoryStatus({ stock: nextStock, safe: item.safe }),
-        },
-      });
-      await tx.orderProcessingStockMovement.create({
-        data: {
-          id: `MV-${Date.now()}-${item.id}-${Math.random().toString(36).slice(2, 7)}`,
-          itemId: item.id,
-          itemName: item.name,
-          type: 'adjust',
-          qty: Math.abs(diff),
-          operator,
-          note: this.toString(payload.note) || `库存调整 ${diff >= 0 ? '+' : '-'}${Math.abs(diff)}`,
-        },
-      });
-    });
-
-    await this.refreshProductChecksForSkus([itemId]);
-    return this.getInventoryDetail(itemId);
+    return retiredInventoryWrite();
   }
 
-  async exportInventory(query: Record<string, unknown>) {
-    const result = await this.getInventory({ ...query, page: 1, pageSize: 10000 });
+  private inventoryAccess(actor: ProcActor) {
+    if (!actor?.id || !actor.permissions.some(code => code === '*' || code === 'page:inventory-management')) throw new ForbiddenException('没有查看库存管理的权限');
+  }
+
+  async exportInventory(query: Record<string, unknown>, actor: ProcActor) {
+    const result = await this.getInventory({ ...query, page: 1, pageSize: 10000 }, actor);
     const lines = [
-      'SKU,Name,Category,Spec,Stock,Safe,Inbound,Outbound,Status',
-      ...result.inventory.items.map((item) => [item.id, item.name, item.category, item.spec, item.stock, item.safe, item.in, item.out, item.status].map((cell) => this.csvCell(cell)).join(',')),
+      'SKU,Name,Category,Spec,Stock,Available,Safe,Inbound,Status,Issues',
+      ...result.inventory.items.map((item) => [item.id, item.name, item.category, item.spec, item.stock ?? '待核对', item.available ?? '待核对', item.safe, item.in, item.status, item.ledgerIssues.join('；')].map((cell) => this.csvCell(cell)).join(',')),
     ];
     return {
       fileName: `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -775,7 +596,6 @@ export class OrderProcessingService {
   }
 
   async getPurchaseOrders(query: Record<string, unknown>) {
-    await this.ensureInitialized();
     const page = this.toPage(query.page);
     const pageSize = this.toPageSize(query.pageSize, 50);
     const where = this.buildPurchaseOrderWhere(query);
@@ -805,7 +625,6 @@ export class OrderProcessingService {
   }
 
   async getPurchaseOrder(idOrPoNo: string) {
-    await this.ensureInitialized();
     const decoded = decodeURIComponent(idOrPoNo);
     const order = await this.prisma.orderProcessingPurchaseOrder.findFirst({
       where: { OR: [{ id: decoded }, { poNo: decoded }] },
@@ -856,11 +675,7 @@ export class OrderProcessingService {
       await this.ensureSettings();
     }
 
-    // 一次性清理历史版本遗留的演示订单 / 库存 / 出入库 / 采购订单数据。
-    await this.clearLegacyDemoSeedData();
-    // v2：v1 的时间护栏（createdAt < 2026-06-03）把晚于该时间入库的演示数据保护了下来，
-    // 线上因此仍显示演示 SKU/采购单。经业务确认这批固定 ID 无人真实使用，按 ID 精确补删。
-    await this.clearLegacyDemoSeedDataV2();
+    // Historical data cleanup is deliberately not part of any request initialization.
   }
 
   private async clearLegacyDemoSeedDataV2() {
@@ -1391,13 +1206,12 @@ export class OrderProcessingService {
   }
 
   private async getTemplatesAndSettings() {
-    await this.ensureSettings();
     const [templates, activeSetting, reminderSetting] = await Promise.all([
       this.prisma.orderProcessingInvoiceTemplate.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.orderProcessingSetting.findUnique({ where: { key: ACTIVE_TEMPLATE_SETTING } }),
       this.prisma.orderProcessingSetting.findUnique({ where: { key: REMINDER_RULE_SETTING } }),
     ]);
-    const mappedTemplates = templates.map((template) => this.toTemplate(template));
+    const mappedTemplates = templates.length ? templates.map((template) => this.toTemplate(template)) : createInitialOrderProcessingState().templates;
     const activeCandidate = this.settingString(activeSetting?.value);
     const activeTemplateId = mappedTemplates.some((template) => template.id === activeCandidate) ? activeCandidate : mappedTemplates[0]?.id ?? 'weoxy';
     return {
@@ -1940,7 +1754,7 @@ export class OrderProcessingService {
 
   private async parseUploadedOrder(file: UploadedFileLike, state: OrderProcessingState, index: number): Promise<ParsedOrderDraft> {
     const extracted = await this.extractUploadedDocument(file, '订货单');
-    const catalog = this.buildCatalog(state);
+    const catalog = await this.buildCatalog(state);
     const meta = this.extractOrderMeta(extracted);
     const products = this.extractOrderProducts(extracted.rows, extracted.text, catalog);
     if (products.length === 0) {
@@ -2021,7 +1835,7 @@ export class OrderProcessingService {
       text: documents.map((document) => document.text).filter(Boolean).join('\n'),
       provider: documents.some((document) => document.provider !== 'mail') ? documents.find((document) => document.provider !== 'mail')?.provider ?? 'mail' : 'mail',
     };
-    const catalog = this.buildCatalog(state);
+    const catalog = await this.buildCatalog(state);
     const meta = this.extractOrderMeta(extracted);
     const products = this.extractOrderProducts(extracted.rows, extracted.text, catalog);
     if (products.length === 0) return null;
@@ -2103,7 +1917,7 @@ export class OrderProcessingService {
 
   private async parseStockInFiles(files: UploadedFileLike[]): Promise<ParsedStockInDraft> {
     const state = await this.getStateSnapshot();
-    const catalog = this.buildCatalog(state);
+    const catalog = await this.buildCatalog(state);
     const extractedDocs = await Promise.all(files.map((file) => this.extractUploadedDocument(file, '入库单据')));
     const rows = extractedDocs.flatMap((doc) => doc.rows);
     const text = extractedDocs.map((doc) => doc.text).join('\n');
@@ -2389,8 +2203,8 @@ export class OrderProcessingService {
   }): OrderProduct {
     const stockQty = input.catalogItem?.stock ?? 0;
     const sysPrice = input.catalogItem?.sysPrice && input.catalogItem.sysPrice > 0 ? input.catalogItem.sysPrice : input.orderPrice;
-    const status = input.catalogItem ? this.computeProductStatus({ stockQty, orderQty: input.orderQty, orderPrice: input.orderPrice, sysPrice }) : '库存不足';
-    const remark = input.catalogItem ? this.computeProductRemark({ stockQty, orderQty: input.orderQty, orderPrice: input.orderPrice, sysPrice }) : '未匹配库存 SKU';
+    const status: ProductCheckStatus = Math.abs(input.orderPrice - sysPrice) > 0.01 ? '价格差异' : '库存待核对';
+    const remark = '库存需按正式物料和明确出货仓库即时核对，识别结果不构成库存预留';
     return {
       id: input.id,
       name: input.name,
@@ -2407,46 +2221,20 @@ export class OrderProcessingService {
     };
   }
 
-  private buildCatalog(state: OrderProcessingState) {
+  private async buildCatalog(state: OrderProcessingState) {
     const catalog = new Map<string, CatalogItem>();
-    for (const item of state.inventory) {
-      catalog.set(item.id.toUpperCase(), {
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        spec: item.spec,
-        unit: '件',
-        stock: item.stock,
-        sysPrice: 0,
-      });
-    }
-    for (const detail of Object.values(state.orderDetails)) {
-      for (const product of detail.products) {
-        const key = product.id.toUpperCase();
-        const existing = catalog.get(key);
-        catalog.set(key, {
-          id: product.id,
-          name: product.name,
-          category: product.category,
-          spec: product.spec,
-          unit: product.unit,
-          stock: existing?.stock ?? product.stockQty,
-          sysPrice: this.parseCurrency(product.sysPrice || product.orderPrice),
-        });
-      }
+    const materials = await this.prisma.procMaterial.findMany({ where: { reviewStatus: 'approved', tpInventoryCode: { not: null } }, select: { id: true, tpInventoryCode: true, name: true, category: true, spec: true, unit: true } });
+    for (const material of materials) {
+      if (!material.tpInventoryCode?.trim()) continue;
+      const previous = Object.values(state.orderDetails).flatMap(detail => detail.products).find(product => product.id.trim() === material.tpInventoryCode!.trim() && product.unit.trim() === material.unit.trim());
+      catalog.set(material.tpInventoryCode.trim(), { id: material.tpInventoryCode, name: material.name, category: material.category, spec: material.spec, unit: material.unit, stock: 0, sysPrice: previous ? this.parseCurrency(previous.sysPrice || previous.orderPrice) : 0 });
     }
     return catalog;
   }
 
   private matchCatalogItem(catalog: Map<string, CatalogItem>, sku: string, name: string) {
-    const normalizedSku = sku.toUpperCase().replace('_', '-');
-    if (normalizedSku && catalog.has(normalizedSku)) return catalog.get(normalizedSku);
-    const normalizedName = this.normalizeKey(name);
-    if (!normalizedName) return undefined;
-    return Array.from(catalog.values()).find((item) => {
-      const itemName = this.normalizeKey(item.name);
-      return itemName === normalizedName || itemName.includes(normalizedName) || normalizedName.includes(itemName);
-    });
+    // Name similarity is never identity evidence for a customer order.
+    return sku.trim() ? catalog.get(sku.trim()) : undefined;
   }
 
   private findHeaderRow(rows: string[][], skuLabels: string[], qtyLabels: string[]) {

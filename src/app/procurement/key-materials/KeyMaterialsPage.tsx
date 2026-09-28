@@ -1,59 +1,55 @@
-import { KeyMaterialMonthlyPanel } from './KeyMaterialMonthlyPanel';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
-import { Boxes, Check, ChevronLeft, ChevronRight, Loader2, RefreshCw, Search } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import { Boxes, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { useAuth } from '../../auth';
 import { Button } from '../../components/ui/button';
-import { Card } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { NativeSelect } from '../../components/ui/native-select';
 import { Skeleton } from '../../components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../../components/ui/alert-dialog';
-import { OrderPageHeader } from '../../order-processing/components/HorizonPage';
-import { usePermission } from '../../hooks/usePermission';
+import { HorizonPageHeader } from '../../components/horizon/HorizonPage';
 import { useI18n } from '../../lib/i18n';
-import { routePath } from '../../lib/routePaths';
 import { getKeyMaterialDirectory, getKeyMaterialHistory, saveKeyMaterialMapping, searchKeyMaterials, type KeyMaterial, type KeyMaterialClue, type KeyMaterialDirectory, type KeyMaterialMapping } from '../../lib/keyMaterialsApi';
-import '../../order-processing/horizon.css';
+import { KeyMaterialMonthlyPanel } from './KeyMaterialMonthlyPanel';
+import { KeyMaterialDirectoryView } from './KeyMaterialDirectoryView';
+import { KeyMaterialFormalDirectory } from './KeyMaterialFormalDirectory';
+import { keyMaterialSearch } from './keyMaterialWorkspaceModel';
+import './key-materials-workspace.css';
 
-const number = (value?: number | null) => value == null ? '待补齐' : value.toLocaleString('zh-CN', { maximumFractionDigits: 3 });
 export function KeyMaterialsPage() {
-  const { t } = useI18n();
-  const [params, setParams] = useSearchParams();
+  const { user } = useAuth();
+  return <KeyMaterialsWorkspace key={JSON.stringify([user?.id, [...(user?.permissions ?? [])].sort()])} />;
+}
+function KeyMaterialsWorkspace() {
+  const { t } = useI18n(), [params, setParams] = useSearchParams();
   const [data, setData] = useState<KeyMaterialDirectory | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(true), [version, setVersion] = useState(0);
   const [selected, setSelected] = useState<KeyMaterialClue | null>(null);
-  const canMaterials = usePermission('page:proc-materials');
-  const query = params.get('q') || '', filter = params.get('filter') || 'all';
+  const view = params.get('clue') || params.get('view') === 'review' ? 'review' : params.get('view') === 'monthly' ? 'monthly' : 'directory';
+  const detail = Boolean(params.get('material') || params.get('clue'));
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
-    getKeyMaterialDirectory(controller.signal).then((value) => { if (!controller.signal.aborted) setData(value); })
-      .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : t('目录读取失败')); })
+    getKeyMaterialDirectory(controller.signal).then(value => { if (!controller.signal.aborted) setData(value); })
+      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : t('目录读取失败')); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [version, t]);
-  const materials = useMemo(() => new Map(data?.materials.map((row) => [row.id, row]) ?? []), [data]);
-  const clues = data?.clues.filter((row) => {
-    const details = row.mapping.materialIds.map((id) => materials.get(id));
-    const missing = !details.length || details.some((material) => !material || material.available == null || !material.syncedAt);
-    return (filter !== 'unverified' || missing || !row.mapping.at) && `${row.id} ${row.name} ${row.group} ${details.map((material) => `${material?.name} ${material?.tpInventoryCode} ${material?.spec}`).join(' ')}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
-  }) ?? [];
-  function change(key: string, value: string) { setParams((previous) => { const next = new URLSearchParams(previous); value ? next.set(key, value) : next.delete(key); return next; }); }
-  return <main className="order-horizon mx-auto w-full max-w-7xl space-y-5 p-4 sm:p-6">
-    <OrderPageHeader Icon={Boxes} eyebrow={t('供应链 / S18')} title={t('关键物料')} description={t('从会议线索核对正式料号，查看同一份物料与库存记录。')} actions={<Button variant="outline" disabled={loading} onClick={() => setVersion((value) => value + 1)}><RefreshCw className="size-4" aria-hidden="true" />{t('刷新')}</Button>} />
-    <KeyMaterialMonthlyPanel />
-    <Card className="gap-4 p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-balance font-semibold">{t('全量核对目录')}</h2><p className="mt-1 text-pretty text-sm text-muted-foreground">{t('31 条线索不等于 31 个 SKU；同料多条线索只引用同一个正式物料。')}</p></div><span className="text-sm tabular-nums text-muted-foreground">{data ? `${data.clues.filter((row) => row.mapping.at).length} / 31 ${t('已核对')}` : '—'}</span></div><div className="flex flex-wrap items-center gap-3"><div className="relative min-w-56 flex-1"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" aria-hidden="true" /><Input aria-label={t('搜索关键物料')} value={query} onChange={(event) => change('q', event.target.value)} placeholder={t('搜索名称、正式编码或规格')} className="pl-9" /></div><NativeSelect aria-label={t('目录范围')} value={filter} onChange={(event) => change('filter', event.target.value)}><option value="all">{t('全部线索')}</option><option value="unverified">{t('资料待核')}</option></NativeSelect></div></Card>
-    {error ? <Card role="alert" className="p-5"><p className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={() => setVersion((value) => value + 1)}>{t('重新加载')}</Button></Card> : loading ? <div role="status" aria-label={t('加载目录')} className="space-y-3">{[0, 1, 2].map((key) => <Skeleton key={key} className="h-28 w-full rounded-2xl" />)}</div> : clues.length === 0 ? <Card className="p-8 text-center"><p className="text-muted-foreground">{t('没有匹配的线索')}</p><Button variant="outline" onClick={() => { setParams((previous) => { const next = new URLSearchParams(previous); next.delete('q'); next.delete('filter'); return next; }); }}>{t('清除筛选')}</Button></Card> : <div className="space-y-3">{clues.map((clue) => <Card key={clue.id} className="gap-3 p-4 sm:p-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs text-muted-foreground">{clue.id} · {clue.group}</p><h2 className="mt-1 text-balance text-base font-semibold">{clue.name}</h2><p className="mt-1 text-pretty text-sm text-muted-foreground">{clue.check}</p></div><Button variant="outline" size="sm" onClick={() => setSelected(clue)}>{t(data?.canReview ? '核对料号' : '核对记录')}</Button></div>
-      {!clue.mapping.materialIds.length ? <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">{t(clue.mapping.inclusion === 'excluded' ? '已确认不纳入，核对依据已保留。' : clue.mapping.inclusion === 'pending' ? '纳入范围待确认。' : '待关联正式物料；无需求或无缺料时仍保留本条。')}</p> : <div className="divide-y divide-border">{clue.mapping.materialIds.map((id) => {
-        const material = materials.get(id); const code = material?.tpInventoryCode || material?.erpCode;
-        return <div key={id} className="grid gap-3 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_8rem]"><div className="min-w-0"><p className="font-medium">{material?.name ?? t('关联物料已不可用，请重新核对')}</p><p className="mt-1 break-words text-xs text-muted-foreground">{code || id} · {material?.spec} · {material?.productLine}</p>{canMaterials && code && <Link className="mt-2 inline-block text-xs text-primary underline-offset-4 hover:underline" to={`${routePath('page:proc-materials', '/proc-materials')}?materialCode=${encodeURIComponent(code)}`}>{t('查看库存、订单与物料详情')}</Link>}</div><div><p className="text-xs text-muted-foreground">{t('量产仓可用')}</p><p className="mt-1 tabular-nums">{number(material?.available)} {material?.unit}</p></div><div><p className="text-xs text-muted-foreground">{t('ERP 在途')}</p><p className="mt-1 tabular-nums">{number(material?.inTransit)} {material?.unit}</p></div><p className="text-xs text-muted-foreground sm:col-span-3">{t('库存同步')}：{material?.syncedAt ? new Date(material.syncedAt).toLocaleString() : t('待补齐')} · {t('当前库存快照，不代表所选月份历史库存或按期齐套。')}</p></div>;
-      })}</div>}
-      {clue.mapping.at && <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><Check className="size-3.5" aria-hidden="true" />{clue.mapping.actorName} · {new Date(clue.mapping.at).toLocaleString()} · {clue.mapping.note}</p>}
-    </Card>)}</div>}
-    <p className="text-pretty text-xs leading-5 text-muted-foreground">{t('“CFO”“西安美”保留为待核原词，不自动创建物料或供应商。塑料与硅胶范围须按正式明细逐项核对。')}</p>
-    {selected && data && <KeyMaterialMappingDialog key={selected.id} clue={selected} materials={data.materials} canReview={data.canReview} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); setVersion((value) => value + 1); }} />}
+  return <main className={`horizon-theme km-workspace${detail ? "" : " km-workspace--list"}`}>
+    <HorizonPageHeader Icon={Boxes} eyebrow={t('供应链管理')} title={t('关键物料')} className="km-workspace-command"
+      meta={!detail ? <Tabs value={view} onValueChange={value => setParams(current => keyMaterialSearch(current, { view: value === 'directory' ? null : value, material: null, clue: null }))}><TabsList className="km-workspace-tabs" aria-label={t('关键物料视图')}><TabsTrigger value="directory" id="km-directory-tab" aria-controls="km-directory-panel">{t('全量目录')}</TabsTrigger><TabsTrigger value="monthly" id="km-monthly-tab" aria-controls="km-monthly-panel">{t('月度跟踪')}</TabsTrigger><TabsTrigger value="review" id="km-review-tab" aria-controls="km-review-panel">{t('资料核对')}</TabsTrigger></TabsList></Tabs> : undefined}
+      actions={<Button variant="outline" disabled={loading} onClick={() => setVersion(value => value + 1)}><RefreshCw className="size-4" aria-hidden="true" />{t('刷新目录')}</Button>} />
+    <div className="km-workspace-content" role={detail ? undefined : 'tabpanel'} id={detail ? undefined : `km-${view}-panel`} aria-labelledby={detail ? undefined : `km-${view}-tab`}>
+    {params.get('material') || view === 'monthly' ? <KeyMaterialMonthlyPanel key={version} />
+      : error ? <section role="alert" className="km-workspace-surface p-5"><p className="text-sm text-destructive">{error}</p><Button className="mt-3" variant="outline" onClick={() => setVersion(value => value + 1)}>{t('重新加载')}</Button></section>
+        : loading ? <div role="status" aria-label={t('加载目录')} className="space-y-3">{[0, 1, 2].map(key => <Skeleton key={key} className="h-20 w-full rounded-xl" />)}</div>
+          : data && (view === 'review' ? <KeyMaterialDirectoryView data={data} onReview={setSelected} /> : <KeyMaterialFormalDirectory data={data} onSaved={() => setVersion(value => value + 1)} />)}
+    </div>
+    {!detail && view === 'review' && <p className="text-pretty text-xs leading-5 text-muted-foreground">{t('会议线索不等于正式 SKU。原核对记录保留；已退出物料不会因旧映射重新纳入。')}</p>}
+    {selected && data && <KeyMaterialMappingDialog key={selected.id} clue={selected} materials={data.materials} canReview={data.canReview} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); setVersion(value => value + 1); }} />}
   </main>;
 }
 

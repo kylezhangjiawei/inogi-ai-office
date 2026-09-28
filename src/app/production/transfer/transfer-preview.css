@@ -24,11 +24,11 @@
 .tp-context span { display:block; color:var(--order-muted); font-size:11px; margin-bottom:5px; }
 .tp-context strong { font-size:15px; font-weight:650; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .tp-context p { font-size:12px; margin-top:6px; line-height:1.7; color:var(--order-muted); }
-.tp-workflow { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); background:var(--order-surface); border:1px solid var(--order-line-strong); border-radius:var(--m3-shape-card); padding:12px 16px; margin:12px 0 16px; gap:8px; box-shadow:var(--shadow-card); }
-.tp-workflow > span { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--order-muted); }
-.tp-workflow b { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; flex-shrink:0; border:1px solid var(--order-line-strong); border-radius:50%; font-size:11px; font-weight:500; }
-.tp-workflow .tp-step-done { color:var(--primary); }
-.tp-step-done b { border-color:var(--primary); background:var(--primary); color:white; }
+.tp-status-summary { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; background:var(--order-surface); border:1px solid var(--order-line-strong); border-radius:var(--m3-shape-card); padding:14px 16px; margin:12px 0 16px; box-shadow:var(--shadow-card); }
+.tp-status-summary > div { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.tp-status-summary > div + div { border-left:1px solid var(--order-line); padding-left:14px; }
+.tp-status-summary span,.tp-status-summary small { color:var(--order-muted); font-size:11px; }
+.tp-status-summary strong { font-size:15px; font-weight:650; overflow-wrap:anywhere; }
 .tp-workspace { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(340px,1fr); gap:20px; align-items:start; }
 .tp-main,.tp-sidebar { min-width:0; }
 .tp-sidebar { display:flex; flex-direction:column; gap:14px; }
@@ -93,4 +93,4 @@
 #transfer-details,#transfer-actions { scroll-margin-top:16px; }
 @media (max-width:1199px) and (min-width:1000px) { .transfer-preview { padding:20px; } .tp-workspace { grid-template-columns:minmax(0,1.65fr) minmax(310px,1fr); gap:16px; } .tp-panel,.tp-action-form { padding:14px; } .tp-tabs > [data-slot=tabs-trigger] { padding:8px; font-size:12px; } }
 @media (max-width:999px) { .tp-workspace { grid-template-columns:1fr; } .tp-mobile-jump { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; } .tp-mobile-jump button,.tp-back { color:var(--primary); text-decoration:underline; text-underline-offset:3px; padding:10px 0; font-size:12px; cursor:pointer; } .tp-back { display:block; width:fit-content; } }
-@media (max-width:639px) { .transfer-preview { padding:12px; } .transfer-preview .order-horizon-command { padding:14px; } .tp-preview-note { flex-direction:column; gap:0; } .tp-filters { grid-template-columns:1fr 1fr; gap:12px; } .tp-search { grid-column:1/-1; } .tp-picker { flex-wrap:wrap; gap:8px; padding:12px; } .tp-picker [data-slot=select-trigger] { order:3; width:100%; } .tp-context { grid-template-columns:1fr 1fr; padding:12px; gap:12px; } .tp-context > div { border:0; padding:0; } .tp-context > div:last-child { grid-column:1/-1; padding-top:10px; border-top:1px solid var(--order-line); } .tp-workflow { padding:10px; gap:7px; } .tp-workflow > span { flex-direction:column; gap:6px; font-size:10px; } .tp-panel,.tp-action-form { padding:14px; } .tp-tabs > [data-slot=tabs-trigger] { padding:8px 10px; font-size:12px; } .tp-sheet { padding:20px; } }
+@media (max-width:639px) { .transfer-preview { padding:12px; } .transfer-preview .order-horizon-command { padding:14px; } .tp-preview-note { flex-direction:column; gap:0; } .tp-filters { grid-template-columns:1fr 1fr; gap:12px; } .tp-search { grid-column:1/-1; } .tp-picker { flex-wrap:wrap; gap:8px; padding:12px; } .tp-picker [data-slot=select-trigger] { order:3; width:100%; } .tp-context { grid-template-columns:1fr 1fr; padding:12px; gap:12px; } .tp-context > div { border:0; padding:0; } .tp-context > div:last-child { grid-column:1/-1; padding-top:10px; border-top:1px solid var(--order-line); } .tp-status-summary { grid-template-columns:1fr 1fr; padding:12px; } .tp-status-summary > div + div { border-left:0; padding-left:0; } .tp-status-summary > div:last-child { grid-column:1/-1; border-top:1px solid var(--order-line); padding-top:10px; } .tp-panel,.tp-action-form { padding:14px; } .tp-tabs > [data-slot=tabs-trigger] { padding:8px 10px; font-size:12px; } .tp-sheet { padding:20px; } }

@@ -10,17 +10,18 @@ import { useVisibleNavigation } from "../lib/useVisibleNavigation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import logo from "../../assets/logo.png";
 import { Button } from "./ui/button";
+import { initialCollapsedGroups } from "../lib/navigationGroupState";
 
-/** 被用户收起的菜单分组（存分组 label）。默认全展开，只记收起的那些。 */
+/** 首次仅展开当前模块；已有偏好原样保留，不随路由强制重置。 */
 const NAV_GROUP_COLLAPSED_KEY = "inogi-nav-collapsed-groups";
 
-function readCollapsedGroups(): Set<string> {
-  if (typeof window === "undefined") return new Set();
+function readCollapsedGroups(pathname: string): Set<string> {
+  const labels = navGroups.map(group => group.label);
+  const owner = navGroups.find(group => group.items.some(item => isNavItemActive(item, pathname)));
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(NAV_GROUP_COLLAPSED_KEY) ?? "[]");
-    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
+    return initialCollapsedGroups(labels, owner?.label, typeof window === 'undefined' ? null : window.localStorage.getItem(NAV_GROUP_COLLAPSED_KEY));
   } catch {
-    return new Set();
+    return initialCollapsedGroups(labels, owner?.label, null);
   }
 }
 
@@ -43,7 +44,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
   const sidebarRef = useRef<HTMLElement>(null);
   const navScrollRef = useRef<HTMLElement>(null);
 
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(readCollapsedGroups);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups(pathname));
 
   const toggleGroup = useCallback((label: string) => {
     setCollapsedGroups((current) => {
@@ -54,24 +55,6 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       return next;
     });
   }, []);
-
-  // 目标页所在分组是收起的就自动展开——否则跳过去只看到一片收起的分组，当前页在哪都不知道。
-  // 初值取 null 而不是 pathname：首屏与刷新同样要展开当前页所在分组，那恰恰是最需要它的场景。
-  // 之后只在路由「变化」时做，用户手动收起当前分组不会被立刻顶开。
-  const lastPathRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (lastPathRef.current === pathname) return;
-    lastPathRef.current = pathname;
-    const owner = navGroups.find((group) => group.items.some((item) => isNavItemActive(item, pathname)));
-    if (!owner) return;
-    setCollapsedGroups((current) => {
-      if (!current.has(owner.label)) return current;
-      const next = new Set(current);
-      next.delete(owner.label);
-      persistCollapsedGroups(next);
-      return next;
-    });
-  }, [pathname]);
 
   const userInitial = user?.name?.trim().slice(0, 1) || "U";
 
@@ -132,7 +115,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
     <div
       className={cn(
         "rd-horizon-sidebar-frame relative h-full shrink-0",
-        mobile ? "w-full" : immersive ? "w-0" : collapsed ? "w-[76px]" : "w-64 min-[1920px]:w-[280px]",
+        mobile ? "w-full" : immersive ? "w-0" : collapsed ? "w-[76px]" : "w-[var(--sidebar-width)]",
       )}
     >
       <div className="h-full w-full overflow-hidden">
@@ -143,7 +126,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
           data-mobile={mobile || undefined}
           className={cn(
             "rd-horizon-global-sidebar flex h-full flex-col border-r",
-            mobile ? "w-full" : collapsed ? "w-[76px] items-center" : "w-64 min-[1920px]:w-[280px]",
+            mobile ? "w-full" : collapsed ? "w-[76px] items-center" : "w-[var(--sidebar-width)]",
           )}
         >
           <div

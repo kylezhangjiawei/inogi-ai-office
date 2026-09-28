@@ -9,7 +9,7 @@ function source(path) {
 const stylesEntry = source("src/styles/index.css");
 const horizon = source("src/styles/horizon.css");
 const horizonPage = source("src/app/components/horizon/HorizonPage.tsx");
-const production = source("src/app/RDTaskManagementPage.tsx");
+const production = ["src/app/RDTaskManagementPage.tsx", "src/app/rd/PersonTaskCockpit.tsx"].map(source).join("\n");
 const ebpr = source("src/app/EBPRPage.tsx");
 const inspection = source("src/app/InspectionReleasePage.tsx");
 const bugLog = source("src/app/BugLogPage.tsx");

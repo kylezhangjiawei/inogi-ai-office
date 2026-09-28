@@ -58,30 +58,43 @@ import {
 import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { ResourceDownloadLink } from "./components/ResourceDownloadLink";
 import { refreshRdAttachment } from "./lib/attachmentAccess";
-import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
+import {
+  AttachmentPreviewModal,
+  ProgressAttachmentGrid,
+  TaskImageGallery,
+  TaskImageGalleryScope,
+  formatRdFileSize,
+  formatTraceDateTime,
+} from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import { getProductionStockPlanSource } from './lib/procurementOperationsApi';
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
-  WorkItemsSection,
+  buildSubtaskParentIndex,
+  collectTopLevelTasks,
+  displayPersonName,
+  type PersonProfile,
+} from "./rd/taskModel";
+import { WorkItemsSection } from './rd/WorkItemsSection';
+import {
   HandoverDialog,
   AddCollaboratorsDialog,
   CompleteConfirmDialog,
   ApprovalActionDialog,
-  MoveTaskDialog,
   SubmitConfirmDialog,
-  TaskCompletionScoreCard,
-  blobToDataUrl,
-  buildSubtaskParentIndex,
-  collectTopLevelTasks,
-  displayPersonName,
-  flattenTasks,
-  OwnerAvatar,
-  SubtaskBadge,
-  type PersonProfile,
-} from "./RDTaskManagementPage";
-import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
+} from "./rd/TaskActionDialogs";
+import { MoveTaskDialog } from './rd/MoveTaskDialog';
+import { TaskCompletionScoreCard } from './rd/TaskCompletionScoreCard';
+import { blobToDataUrl } from './rd/taskReport';
+import { flattenTasks } from './lib/rdCockpitMetrics';
+import { OwnerAvatar, SubtaskBadge } from './rd/TaskIdentity';
+import {
+  ProcurementActivitySection,
+  ProcurementLinkChip,
+  TransferToProcurementModal,
+  useProcurementTaskLink,
+} from "./procurement/components/rdInsertion";
 import { TechnicalDocumentsPanel } from "./rd/TechnicalDocumentsPanel";
 import "./rd/rdTaskDetail.css";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
@@ -729,6 +742,12 @@ export default function RDTaskDetailPage() {
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
+      })
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt);
+        const rightTime = Date.parse(right.createdAt);
+        if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+        return rightTime - leftTime;
       });
   }, [groupNotes]);
   const detailFacts = useMemo(() => {

@@ -45,6 +45,7 @@ test("采购弹窗和键盘交互继续使用项目可访问原语", () => {
   const quoteImport = sources["报价导入"];
   const quoteForm = sources["报价编辑"];
   const taskDetail = sources["任务详情"];
+  const detailFrame = source("src/app/procurement/components/ProcurementDetailFrame.tsx");
   const systemTree = sources["采购系统树"];
   const taskCard = sources["采购任务卡"];
 
@@ -58,7 +59,9 @@ test("采购弹窗和键盘交互继续使用项目可访问原语", () => {
 
   assert.match(quoteForm, /<Sheet open/);
   assert.match(quoteForm, /aria-label=\{t\("预览商品图片"\)\}/);
-  assert.match(taskDetail, /<Sheet open/);
+  assert.match(taskDetail, /<ProcurementDetailFrame page=\{page\}/);
+  assert.match(detailFrame, /<Sheet open/);
+  assert.match(detailFrame, /onCloseAutoFocus=\{onCloseAutoFocus\}/);
   assert.match(taskDetail, /<AlertDialog open=/);
   assert.match(taskDetail, /<Collapsible\b[^>]*\bopen=\{logsOpen\}/);
 
@@ -80,7 +83,7 @@ test("采购视觉改造保留核心数据和写操作契约", () => {
   assert.match(sources["物料详情"], /reviewMaterial\(material\.id, reviewStatus/);
   assert.match(sources["任务移动"], /moveProcTasks\(/);
   assert.match(sources["人员管理抽屉"], /batchReassignProcTasks\(/);
-  assert.match(sources["采购人员页面"], /batchReassignProcTasks\(/);
+  for (const action of ["addBuyerRosterMember", "removeBuyerRosterMember", "updateBuyerRosterMember"]) assert.ok(sources["采购人员页面"].includes(action + "("));
   assert.match(sources["重点物料"], /setProcTaskCriticalMaterials\(task\.id, items\)/);
   assert.match(sources["任务详情"], /listQuotations\(\{ taskId: task\.id \}\)/);
   assert.match(sources["采购系统树"], /listProcTaskTree\(/);
