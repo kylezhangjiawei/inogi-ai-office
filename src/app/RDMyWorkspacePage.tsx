@@ -960,7 +960,7 @@ function TaskOperationDrawer({
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const directTaskChanges = !isUsCollabWorkspace() && !isProductionWorkspace();
   const directChangePending = directTaskChanges && task.status === "pending_review"
-    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
+    && ["proposal", "result", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
   // 已完成任务只读：仅保留「任务详情」页签，屏蔽进度/移交/提交等会改状态的操作。
   const isTaskCompleted = task.status === "completed";
   const [tab, setTab] = useState<OperationTab>(isTaskCompleted || directChangePending ? "detail" : initialTab);
@@ -1259,7 +1259,7 @@ function TaskOperationDrawer({
     { key: "discussion", label: t("任务讨论"), icon: MessageSquare, count: discussionUnread },
     { key: "progress", label: t("更新进度"), icon: RefreshCw },
     { key: "handoff", label: t("移交协作"), icon: GitBranch },
-    { key: "submit", label: t("提交结果"), icon: Send },
+    { key: "submit", label: t(directTaskChanges ? "标记完成" : "提交结果"), icon: Send },
   ];
 
   const flowSteps =
@@ -1279,7 +1279,7 @@ function TaskOperationDrawer({
         ? [
             { label: t("整理交付物"), helper: t("确认资料完整"), state: "current" as const },
             { label: t("风险自检"), helper: t("检查阻塞和遗漏"), state: "todo" as const },
-            { label: t("提交审核"), helper: t("流转给上级"), state: "todo" as const },
+            { label: t(directTaskChanges ? "确认完成" : "提交审核"), helper: t(directTaskChanges ? "立即生效，无需审核" : "流转给上级"), state: "todo" as const },
           ]
         : [
             { label: t("填写进展"), helper: t("更新百分比和说明"), state: "done" as const },
@@ -1481,11 +1481,21 @@ function TaskOperationDrawer({
 
   const submitResult = () => {
     onRequestConfirm({
-      title: t("确认提交成果验收"),
-      message: t("将把 {taskId} 提交上级进行成果验收。", { taskId: task.task_id }),
-      confirmLabel: t("确认提交"),
-      details: [t("请确认交付物、风险说明和测试记录已补齐"), t("进度将标记为 100%（待验收，非完成）"), t("验收通过后任务才标记完成；被驳回则退回继续")],
+      title: t(directTaskChanges ? "标记任务完成" : "确认提交成果验收"),
+      message: directTaskChanges ? `${task.task_id} · ${task.title}` : t("将把 {taskId} 提交上级进行成果验收。", { taskId: task.task_id }),
+      confirmLabel: t(directTaskChanges ? "确认完成" : "确认提交"),
+      details: directTaskChanges
+        ? [t("请确认交付物、风险说明和测试记录已补齐"), t("确认后立即生效，无需审核")]
+        : [t("请确认交付物、风险说明和测试记录已补齐"), t("进度将标记为 100%（待验收，非完成）"), t("验收通过后任务才标记完成；被驳回则退回继续")],
       onConfirm: async () => {
+        if (directTaskChanges) {
+          await updateRdTask(task.task_id, { status: "completed", pending_review_type: null, progress: 100 });
+          toast.success(t("任务已标记完成"));
+          onLog(`${task.task_id} ${t("任务已标记完成")}`);
+          await onTaskChanged();
+          onClose();
+          return;
+        }
         await updateRdTask(task.task_id, { status: "pending_review", pending_review_type: "result", progress: 100 });
         toast.success(`${task.task_id} 已提交成果验收`);
         onLog(`${task.task_id} 已提交成果验收`);
@@ -1553,8 +1563,7 @@ function TaskOperationDrawer({
     task.role === "primary" &&
     ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
 
-  // 转采购：与任务详情页同一套权限（proc-task:transfer 操作码）与弹窗。提交后先经
-  // 研发管理员审核（rd-procurement:review），通过才流转采购并分配采购负责人。仅研发工作台可见。
+  // 转采购：与任务详情页同一套权限和弹窗，直接进入采购受理，无研发前置审核。
   const navigate = useNavigate();
   const canTransferProcPermission = usePermission("proc-task:transfer");
   const { task: procTask, setTask: setProcTask } = useProcurementTaskLink(isUsCollabWorkspace() ? undefined : task.task_id);
@@ -2711,7 +2720,7 @@ function TaskOperationDrawer({
               <span className="text-sm font-semibold text-slate-900">{t("提交说明")}</span>
               <Textarea
                 rows={4}
-                placeholder={t("补充本次提交的结论、已知风险和需要审核人关注的重点")}
+                placeholder={t(directTaskChanges ? "请确认交付物、风险说明和测试记录已补齐" : "补充本次提交的结论、已知风险和需要审核人关注的重点")}
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               />
             </label>
@@ -2723,7 +2732,7 @@ function TaskOperationDrawer({
               {task.status !== "pending_review" && (
                 <ActionButton onClick={submitResult} variant="primary">
                   <Send className="h-3.5 w-3.5" />
-                  {t("提交审核")}
+                  {t(directTaskChanges ? "确认完成" : "提交审核")}
                 </ActionButton>
               )}
             </div>
@@ -3588,10 +3597,10 @@ function WorkspaceTaskCard({
   const isOverdue = isTaskOverdue(task);
   const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
   const isForeignWorkspace = Boolean(task.source_workspace && task.source_workspace !== currentWorkspace);
-  // 研发已取消审核的存量申请可打开并主动应用；成果与放弃仍等待审核。
+  // 研发已取消审核的存量申请可打开并主动应用；放弃仍等待审核。
   const isPendingReview = task.status === "pending_review" && !(
     !isForeignWorkspace && !isUsCollabWorkspace() && !isProductionWorkspace()
-    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "")
+    && ["proposal", "result", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "")
   );
   // 列表卡片直接发起「申请放弃」：仅主责人 + 活跃状态可见（与详情抽屉内 canAbandon 口径一致）。
   const canAbandon =
@@ -4341,7 +4350,8 @@ export function RDMyWorkspacePage() {
       if (!options?.silent) setWorkspace(EMPTY_WORKSPACE);
       setLoadError(error instanceof Error ? error.message : "个人工作台接口加载失败");
     } finally {
-      if (requestSeq === workspaceLoadSeqRef.current && !options?.silent) setLoading(false);
+      // A silent refresh can supersede the initial request and must finish its loading state.
+      if (requestSeq === workspaceLoadSeqRef.current) setLoading(false);
     }
   }, [workspaceKey]);
 

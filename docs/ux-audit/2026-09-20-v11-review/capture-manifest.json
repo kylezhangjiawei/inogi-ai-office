@@ -1,0 +1,128 @@
+[
+  {
+    "step": "01",
+    "title": "S00 全部采购任务",
+    "route": "/proc-cockpit",
+    "health": "不清晰",
+    "note": "任务视图可用；尚未形成交付总览。",
+    "screenshot": "screenshots/01-s00-cockpit.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "02",
+    "title": "G00 系统首页",
+    "route": "/",
+    "health": "受阻",
+    "note": "个人办公聚合不能回答公司交付风险。",
+    "screenshot": "screenshots/02-g00-home.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "03",
+    "title": "R00 研发驾驶舱",
+    "route": "/rd-task-management",
+    "health": "可用但不完整",
+    "note": "卡片、附件和进度已有；确认版本与关联业务不直观。",
+    "screenshot": "screenshots/03-r00-rd-cockpit.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "04",
+    "title": "R01 现有任务→技术资料",
+    "route": "/rd-task/:taskId",
+    "health": "可用但不完整",
+    "note": "技术资料页与历史能力存在；本记录资料为空，不计为缺功能。",
+    "screenshot": "screenshots/04-r01-technical-files.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "05",
+    "title": "S04 库存齐套中心",
+    "route": "/proc-inventory-readiness",
+    "health": "不清晰",
+    "note": "明确是未按到货日过滤的理论齐套；按期计算另在生产入口。",
+    "screenshot": "screenshots/05-s04-theoretical-readiness.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "06",
+    "title": "P01 批次与派工",
+    "route": "/production-execution",
+    "health": "可用但不完整",
+    "note": "正式批次、编制作业已有；缺既有作业调整和日程矩阵。",
+    "screenshot": "screenshots/06-p01-production-batches.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "07",
+    "title": "P02 现场作业",
+    "route": "/production-execution → 现场作业",
+    "health": "可用但不完整",
+    "note": "报工/检验/协同动作存在；现场不良及来源批次不足。",
+    "screenshot": "screenshots/07-p02-shop-floor.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "08",
+    "title": "P05/P10 转产与 ECN",
+    "route": "/production-execution → 转产与 ECN",
+    "health": "不清晰",
+    "note": "发布/独立验证已有；文本资料和原样品内部 ID 不利于追查。",
+    "screenshot": "screenshots/08-p10-transfer-ecn.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "09",
+    "title": "S15 齐套与占用",
+    "route": "/production-execution → 齐套与占用",
+    "health": "可用但不完整",
+    "note": "正式月度日期计算存在；当前数据不足诚实显示待核对；F01另由隔离复现确认。",
+    "screenshot": "screenshots/09-s15-monthly-readiness.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "10",
+    "title": "P00/P06 生产总览与现场待办",
+    "route": "/production-dashboard",
+    "health": "受阻",
+    "note": "能进入作业，未聚合质量/样品/ECN全类待办。",
+    "screenshot": "screenshots/10-p00-production-overview.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "11",
+    "title": "S00 选零任务采购负责人",
+    "route": "/proc-cockpit → 采购负责人",
+    "health": "受阻",
+    "note": "任务流0，但顶部仍12/6/3；F10实测复现。",
+    "screenshot": "screenshots/11-s00-person-filter.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "12",
+    "title": "S03 样品协同",
+    "route": "/proc-cockpit → 样品协同",
+    "health": "可用但不完整",
+    "note": "左右分栏、图片位置和实际时间已实现；验证依据较深，类型门槛不足。",
+    "screenshot": "screenshots/12-s03-sample-workspace.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "13",
+    "title": "S01 全部进行中→选中采购任务",
+    "route": "/proc-my-workspace",
+    "health": "可用但不完整",
+    "note": "表格分页、右详情、到货安排和原MateChat已实看；缺净采购判断。",
+    "screenshot": "screenshots/13-s01-personal-workspace.png",
+    "source": "current-run localhost browser; original unedited capture"
+  },
+  {
+    "step": "14",
+    "title": "S18 关键物料",
+    "route": "/proc-key-materials",
+    "health": "不清晰",
+    "note": "月度条目可读，检索目录在长列表后；原单导航和上下文需补齐。",
+    "screenshot": "screenshots/14-s18-key-materials.png",
+    "source": "current-run localhost browser; original unedited capture"
+  }
+]

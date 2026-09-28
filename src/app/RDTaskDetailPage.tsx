@@ -1059,7 +1059,7 @@ export default function RDTaskDetailPage() {
 
   // ── 研发侧特有动作（与驾驶舱抽屉同口径） ────────────────────────────────────
 
-  /** 仅主责人本人（且非管理员）可提交完成审核，与抽屉 canSubmitForReview 口径一致 */
+  /** 主责人可提交完成；研发直接生效，其他工作区保留审核。管理员使用单独完成入口。 */
   const isCurrentOwner = Boolean(
     task && user && (
       (task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
@@ -1087,16 +1087,12 @@ export default function RDTaskDetailPage() {
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(expectedTaskId, { status: "pending_review", progress: 100 });
-      const changes: { field: string; before: string; after: string }[] = [
-        { field: "status", before: task.status, after: "pending_review" },
-      ];
-      if (task.progress !== 100) {
-        changes.push({ field: "progress", before: String(task.progress), after: "100" });
-      }
+      await updateRdTask(expectedTaskId, researchWorkspace
+        ? { status: "completed", pending_review_type: null, progress: 100 }
+        : { status: "pending_review", progress: 100 });
       if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.success(t("任务已提交审核，等待确认"));
-      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      toast.success(t(researchWorkspace ? "任务已标记完成" : "任务已提交审核，等待确认"));
+      if (!researchWorkspace) window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
@@ -1538,7 +1534,7 @@ export default function RDTaskDetailPage() {
       {canSubmitForReview && (
         <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
           <Send className="size-3.5" aria-hidden="true" />
-          {t("提交审核")}
+          {t(researchWorkspace ? "标记完成" : "提交审核")}
         </Button>
       )}
       {canManage && task.status === "pending_review" && reviewMeta ? (
@@ -2593,6 +2589,7 @@ export default function RDTaskDetailPage() {
       )}
       {showComplete && (
         <CompleteConfirmDialog
+          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleDirectComplete()}
@@ -2601,6 +2598,7 @@ export default function RDTaskDetailPage() {
       )}
       {showSubmitConfirm && (
         <SubmitConfirmDialog
+          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleSubmitForReview()}

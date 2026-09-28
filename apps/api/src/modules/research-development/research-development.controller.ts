@@ -350,6 +350,19 @@ export class ResearchDevelopmentController {
     });
   }
 
+  @Post('task-categories/tasks/reconcile-review-policy')
+  @Permissions('rd-project:review-l1', 'rd-project:review-l2', 'rd-project:direct')
+  reconcileTaskReviewPolicy(
+    @Body() body: { dryRun?: unknown; tasks?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.reconcileTaskReviewPolicy(body ?? {}, {
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      permissions: req.user?.permissions ?? [],
+    });
+  }
+
   /** 批量转派：一次请求转派多个任务，批次号由服务端生成并写进每条留痕。 */
   @Post('task-categories/tasks/reassign-batch')
   @Permissions(...RD_TASK_MANAGER_PERMISSIONS)

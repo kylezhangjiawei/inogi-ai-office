@@ -413,10 +413,14 @@ const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'a
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
 }
-/** 研发只保留成果、放弃审核；其他工作区沿用原流程。 */
+/** 研发只保留放弃（删除）审核；其他工作区沿用原流程。 */
 function isDirectRdTaskChange(value: string): boolean {
   return currentRdWorkspace() === 'rd'
-    && ['proposal', 'collaboration', 'due_date', 'merge'].includes(value);
+    && ['proposal', 'result', 'collaboration', 'due_date', 'merge'].includes(value);
+}
+type ExpectedTaskReview = { reviewType: string; version: string };
+function taskReviewVersion(task: JsonRecord): string {
+  return createHash('sha256').update(JSON.stringify(task)).digest('hex');
 }
 /** 取审核类型中文标签；未知类型回退原值（仅用于展示，不参与裁决）。 */
 function reviewTypeLabel(value: string): string {
@@ -4205,10 +4209,101 @@ export class ResearchDevelopmentService {
     return newTasks;
   }
 
+  private assertExpectedTaskReview(task: JsonRecord, expected?: ExpectedTaskReview): void {
+    if (expected && (task.status !== 'pending_review'
+      || cleanText(task.pending_review_type) !== expected.reviewType
+      || taskReviewVersion(task) !== expected.version)) {
+      throw new ConflictException('任务在预览后已变化，请重新预览后再应用');
+    }
+  }
+
+  /** 历史策略转换是显式写操作；读取任务或预览都不自动修改存量数据。 */
+  async reconcileTaskReviewPolicy(
+    body: { dryRun?: unknown; tasks?: unknown } = {},
+    actor?: { requesterUserId?: string; requesterName?: string; permissions?: string[] },
+  ) {
+    if (currentRdWorkspace() !== 'rd') throw new ForbiddenException('该策略仅适用于研发工作区');
+    const permissions = actor?.permissions ?? [];
+    if (!['*', 'rd-project:review-l1', 'rd-project:review-l2', 'rd-project:direct'].some((code) => permissions.includes(code))) {
+      throw new ForbiddenException('需要研发审核管理员权限才能处理历史策略');
+    }
+    if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') {
+      throw new BadRequestException('dryRun 必须为布尔值');
+    }
+    const dryRun = body.dryRun !== false;
+    const skipReason = (task: JsonRecord): string | undefined => {
+      const type = cleanText(task.pending_review_type);
+      if (task.status !== 'pending_review') return '任务已不处于待处理状态';
+      if (task.archived || isProductionMirrorTask(task)) return '归档或生产映射任务不自动转换';
+      if (type === 'abandon') return '保留删除审核';
+      if (type === 'procurement_transfer') return '请通过继续转采购处理原采购单';
+      if (!isDirectRdTaskChange(type)) return '审核类型缺失或未知，需人工核实';
+      return undefined;
+    };
+    const items: Array<{ taskId: string; title: string; reviewType: string; version: string; status: string; reason?: string }> = [];
+    if (dryRun) {
+      for (const task of this.collectAllCategoryTasks(await this.readMergedTaskCategories())) {
+        if (task.status !== 'pending_review') continue;
+        const reason = skipReason(task);
+        items.push({
+          taskId: cleanText(task.task_id), title: cleanText(task.title),
+          reviewType: cleanText(task.pending_review_type), version: taskReviewVersion(task),
+          status: reason ? 'skipped' : 'ready', ...(reason ? { reason } : {}),
+        });
+      }
+    } else {
+      if (!Array.isArray(body.tasks) || !body.tasks.length || body.tasks.length > 100) {
+        throw new BadRequestException('请提交预览中的任务快照，每次 1 至 100 项');
+      }
+      const selected = body.tasks.map((value) => {
+        if (!isRecord(value) || !cleanText(value.taskId) || typeof value.reviewType !== 'string'
+          || typeof value.version !== 'string' || !/^[a-f0-9]{64}$/.test(value.version)) {
+          throw new BadRequestException('任务快照无效，请重新预览');
+        }
+        return { taskId: cleanText(value.taskId), reviewType: value.reviewType, version: value.version };
+      });
+      if (new Set(selected.map((item) => item.taskId)).size !== selected.length) {
+        throw new BadRequestException('同一任务不能在一次应用中重复提交');
+      }
+      for (const selection of selected) {
+        const item = { ...selection, title: '', status: 'skipped', reason: '' };
+        items.push(item);
+        if (!isDirectRdTaskChange(selection.reviewType)) {
+          item.reason = '该审核类型不自动转换';
+          continue;
+        }
+        try {
+          const task = await this.findTaskAcrossStores(selection.taskId);
+          if (!task || task.status !== 'pending_review') {
+            item.reason = '任务不存在或已处理';
+            continue;
+          }
+          item.title = cleanText(task.title);
+          this.assertExpectedTaskReview(task, selection);
+          const reason = skipReason(task);
+          if (reason) { item.reason = reason; continue; }
+          await this.updateTask(selection.taskId, { _review_action: 'approve' }, {
+            ...actor, canEditAny: true, expectedReview: selection,
+          });
+          item.status = 'applied';
+        } catch (error) {
+          item.status = error instanceof ConflictException ? 'conflict' : 'failed';
+          // 写入后的派生处理也可能失败；不宣称回滚，更不自动重试一次已生效的变更。
+          item.reason = error instanceof ConflictException ? error.message : '处理失败，请刷新任务状态后核实';
+        }
+      }
+    }
+    return {
+      dryRun, items,
+      counts: Object.fromEntries(['ready', 'applied', 'skipped', 'conflict', 'failed']
+        .map((status) => [status, items.filter((item) => item.status === status).length])),
+    };
+  }
+
   async updateTask(
     taskId: string,
     patch: JsonRecord,
-    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; auditBatchId?: string; permissions?: string[] },
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; auditBatchId?: string; permissions?: string[]; expectedReview?: ExpectedTaskReview },
   ) {
     // Strip private notification-metadata fields before persisting
     const {
@@ -4344,22 +4439,37 @@ export class ResearchDevelopmentService {
         if (!isRecord(t)) return t;
         if (t.task_id === taskId) {
           this.assertTaskWritable(t);
+          this.assertExpectedTaskReview(t, options?.expectedReview);
+          // 归档会从工作台移除任务，只能由合并或删除审核的服务端流程产生。
+          if (currentRdWorkspace() === 'rd'
+            && (Object.prototype.hasOwnProperty.call(persistPatch, 'archived')
+              || (!_review_action && cleanText(persistPatch.status) === 'archived'))) {
+            throw new ForbiddenException('研发任务不能直接归档或解封；删除请提交审核，合并请使用合并流程');
+          }
           found = true;
           originalTask = { ...t };
 
           const existingReviewType = cleanText(t.pending_review_type);
           const requestedStatus = cleanText(persistPatch.status);
           const hasSubmittedReviewType = Object.prototype.hasOwnProperty.call(persistPatch, 'pending_review_type');
-          // 详情页的完成提交只带 pending_review；明确保存成果类型，供后续审核唯一裁决。
+          // 兼容旧详情页的完成提交；研发直接完成，其他池仍保存成果审核。
           if (!_review_action && requestedStatus === 'pending_review' && !hasSubmittedReviewType && !existingReviewType) {
             persistPatch.pending_review_type = 'result';
           }
           const submittedType = cleanText(persistPatch.pending_review_type) || existingReviewType;
           const directSubmission = !_review_action && cleanText(persistPatch.status) === 'pending_review'
             && isDirectRdTaskChange(submittedType);
+          const directCompletion = !_review_action && currentRdWorkspace() === 'rd' && requestedStatus === 'completed';
           appliedDirectReview = Boolean(_review_action && isDirectRdTaskChange(existingReviewType));
           if (directSubmission && t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)) {
-            throw new ConflictException('该任务仍有成果或放弃审核待处理，请先完成审核');
+            throw new ConflictException('该任务仍有删除或未知审核待处理，请先完成审核');
+          }
+          // 删除及未知历史申请不能被管理员的普通 PATCH 或完成操作清除。
+          if (!_review_action && currentRdWorkspace() === 'rd' && t.status === 'pending_review'
+            && !isDirectRdTaskChange(existingReviewType)
+            && ((Object.prototype.hasOwnProperty.call(persistPatch, 'status') && requestedStatus !== 'pending_review')
+              || (hasSubmittedReviewType && cleanText(persistPatch.pending_review_type) !== existingReviewType))) {
+            throw new ForbiddenException('不能清除或更改待删除或未知审核申请，请先处理审核');
           }
 
           // 越权防护（与 moveTasks 同口径）：仅持页面权限 page:rd-my-workspace 的普通成员
@@ -4378,10 +4488,10 @@ export class ResearchDevelopmentService {
               throw new ForbiddenException('无权移交任务：仅研发主管可变更主责人');
             }
             if (!_review_action) {
-              if ((requestedStatus === 'completed' || requestedStatus === 'archived') && requestedStatus !== t.status) {
+              if (((requestedStatus === 'completed' && !directCompletion) || requestedStatus === 'archived') && requestedStatus !== t.status) {
                 throw new ForbiddenException('无审核权限：请提交成果或放弃申请，等待审核');
               }
-              // 结果、放弃及其他工作区的待审申请，只能经审核动作结案，不能换类型走免审分支。
+              // 放弃、未知类型及其他工作区的待审申请不能换类型走免审分支。
               if (t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)
                 && ((Object.prototype.hasOwnProperty.call(persistPatch, 'status') && requestedStatus !== 'pending_review')
                   || (hasSubmittedReviewType && cleanText(persistPatch.pending_review_type) !== existingReviewType))) {
@@ -4390,12 +4500,14 @@ export class ResearchDevelopmentService {
             }
           }
 
-          if (directSubmission) {
-            directChangeType = submittedType;
+          if (directSubmission || directCompletion) {
+            directChangeType = directCompletion ? 'result' : submittedType;
             resolvedPatch = {
               ...persistPatch,
-              status: t.status === 'pending_review' || submittedType === 'proposal' ? 'in_progress' : t.status,
+              status: directChangeType === 'result' ? 'completed'
+                : t.status === 'pending_review' || submittedType === 'proposal' ? 'in_progress' : t.status,
               pending_review_type: null,
+              ...(directChangeType === 'result' ? { progress: 100 } : {}),
             };
             if (submittedType === 'collaboration') {
               resolvedPatch.collaborators = asArray(persistPatch.pending_collaborators ?? t.pending_collaborators).filter(isRecord);
@@ -4437,6 +4549,9 @@ export class ResearchDevelopmentService {
               _review_action === 'approve' ? REVIEW_APPROVE_STATUS[reviewType] : 'in_progress';
 
             actionPatch.pending_review_type = null;
+            if (currentRdWorkspace() === 'rd' && reviewType === 'result' && _review_action === 'approve') {
+              actionPatch.progress = 100;
+            }
 
             if (reviewType === 'collaboration') {
               actionPatch.pending_collaborators = [];
@@ -4565,33 +4680,42 @@ export class ResearchDevelopmentService {
     });
 
     if (!found) throw new NotFoundException('任务不存在');
-    await this.recomputeDirectorDashboard();
+    // 用持锁时读取的真实前态判断边沿；重复/并发保存 completed 不会重复触发评分。
+    const before = originalTask as JsonRecord | null;
+    const shouldScoreCompletion = before && before.status !== 'completed' && resolvedPatch.status === 'completed'
+      && (currentRdWorkspace() === 'rd' || (_review_action === 'approve' && before.pending_review_type === 'result'));
+    try {
+      await this.recomputeDirectorDashboard();
 
-    // 服务端审计：变更集由「改动前的任务 + 实际落库的补丁」在服务层自行 diff，
-    // 不依赖前端上报——绕开界面直调本接口同样留痕。
-    if (originalTask) {
-      const auditBefore = originalTask as JsonRecord;
-      const auditChanges = this.buildTaskChanges(auditBefore, resolvedPatch);
-      const review = _review_action && !appliedDirectReview
-        ? { action: _review_action, reviewerName: _reviewer_name, rejectReason: _reject_reason }
-        : undefined;
-      // 无字段变化且非审批动作：多为幂等重存，不值得占一条留痕
-      if (auditChanges.length > 0 || review) {
-        const { action, comment } = this.classifyTaskUpdate(auditBefore, resolvedPatch, auditChanges, review);
-        await this.recordServerAudit({
-          action,
-          resource: { type: 'task', id: taskId, name: cleanText(auditBefore.title) || taskId },
-          // 操作人只认 JWT 身份：_actor_name 是请求体自报的，拿它兜底等于让调用方决定留痕算在谁头上
-          actor: { id: options?.requesterUserId, name: options?.requesterName },
-          comment,
-          changes: auditChanges,
-          metadata: {
-            ...(review ? { review_type: cleanText(auditBefore.pending_review_type) || 'result' } : {}),
-            // 批量操作里的每条记录都带同一个批次号，事后能把一次批量还原成一组
-            ...(options?.auditBatchId ? { batch_id: options.auditBatchId } : {}),
-          },
-        });
+      // 服务端审计：变更集由「改动前的任务 + 实际落库的补丁」在服务层自行 diff，
+      // 不依赖前端上报——绕开界面直调本接口同样留痕。
+      if (originalTask) {
+        const auditBefore = originalTask as JsonRecord;
+        const auditChanges = this.buildTaskChanges(auditBefore, resolvedPatch);
+        const review = _review_action && !appliedDirectReview
+          ? { action: _review_action, reviewerName: _reviewer_name, rejectReason: _reject_reason }
+          : undefined;
+        // 无字段变化且非审批动作：多为幂等重存，不值得占一条留痕
+        if (auditChanges.length > 0 || review) {
+          const { action, comment } = this.classifyTaskUpdate(auditBefore, resolvedPatch, auditChanges, review);
+          await this.recordServerAudit({
+            action,
+            resource: { type: 'task', id: taskId, name: cleanText(auditBefore.title) || taskId },
+            // 操作人只认 JWT 身份：_actor_name 是请求体自报的，拿它兜底等于让调用方决定留痕算在谁头上
+            actor: { id: options?.requesterUserId, name: options?.requesterName },
+            comment,
+            changes: auditChanges,
+            metadata: {
+              ...(review ? { review_type: cleanText(auditBefore.pending_review_type) || 'result' } : {}),
+              // 批量操作里的每条记录都带同一个批次号，事后能把一次批量还原成一组
+              ...(options?.auditBatchId ? { batch_id: options.auditBatchId } : {}),
+            },
+          });
+        }
       }
+    } finally {
+      // 正常路径先留下完成记录再评分；旁路失败时状态已经提交，仍只触发这一次。
+      if (shouldScoreCompletion) void this.triggerTaskCompletionScoring(taskId);
     }
 
     // Auto-send review notifications (best-effort, never blocks response)
@@ -4631,15 +4755,11 @@ export class ResearchDevelopmentService {
             );
           }
         })();
-        // 审核通过且为成果审核（任务进入 completed）→ 触发 AI 复盘评分（fire-and-forget）
-        if (_review_action === 'approve' && reviewType === 'result' && newStatus === 'completed') {
-          void this.triggerTaskCompletionScoring(taskId);
-        }
         // 放弃任务审核通过 → 硬删除该任务（含子任务），等同管理员在驾驶舱「删除」的效果：
         // 任务从所有视图（驾驶舱/工作台/看板）彻底消失。须在通知提交人之后执行
         // （通知读取的是 originalTask 快照，删除不影响）。
         if (_review_action === 'approve' && reviewType === 'abandon') {
-          await this.deleteTask(taskId);
+          await this.deleteTaskAfterReview(taskId);
         }
       }
 
@@ -4691,10 +4811,11 @@ export class ResearchDevelopmentService {
   private async approveTaskMergeReviewAtomic(
     taskId: string,
     reviewerName: string,
-    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean },
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; expectedReview?: ExpectedTaskReview },
   ): Promise<{ ok: true; task_id: string }> {
     const pendingTask = await this.findTaskAcrossStores(taskId);
     if (!pendingTask) throw new NotFoundException('任务不存在');
+    this.assertExpectedTaskReview(pendingTask, options?.expectedReview);
     if (
       cleanText(pendingTask.status) !== 'pending_review'
       || cleanText(pendingTask.pending_review_type) !== 'merge'
@@ -5393,6 +5514,20 @@ export class ResearchDevelopmentService {
   }
 
   async deleteTask(taskId: string, actor?: { userId?: string; userName?: string; canEditAny?: boolean }) {
+    if (currentRdWorkspace() === 'rd') {
+      if (!actor) throw new ForbiddenException('删除任务需要登录身份并提交审核');
+      await this.updateTask(taskId, { status: 'pending_review', pending_review_type: 'abandon' }, {
+        requesterUserId: actor.userId,
+        requesterName: actor.userName,
+        canEditAny: actor.canEditAny,
+      });
+      return { ok: true, task_id: taskId, pending_review: true };
+    }
+    return this.deleteTaskAfterReview(taskId, actor);
+  }
+
+  /** 研发只由已授权的放弃审核分支调用；请求体不能选择此路径。 */
+  private async deleteTaskAfterReview(taskId: string, actor?: { userId?: string; userName?: string; canEditAny?: boolean }) {
     let found = false;
     // 被删任务快照（用于删除后通知其负责人 / 协作人）。
     let removedTask: JsonRecord | null = null;
@@ -5564,7 +5699,7 @@ export class ResearchDevelopmentService {
     sourceId: string,
     targetId: string,
     initiator: { id: string; name: string },
-    directActor?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; applyPending?: boolean },
+    directActor?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; applyPending?: boolean; expectedReview?: ExpectedTaskReview },
   ): Promise<{ source: JsonRecord; target: JsonRecord }> {
     if (!sourceId || !targetId || sourceId === targetId) {
       throw new BadRequestException('合并的源任务与目标任务无效');
@@ -5572,6 +5707,7 @@ export class ResearchDevelopmentService {
     const source = await this.findTaskAcrossStores(sourceId);
     const target = await this.findTaskAcrossStores(targetId);
     if (!source || !target) throw new NotFoundException('源任务或目标任务不存在');
+    this.assertExpectedTaskReview(source, directActor?.expectedReview);
     if (directActor) {
       this.assertTaskWritable(source);
       this.assertTaskWritable(target);
@@ -5666,6 +5802,7 @@ export class ResearchDevelopmentService {
       tasks.map((t) => {
         if (!isRecord(t)) return t;
         if (t.task_id === sourceId) {
+          this.assertExpectedTaskReview(t, directActor?.expectedReview);
           if (JSON.stringify(t) !== sourceSnapshot) {
             throw new ConflictException('源任务在合并审批期间已被修改，请刷新后重试');
           }
@@ -10223,6 +10360,9 @@ export class ResearchDevelopmentService {
   }
 
   async clearAllTaskData(actor?: AuditActorRef) {
+    if (currentRdWorkspace() === 'rd') {
+      throw new ForbiddenException('研发任务必须逐项申请删除并通过审核，不能直接清空任务池');
+    }
     // 消息中心是研发/协同共享的全局数据，绝不能随当前工作区任务一起清空。
     // 先记录当前池全部任务 id，清理任务后只把相应审核待办标记为已处理，历史消息仍保留。
     const removedTaskIds = new Set(

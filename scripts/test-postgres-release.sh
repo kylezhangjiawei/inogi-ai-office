@@ -3,6 +3,14 @@
 set -Eeuo pipefail
 
 fail() { printf 'Isolated PostgreSQL gate failed: %s\n' "$*" >&2; exit 1; }
+suites=(applicant-forms audit-receipts chat-workspace procurement-rollback rd-documents)
+if [ "$#" != 0 ]; then
+  [[ "$#" = 2 && "$1" = --suite ]] || fail 'Usage: test-postgres-release.sh [--suite <name>]'
+  case "$2" in
+    applicant-forms|audit-receipts|chat-workspace|procurement-rollback|rd-documents) suites=("$2") ;;
+    *) fail "Unknown suite: $2" ;;
+  esac
+fi
 test "$(uname -s)" = Linux || fail 'Linux is required for the release database gate.'
 command -v setsid >/dev/null || fail 'setsid is required to isolate database runners from terminal signals.'
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -82,7 +90,7 @@ for (const path of process.argv.slice(1)) fs.accessSync(path, fs.constants.X_OK)
   || fail 'The non-root test identity cannot read the checkout/dependencies or execute PostgreSQL. Fix access explicitly; no business directory permissions were changed.'
 test "$cancel_status" = 0 || exit "$cancel_status"
 
-for suite in applicant-forms audit-receipts chat-workspace procurement-rollback rd-documents; do
+for suite in "${suites[@]}"; do
   test "$cancel_status" = 0 || exit "$cancel_status"
   runner="$api_root/scripts/test-$suite-postgres.mjs"
   log_file="$work_root/$suite.log"
@@ -106,4 +114,8 @@ for suite in applicant-forms audit-receipts chat-workspace procurement-rollback 
     || fail "Suite did not report passing tests with zero failures/skips: $suite"
 done
 test "$cancel_status" = 0 || exit "$cancel_status"
-printf 'Isolated PostgreSQL gate passed: five suites, no skipped database checks.\n'
+if [ "${#suites[@]}" = 1 ]; then
+  printf 'Isolated PostgreSQL gate passed: %s, no skipped database checks.\n' "${suites[0]}"
+else
+  printf 'Isolated PostgreSQL gate passed: five suites, no skipped database checks.\n'
+fi

@@ -42,11 +42,13 @@ export function SubmitConfirmDialog({
   onConfirm,
   onCancel,
   submitting,
+  directCompletion = false,
 }: {
   taskTitle: string;
   onConfirm: () => void;
   onCancel: () => void;
   submitting: boolean;
+  directCompletion?: boolean;
 }) {
   return (
     <TaskActionDialogFrame busy={submitting} onCancel={onCancel}>
@@ -54,13 +56,13 @@ export function SubmitConfirmDialog({
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <Send className="h-4 w-4" />
           </div>
-          <DialogTitle className="text-base font-semibold text-slate-900">{t("提交任务审核")}</DialogTitle>
+          <DialogTitle className="text-base font-semibold text-slate-900">{t(directCompletion ? "标记任务完成" : "提交任务审核")}</DialogTitle>
         </div>
         <div className="space-y-3 px-6 py-5">
           <DialogDescription className="text-sm text-slate-700">
-            {t("确认提交「") }<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」进入待审核状态？")}
+            {t(directCompletion ? "确认将「" : "确认提交「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t(directCompletion ? "」直接标记为已完成？" : "」进入待审核状态？")}
           </DialogDescription>
-          <p className="text-xs text-slate-500">{t("提交将任务进入待审核状态，请确认成果已准备好。")}</p>
+          <p className="text-xs text-slate-500">{t(directCompletion ? "确认后立即生效，无需审核" : "提交将任务进入待审核状态，请确认成果已准备好。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <Button variant="unstyled"
@@ -78,7 +80,7 @@ export function SubmitConfirmDialog({
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-            {t("确认提交")}
+            {t(directCompletion ? "确认完成" : "确认提交")}
           </Button>
         </div>
     </TaskActionDialogFrame>
@@ -91,11 +93,13 @@ export function CompleteConfirmDialog({
   onConfirm,
   onCancel,
   submitting,
+  directCompletion = false,
 }: {
   taskTitle: string;
   onConfirm: () => void;
   onCancel: () => void;
   submitting: boolean;
+  directCompletion?: boolean;
 }) {
   return (
     <TaskActionDialogFrame busy={submitting} onCancel={onCancel}>
@@ -109,7 +113,7 @@ export function CompleteConfirmDialog({
           <DialogDescription className="text-sm text-slate-700">
             {t("确认将「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」直接标记为已完成？")}
           </DialogDescription>
-          <p className="text-xs text-slate-500">{t("管理员/主管操作会跳过提交审核，任务进度将设为 100%。")}</p>
+          <p className="text-xs text-slate-500">{t(directCompletion ? "确认后立即生效，无需审核" : "管理员/主管操作会跳过提交审核，任务进度将设为 100%。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <Button variant="unstyled"

@@ -190,7 +190,7 @@ export class TplusSyncController {
   }
 
   @Get('views/purchase-orders/:id')
-  @Permissions('page:purchase-orders', 'page:purchase-order-detail')
+  @Permissions('page:purchase-order-detail')
   purchaseOrderView(@Param('id') id: string) {
     return this.operations.getPurchaseOrder(id);
   }

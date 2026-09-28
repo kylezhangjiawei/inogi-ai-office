@@ -1,0 +1,122 @@
+# V1.1 生产 P00–P10 只读核对
+
+审查日期：2026-09-20。范围为 11 张生产原型、`page_map.json`、开发说明对应章节/共用规则/业务计算验收，以及当前前端与 API 源码。逐张使用图片查看工具阅读了 P00、P01、P02、P03、P04、P05、P06、P07、P08、P09、P10 PNG。未修改业务代码，未访问真实数据库，未进行生产业务写入；浏览器验收由主审查代理负责，本文不将源码检查描述为现场验收。
+
+原型资料目录：`C:/Users/Administrator/Documents/xwechat_files/zjw19920831_8887/msg/file/2026-09/INOGI_AI驾驶舱_V1.1全套开发资料_33页高保真/INOGI_AI驾驶舱_V1.1开发资料`。下文“说明 L…”均指其中 `INOGI_AI驾驶舱_V1.1开发说明.md`；PNG 位于 `高保真页面/生产/`，页名与 page_map 一致。
+
+## 结论和边界
+
+生产不是完全未实现：已有月度计划 → 批次 → 派工 → 领料签收 → 报工 → 初检 → 同号异常处置/协同/复验 → 放行 → 发货的真实服务链。最明显的差距是原型的管理总览、跨业务待办、日程调整、现场不良证据录入、检验类型区分和批次版本追溯尚未完整进入正式业务页。
+
+接受页面合并：正式 `/production-execution` 用“批次与派工、现场作业、齐套与占用、转产与 ECN、放行与发货、批次档案、进展留痕”承接多个原型页面。不能据此要求增加 11 个菜单。Horizon 紫白视觉是当前基线；不把蓝色、演示人数、名称、任务数量或截图样例不同列为缺陷。
+
+需要区分演示与实装：`App.tsx` L91–119 用 `import.meta.env.DEV` 加载生产原型预览，L499–508 注册 `/__preview/*`。这些页面即使交互完整，也不是正式数据链的验收证据。正式路由是 [App.tsx L138](E:/workCoding/inogi-ai-office/src/app/App.tsx:138)、[L555](E:/workCoding/inogi-ai-office/src/app/App.tsx:555)、[L584](E:/workCoding/inogi-ai-office/src/app/App.tsx:584)。`/production-dashboard?view=legacy` 是原有生产协同任务入口，不能代替执行域的检验、不良、ECN 待办汇总。
+
+## 逐页映射与核对
+
+| 原型与图片观察 | 正式路由 / 组件映射 | 已实现 | 确认偏差与需求依据 | 未验证项 |
+| --- | --- | --- | --- | --- |
+| **P00 生产管理总览**：月度目标，整机完工/剩余，在岗人数，趋势、首检、分线任务、风险与 ECN | `/production-dashboard` → `ProductionDashboardPage`；GET `/api/procurement/production-execution/overview` | 月份、生产目标/发货目标/实际净发货、搜索/仅本人、组件报工与良品分别显示、跨月未完作业、进入原计划 | 说明 L461“今日在岗人数…终检一次合格率…适用 ECN”；正式页只有 3 个目标/发货指标与作业卡，缺整机完工/剩余、在岗、质量/变更风险及趋势。前端 [L15](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionDashboardPage.tsx:15)、[L23](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionDashboardPage.tsx:23)，API 返回 [L61](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.service.ts:61)。详见 PR04。 | 管理层/厂长真实授权范围、长列表与窄屏、空数据/失败态；未读真实在岗来源 |
+| **P01 生产计划与派工**：日期区间、组件表、选中详情、用料缺口和时间安排 | `/production-execution` → `ProductionExecutionPage` 的批次与派工/现场作业；`ExecutionEditor` | 独立月度生产/发货目标；新增批次、组件/整机作业；BOM 物料选取和每件用量；确认派工；仓库需求同事务建立；整机与组件不相加 | 说明 L477“新增或调整组件计划”、L479“调整已开工任务须保留影响和原因”；只支持编制/派工/取消，已报工不能取消，也没有调期/改量/换线或负责人变更命令。前端 [L29](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:29)，模型 [L61](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:61)、[L103](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:103)。没有日期区间/产线筛选与 3 天/10 天安排。PR01。 | 真实 BOM/产线主数据可用性；多人调度冲突的实际数据库事务；新增计划表单浏览器体验 |
+| **P02 现场任务与不良登记**：派工字段带入；报工和不良并排；常见现象、照片、领料批次、SOP/SIP/ECN 直接入口 | `/production-execution` → 现场作业/登记报工；`/warehouse-flow?taskId=…` → 领料签收/退料 | 作业日期、批次、产线、负责人、单位带入；实际量与报工良品人工填；领料签收不足拒绝报工；正式报工不计整机组件混合量；有报工记录 | 说明 L489/L491 与 L640–642 要求不良提报、现象、照片/原料批次。正式报工只有日期、产量、良品、说明 [L129](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:129)，不良只在授权初检后自动产生 [服务 L204](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.service.ts:204)。报工模型无照片/来料批次/缺码标记 [模型 L7](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:7)；现场卡未显示已冻结的 `basis` 文档。PR02、PR06。 | 真实现场账号能否从菜单直达本人任务；现场日期补录权限策略；照片/批次数据来源；领退料实物链验收 |
+| **P03 生产检验与复验**：过程检/终检/复验类型，首次终检分母，复验原单和证据 | `/production-execution` → 现场作业/登记初检、`QualityVerificationDialog`；转到放行与发货 Tab | 初检关联报工，分批数量上限；不良自动生成同一质量异常；复验保留原不良和有效累计通过量；初检 47/50 始终 94%；放行/发货分别操作 | 说明 L501–507 要求“过程检、终检和复验…各自…分开统计”。正式 `ExecutionInspection` 只有数量/日期/报工/证据，无过程/终检类型、工序、适用 SIP 版本；界面统一“初检”，缺任务类型筛选及当日首次终检汇总。前端 [L67](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:67)、[L130](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:130)，模型 [L8](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:8)。PR03。 | QC/独立验证人角色实测；同批过程检与终检是否按真实需求分开；照片证据上传未接入该正式入口 |
+| **P04 生产问题转研发**：我发起/待我处理/授权全部，原异常、发起/处理人、截止、技术意见、现场验证 | `/production-execution` → 初检异常的“转协同处理/回复原异常/验证与记录” | 使用原异常 ID，不增加不良计数；员工 ID 选择授权协同人；发起人/当前处理人/回复留痕；仅当前经办可回复；协同未回复不能复验关闭 | 说明 L517“截止…验证人与结果”、L519“请求补充资料…转现场验证”。当前分派只有经办与原因，状态仅 `waiting_reply/returned`，无协同期限、待补充/安排验证阶段及指定验证人的字段。服务 [L188](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.service.ts:188)，表单 [L132](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:132)。缺专门待我处理的质量队列；不因没有独立 P04 菜单计缺失。PR07。 | 普通研发协同人权限组合与真实入口发现性；从研发工作台回原生产异常的链接；真实通知投递 |
+| **P05 转产确认与批次档案**：关联同轮样品，图纸/BOM/SOP/SIP/ECN 检查、试装问题、文件预览和档案链接 | `/production-execution` → 转产与 ECN，`LifecyclePanel`/`OperationalDialog` | 按正式采购样品任务与 roundId 建立探索/转量产资料包；非编制人独立验证；样品本轮通过且有结束/确认时间才可验证；发布后派工保存依据快照；探索不能发布量产依据 | 说明 L531“软件／硬件适用版本”、L533“查看资料、保存试装记录或照片”。资料仍为 SOP/SIP/图纸-BOM 自由文本，无正式附件/版本 ID、图片证据或可点击样品详情；样品类型只有两种分支，未见门槛配置。前端 [LifecyclePanel L22](E:/workCoding/inogi-ai-office/src/app/production/execution/LifecyclePanel.tsx:22)，服务 [L12](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-lifecycle.service.ts:12)、[L90](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-lifecycle.service.ts:90)。PR05、PR06；不能说“没有转产门禁”。 | 不同样品类型的业务门槛配置需求；真实受控资料是否能由文字位置可靠查回；跨轮次补样验收 |
+| **P06 生产全部任务**：按业务类型/产线/人/状态/月筛选、跨月未完成和停线风险、原记录详情 | `/production-dashboard` 作业聚合；`/production-execution` 单计划内各 Tab；旧协同任务另在 `?view=legacy` | 作业原 ID；跨月未完成作业保留；可以进入原计划；服务按本人/管理权限裁剪 | 说明 L543–549 要求聚合计划、检验、不良、样品、变更并显示“当前节点…期限…停线／延期风险”。overview 只从 `plan.tasks` 生成作业，未生成检验/异常/样品/ECN 待办 [服务 L40](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.service.ts:40)、[L61](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.service.ts:61)。只有搜索/本人筛选，无业务类型/状态/产线筛选、分页或待办下一步。PR04。 | 同时有本人派工、待复验和待确认 ECN 的真实账号是否能完整发现工作；跨月 ECN/协同事项浏览器验证 |
+| **P07 批次计划与工序安排**：选定批次、BOM/需求日、3天/10天日程矩阵、批次齐套和调期留痕 | `/production-execution` → 批次与派工、齐套与占用（当前后者是整月计划口径） | 批次目标/交期；作业按批次关联并带日期/产线；完整 BOM 齐套、库存占用、当日确认未耗用线边、按期采购、历史快照 | 说明 L559“按日组件计划”、L561“调整日程…查看齐套”；没有日程矩阵或修改既有作业。齐套 API 只接 planId/date/snapshotId，无 batchId；需求是 `plan.targetQty`，不能回答截图的“本批次 N 台”。[ReadinessPanel L11](E:/workCoding/inogi-ai-office/src/app/production/execution/ReadinessPanel.tsx:11)、[服务 L103](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-readiness.service.ts:103)。当前 UI 明确写整月，属于能力缺口而非错误冒充。PR01。 | 多批次共用库存分配验收；“本批”与“全月”人工结果对照；不推断产能/交付承诺 |
+| **P08 生产不良处理**：待处理/待验证队列、原异常证据、处理进度、转采购/研发、Top10 | `/production-execution` → 现场作业内质量处置/协同/复验；补充入口：采购子系统详情的 `SubsystemOperationsPanel` 采购与生产不良 Tab | 原异常的返工/退货/换货/报废/让步处置；独立复验关闭/重开；仅剩余数量复验；共用面板可登记/查看生产不良；后端防同日同批重复、限制报工关联累计数量 | 说明 L573–577 要求“原因状态…责任人、剩余数”和“本线高频现象 Top10”。正式执行页将异常嵌在每条初检下，无跨作业待处理队列、原因待分析/确认模型、现象字典/发生次数、多现象去重标识与本线 Top10；工序/物料批次关联也弱。现有数量防重不能等同 A13 多现象去重。见 [执行页 L67](E:/workCoding/inogi-ai-office/src/app/production/execution/ProductionExecutionPage.tsx:67)、[质量服务 L184](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/procurement-operations.service.ts:184)、[L205](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/procurement-operations.service.ts:205)。PR02、PR07。 | A13“6 件、8 次现象”的真实数据建模和分析；跨采购记录关联；附件证据；不把暂无历史数据本身判成无 Top10能力 |
+| **P09 生产批次档案**：版本/物料、工序、检验、不良、领退料、出货，各自原单；软硬件范围和已有 SN | `/production-execution` → 批次档案/放行与发货；`LifecyclePanel` JSON 导出 | 汇集计划/BOM 指纹、作业、报工、初检、原异常和复验历史、领退料、资料/放行/发货事件；保存派工版本依据；可导出完整原始对象 | 说明 L587–591 要求“软件／硬件…适用范围、已有…SN”“批内不同版本按适用数量／范围记录”。正式对象无软件/硬件/已有 SN/范围段模型，档案是卡片与折叠文本，缺按批次或 SN 检索、版本分段/缺失标记和原单导航。文件位置自由文本不能代替版本范围。模型 [L10](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:10)、[L16](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-execution.model.ts:16)，[LifecyclePanel L32](E:/workCoding/inogi-ai-office/src/app/production/execution/LifecyclePanel.tsx:32)。PR05。 | 已有企业 SN 数据源；领退料/出货凭证实物核对；JSON 导出内容与角色范围；不要求本期全量扫码 |
+| **P10 ECN 变更查看与确认**：旧新文档对比、生效批次、岗位确认、供应商通知、旧料处置和相关业务 | `/production-execution` → 转产与 ECN；生命周期服务的 ecn/publish-ecn/acknowledge | 替代包必须已发布；明确批次/生效日期/旧料处置；草稿与发布区分；只允许适用批次现场负责人本人阅读确认；未读阻止派工，已派工依据不自动换版 | 说明 L601–605 要求“旧新版本…关联 SOP／SIP…确认人员与时间”“反馈无法执行…生成采购／产线协同待办”。现有 ECN 仅关联替代 packageId、批次、处置文字和已读名单；界面不对比旧/新附件，不显示各确认时间；没有无法执行反馈/待办/通知命令或任务来源关联。前端 [LifecyclePanel L25](E:/workCoding/inogi-ai-office/src/app/production/execution/LifecyclePanel.tsx:25)、[L26](E:/workCoding/inogi-ai-office/src/app/production/execution/LifecyclePanel.tsx:26)，服务 [L14](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-lifecycle.service.ts:14)、[L108](E:/workCoding/inogi-ai-office/apps/api/src/modules/procurement/production-lifecycle.service.ts:108)。PR06。 | 真实产线多人确认范围、无法执行时的线下补救流程；供应商/采购通知；已发任务遇到新 ECN 的业务处置 |
+
+## 优先处理的 7 项差距
+
+### PR01｜高：计划能新增派发，但不能调整已开工任务；批次排程与批次齐套缺失（P01/P07）
+
+需求短摘：“调整已开工任务须保留影响和原因”“查看 3 天／10 天或自定义区间”“展开一个批次”。说明 L479、L557–563。
+
+证据：执行命令只有 targets/batch/task/dispatch/cancel/inspect/report，以及服务层的质量协同命令；没有 edit/reschedule/reassign；已有报工时 cancel 明确拒绝（`production-execution.model.ts` L61–126）。执行页 L56 只提供月份与产品计划筛选，L62 是批次卡，L128 编制作业是新建。Readiness 服务 L56 以整月目标减合格整机计算剩余，L103 以整月量乘 BOM；控制器 `production-lifecycle.controller.ts` L22 只传 date/snapshotId。
+
+影响：缺料、人员或产线变化后，已开工任务无法在同一编号下调整；另建作业不能表达原作业变化及影响。计划员也无法直接验收原型“本批 300 台在需求日的齐套条件”。
+
+验收建议：同一已报工 160/200 的组件作业调整下一工作日/产线，保留原 ID、原值、新值、原因、确认人和仓库影响；不能把已发/已耗数量重置。设一个月内两个批次，在同一 BOM/库存下分别验收批次与整月口径，保留人工分配，不承诺自动产能。
+
+### PR02｜高：现场发现不良无法在派工作业上下文直接形成完整异常（P02/P08）
+
+需求短摘：“常见现象可点选，其他可备注”“来料批次优先从领料单选，缺码保留待补齐标记”。说明 L491–493、L641。
+
+证据：报工表单 L129 只有 date/quantity/goodQty，L139 是说明；模型 L7 无现象、照片或原料批次。执行服务 L204–214 只在 `inspect` 产生质量异常。独立生产不良登记确实存在于 `SubsystemOperationsPanel` L156–157，但权限是质量管理，且关联的是独立 `procProductionReport` 表；其服务 L208 不查 execution plan 内的 report ID，不能视作已接好同一派工的现场快捷提报。
+
+影响：线长已知不良 6 件，可以在报工中少报良品，但缺陷现象和证据不能及时成为同号待处理记录；需等 QC 初检或人工转到另一业务上下文。原料批次追查依赖线下记忆。
+
+验收建议：线长从派工带入批次/工序，选择现象、登记去重件数、可补照片，并从实领批次选择来源；未知批次保留待补。随后 QC 关联原异常，不再生成第二份 6 件；A13 同 6 件出现 8 次现象时，两种指标分开。
+
+### PR03｜高：过程检/终检未建模，难以按原型验证首次终检指标（P03/P00）
+
+需求短摘：“过程检、终检和复验…各自数量与指标分开统计”。说明 L499–507、L725。
+
+证据：`ExecutionInspection` L8 无 inspection kind/stage/工序/SIP 版本；`applyExecutionCommand` L106–117 通用初检，界面 L130 没有类型选项。整机已检合格在模型 L46 将所有 `output==='whole'` 的 inspection.goodQty 与有效复验合计，未按“终检”筛选。正确之处是初检原分母不会被复验修改，已测 47/50 + 2 复验仍 94%。
+
+影响：目前可统计一条报工的初检率，但无法准确回答原型“今日首次终检 50 台、47 台”的专用范围，也不能在同一批次下明确过程检与终检的数量关系。这是口径缺字段，不断言当前已有真实数据错误。
+
+验收建议：同批增加过程初检、首次终检与终检复验，单独验证终检 47/50=94%，过程数据不混入终检分母；复验只更改有效合格状态，保留原检验 ID、标准/版本和验证人。
+
+### PR04｜高：生产总览及“全部任务”未覆盖质量、样品、ECN 风险（P00/P06）
+
+需求短摘：“集中查看…计划、检验、不良、样品验证和变更待办”“跨月未完…不能…漏掉停线或逾期待办”。说明 L543–549。
+
+证据：正式 overview 服务 L40/61–65 只聚合 plan.tasks 和 shipments；前端 `ProductionDashboardPage` L21–26 只有月份/搜索/本人、目标发货指标、作业卡及发货折叠。没有质量/样品/ECN 待办实体、当前下一步/期限/风险映射，也没有在岗确认或终检趋势数据。`?view=legacy` 是原任务工作区；本次代码未见它把执行域这些原记录汇为同一待办。
+
+影响：某组件已完成报工但仍有待复验、待协同回复或 ECN 未读时，用户需要逐计划/作业/Tab 找工作。跨月作业本身已保留，不能把这一点说成缺失；缺的是其他业务类型及主责/下一步。
+
+验收建议：同一账号准备 1 条派工、1 条待复验、1 条跨月待协同、1 条 ECN 未读、1 条样品验证；一处队列全部可见，点击回原 ID，不建立新任务账。管理总览分别展示确认整机完工/剩余、实际发货、首检分母与经确认在岗人数；未知数据标待补齐。
+
+### PR05｜高：批次档案没有软硬件/已有 SN/批内版本范围（P09/P05）
+
+需求短摘：“批内不同版本按适用数量／范围记录”“已有 SN 关联…全量逐台追溯后续补齐”。说明 L587–591。
+
+证据：ExecutionBatch 只有 id/code/quantity/dueDate（模型 L16）；basis 保存资料包及 SOP/SIP/drawing 字符串（L10）。生命周期模型 L12–19 没有 software/hardware/SN/range 字段。`LifecyclePanel` L32 档案以卡片和折叠记录呈现，版本详请用户导出；L17–19 导出原对象，不能产生模型中不存在的范围信息。
+
+影响：能追溯“使用了哪个资料包”，但不能核对一批 100 台中 60 台某软件版本、40 台待确认，已有 SN 也无法在该链路检索。历史冻结机制已存在，不应重做或覆盖。
+
+验收建议：同批建立两个实际版本范围，关联已有 SN（无 SN 明示待采集），保存确认人/依据；发布新版本不改历史范围。按批次或已有 SN 查到原派工、检验、领退料和出货记录，导出与屏幕同口径。
+
+### PR06｜中高：正式资料依靠文本位置；ECN 缺文档对比与执行问题协同（P02/P05/P10）
+
+需求短摘：“附件存文件 ID 与版本引用”“反馈无法执行的问题；生成采购／产线协同待办”。说明 L631、L603。
+
+证据：资料包服务 L96–97 收 sop/sip/drawing 自由文本，没有 fileId/versionId；派工依据 L31 同样为文字快照。ECN 服务 L108–120 只支持创建、发布、本人确认阅读；它保存确认 at，但正式页 L26 只显示姓名，不显示时间。正式页面没有旧/新受控文件预览、无法执行反馈或采购/产线通知动作；现场卡 L65–70 没有 basis 文档入口。
+
+影响：用户要离开作业界面寻找文件；文本位置可能无法直接定位历史版本。无法执行不能在 ECN 上产生有主责与期限的待处理事项。已读与验证分离、旧料处置必须填写、未发布不得派工等安全门槛已经实现。
+
+验收建议：关联正式文件及固定版本 ID，在现场打开派工当时版本；ECN 展示旧/新版本、生效范围和确认时间。选择“无法执行”创建与原 ECN 关联的待办，指定经办及处理结果，阅读状态不能替代验证结论。
+
+### PR07｜中高：异常协同缺期限/验证安排与跨作业处理视图（P04/P08）
+
+需求短摘：“发起人、处理人…截止…验证人与结果”“按近期数据查看本线高频现象 Top10”。说明 L517–519、L575–577。
+
+证据：服务 L192 的协同结构是 owner/originator/phase/reason/reply/at，没有 dueDate/verifier；L195 回复即回发起人。前端 L132–133 只有经办选择及自由回复。质量记录服务 L184 是 issue/disposition/status/resolution；没有受控现象及发生次数，也没有已确认主因/责任认定结构。正式执行界面 L67 嵌套异常；未见待我处理、待补资料、待现场验证、按线近期 Top10 查询。已有独立复验按钮与验证人留痕，不是“无闭环”。
+
+影响：处理进展保留了，但无法按明确期限提醒/识别逾期，现场验证责任也需要文字约定。生产常见现象无法逐步转成可信的历史分析。
+
+验收建议：原异常转研发填写截止及验证安排，研发可要求补充资料，返回现场后指定验证人并继续原编号；不同处理方向都不重复累计不良。积累足够同线/同期样本后展示 Top10，标明“发生次数”或“去重件数”；无样本显示不足，不生成排名。
+
+## 已运行验证与实际限制
+
+运行了本地内存/mock 测试，均无数据库访问：
+
+- `apps/api/test/production-execution.service.spec.ts`：15 项通过。覆盖 A10 派工/仓库同事务、A11 200/160/154→80%/77%/46、初检/复验保持 94%、分批复验累计去重、同异常协同、现场权限、领料不足、跨月未完等。
+- `apps/api/test/production-v11.spec.ts`：7 项通过。覆盖完整 BOM/按期净量/缺失数据、占用/快照、盘点/退料，以及 A15/A16 转产独立验证、ECN 本人确认与派工快照、A18 216 完成与 180+20=200 发货分离、超发/重复/未来日期拒绝、冲销历史。
+- `scripts/production-execution-page.test.mjs`：5 项通过。覆盖表单失败保留、重复请求 ID、派工双击锁定、空数不变 0、原异常版本提交。
+
+合计 **27/27 通过**。没有运行 `production-v11.postgres.spec.ts`，没有连接企业 ERP/真实数据库，没有将这些单元/模拟事务测试宣称为真实闭环已验收。A13 多现象 6 件/8 次、真实受控文档/软件硬件/已有 SN、通知投递、真实岗位权限及现场业务链仍需要专门验收。
+
+## 给浏览器审查的最短路径
+
+1. `/production-dashboard`：核对总览实际指标/筛选、任务下一步、跨月标记；不要把 `/__preview/production-overview` 作为同一页面。
+2. `/production-execution?month=YYYY-MM&plan=<真实可见计划ID>`：先“批次与派工”，再“现场作业”；检查新增/已派工作业能否调期与独立提报不良，长列表是否容易找到本人待办。只读审查不要提交业务动作。
+3. 同页“齐套与占用”：确认当前显示的是整月需求，是否存在批次切换；检查缺数据/历史快照的口径提示。
+4. 同页“转产与 ECN”：查看资料可点击性、样品原记录入口、旧/新版本、确认时间及无法执行入口。
+5. 同页“批次档案/放行与发货”：核对检验合格、放行、实际发货分列；寻找已有 SN/软硬件范围、原记录跳转和导出说明。
+6. `/warehouse-flow?taskId=<可见作业ID>`：核对统一领料/签收/退料入口；不要求生产菜单再建一套库存系统。
+
+路由配置允许 `page:production-execution` 被路由管理改名；上述是代码默认路径。当前数据为空只能验证空态，不能据空态证明详细业务能力缺失或已完成。

@@ -13,7 +13,7 @@ const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const runners = ['applicant-forms', 'audit-receipts', 'chat-workspace', 'procurement-rollback', 'rd-documents']
   .map((name) => `test-${name}-postgres.mjs`);
 
-async function runGate({ uid = 0, directory = 'safe', failure = '', missingTool = false, missingPgConfig = false, permission = false, skipped = 0, missingSummary = false, signal = '', signalGroup = false } = {}) {
+async function runGate({ args = [], uid = 0, directory = 'safe', failure = '', missingTool = false, missingPgConfig = false, permission = false, skipped = 0, missingSummary = false, signal = '', signalGroup = false } = {}) {
   const base = fileURLToPath(new URL('../.tmp/deploy-tests/', import.meta.url));
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, 'inogi-postgres-gate-'));
@@ -59,7 +59,7 @@ for ((i=0; i<200; i++)); do
 done`;
   const harness = `
 export PATH=${quote(shellPath(bin))}:/usr/bin:/bin
-uname() { echo Linux; }
+uname() { printf 'system:uname\\n' >> ${eventPath}; echo Linux; }
 command() {
   if [ "\${1:-}" = -v ] && [ "\${2:-}" = pg_config ] && [ ${missingPgConfig ? 1 : 0} = 1 ]; then return 1; fi
   builtin command "$@"
@@ -91,10 +91,12 @@ chown() { printf 'chown:%s\\n' "$*" >> ${eventPath}; }
 chmod() { printf 'chmod:%s\\n' "$*" >> ${eventPath}; }
 ${process.platform === 'win32' ? 'setsid() { shift; "$@"; }' : ''}
 ${signal ? `setsid --wait bash -c ${quote(signalHelper)} gate-signal "$$" &` : ''}
-source "$1"
+gate_script="$1"
+shift
+source "$gate_script" "$@"
 `;
   try {
-    const shellArgs = ['-c', harness, 'postgres-gate-test', shellPath(script)];
+    const shellArgs = ['-c', harness, 'postgres-gate-test', shellPath(script), ...args];
     // The whole-group test owns its session, so its signal cannot reach the test
     // runner, developer terminal, or unrelated processes. The sender is separate.
     const result = spawnSync(signalGroup ? '/usr/bin/setsid' : bash, signalGroup ? ['--wait', bash, ...shellArgs] : shellArgs, {
@@ -119,6 +121,34 @@ for (const uid of [0, 1000]) {
     assert.equal(result.events.includes('identity:-u nobody --'), uid === 0);
     assert.doesNotMatch(result.events, /mkdir:|must-not-inherit/);
     assert.equal(result.homeRemoved, true);
+    assert.match(result.output, /gate passed: five suites, no skipped database checks/);
+  });
+}
+
+for (const suite of ['applicant-forms', 'audit-receipts', 'chat-workspace', 'procurement-rollback', 'rd-documents']) {
+  test(`release PostgreSQL gate selects only the requested suite (${suite})`, async () => {
+    const result = await runGate({ args: ['--suite', suite] });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.output);
+    assert.deepEqual(result.events.split('\n').filter((line) => line.startsWith('runner:')), [`runner:test-${suite}-postgres.mjs`]);
+    assert.match(result.output, new RegExp(`gate passed: ${suite}, no skipped database checks`));
+    assert.doesNotMatch(result.output, /five suites/);
+    assert.equal(result.homeRemoved, true);
+  });
+}
+
+for (const args of [
+  ['--suite'], ['--suite', ''], ['--suite', 'unknown'], ['--suite', '../chat-workspace'],
+  ['--unknown', 'chat-workspace'], ['chat-workspace'], ['--suite', 'chat-workspace', 'extra'],
+  ['--suite', 'chat-workspace', '--suite', 'rd-documents'],
+]) {
+  test(`release PostgreSQL gate rejects arguments before system or filesystem operations ${JSON.stringify(args)}`, async () => {
+    const result = await runGate({ args });
+    assert.equal(result.error, undefined);
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /gate failed:/);
+    assert.equal(result.events, '');
+    assert.equal(result.homeRemoved, false);
   });
 }
 

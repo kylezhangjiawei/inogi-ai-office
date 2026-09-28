@@ -4803,7 +4803,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
 
   const handleClear = async () => {
     // 多防线：keyword + cooldown + clearing 状态都校验
-    if (!keywordMatched || cooldown > 0 || clearing) return;
+    if ((!usCollab && !productionWorkspace) || !keywordMatched || cooldown > 0 || clearing) return;
     setClearing(true);
     try {
       await clearRdAllTaskData();
@@ -6129,7 +6129,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [productionActualsProductId, setProductionActualsProductId] = useState<string | null>(null);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
-  const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
+  const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR) && !nativeRdCockpit;
   const canDeleteTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
   const canDeleteAnyTask = useAnyPermission(
     PERMISSIONS.RD_TASK_REASSIGN,
@@ -6318,15 +6318,19 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     deleteTaskPendingRequestRef.current = request;
     setDeleteTaskPendingId(requestedTaskId);
     try {
-      await deleteRdTask(requestedTaskId);
+      if (nativeRdCockpit) {
+        await updateRdTask(requestedTaskId, { status: "pending_review", pending_review_type: "abandon" });
+      } else {
+        await deleteRdTask(requestedTaskId);
+      }
       // 仅当前请求可以发布结果；功能性更新同时保证旧请求不会关闭后来打开的任务。
       if (deleteTaskPendingRequestRef.current !== request) return;
-      toast.success(t("任务已删除"));
+      toast.success(t(nativeRdCockpit ? "删除申请已提交，等待审核" : "任务已删除"));
       setDeleteTaskTarget((current) => resolveDeleteDialogTargetAfterSuccess(current, requestedTaskId));
       void loadCategories();
     } catch (err) {
       if (deleteTaskPendingRequestRef.current === request) {
-        toast.error(err instanceof Error ? err.message : t("删除失败"));
+        toast.error(err instanceof Error ? err.message : t(nativeRdCockpit ? "提交失败，请重试" : "删除失败"));
       }
     } finally {
       // 若未来有更新的删除请求接管锁，旧请求不得清理它的 pending 状态。
@@ -6855,13 +6859,13 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             onEscapeKeyDown={(event) => { if (deleteTaskPendingRequestRef.current) event.preventDefault(); }}
           >
             <AlertDialogHeader>
-              <AlertDialogTitle>{t("删除任务？")}</AlertDialogTitle>
+              <AlertDialogTitle>{t(nativeRdCockpit ? "申请删除任务" : "删除任务？")}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("确认删除「{title}」？该操作不可恢复", {
+                {t(nativeRdCockpit ? "确认申请删除「{title}」？审核通过后将删除任务" : "确认删除「{title}」？该操作不可恢复", {
                   title: deleteTaskTarget ? taskVisibleTitle(deleteTaskTarget) : t("未命名任务"),
                 })}
                 {(deleteTaskTarget?.subtasks?.length ?? 0) > 0
-                  ? t("，且会一并删除其 {n} 个子任务", { n: deleteTaskTarget?.subtasks?.length ?? 0 })
+                  ? t(nativeRdCockpit ? "，审核通过后会一并删除其 {n} 个子任务" : "，且会一并删除其 {n} 个子任务", { n: deleteTaskTarget?.subtasks?.length ?? 0 })
                   : ""}
                 {lang === "zh" ? "。" : "."}
               </AlertDialogDescription>
@@ -6872,13 +6876,13 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                 className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
                 disabled={deleteTaskPendingId !== null}
                 onClick={(event) => {
-                  // Radix Action 默认立即关闭；删除完成前保持确认框并锁定重复提交。
+                  // Radix Action 默认立即关闭；请求完成前保持确认框并锁定重复提交。
                   event.preventDefault();
                   void handleDeleteTaskConfirm();
                 }}
               >
                 {deleteTaskPendingId !== null && <Loader2 className="h-4 w-4 animate-spin" />}
-                {deleteTaskPendingId !== null ? t("删除中…") : t("确认删除")}
+                {deleteTaskPendingId !== null ? t(nativeRdCockpit ? "提交中…" : "删除中…") : t(nativeRdCockpit ? "提交审核" : "确认删除")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -6914,7 +6918,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onUpdated={loadCategories}
             />
           )}
-          {showClearData && (
+          {showClearData && canClearData && (
             <ClearDataDialog
               onClose={() => setShowClearData(false)}
               onCleared={() => { setShowClearData(false); loadCategories(); }}

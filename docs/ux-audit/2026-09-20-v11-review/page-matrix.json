@@ -1,0 +1,299 @@
+[
+  {
+    "id": "G00",
+    "title": "公司管理总览",
+    "group": "总览与研发",
+    "currentEntry": "/ → Dashboard",
+    "implemented": "真实研发、问题、费用、订单个人聚合；待办、动态、权限裁剪、分来源失败反馈及原模块入口。",
+    "gap": "尚非公司交付总览；缺月份及产品范围的交付目标、生产、齐套、质量原异常和跨部门风险聚合；缺携带上下文的关键物料入口。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "R00",
+    "title": "研发任务首页",
+    "group": "总览与研发",
+    "currentEntry": "/rd-task-management → RDTaskManagementPage；/rd-my-workspace 为另一个已具采购进度入口的个人工作台",
+    "implemented": "真实任务卡片、人员筛选、主责及期限、附件缩略图、进度依据和风险；更多菜单有生产同步；详情可转采购和查看样品。",
+    "gap": "任务驾驶舱主卡片缺当前确认资料版本及关联采购、样品摘要；缺保留产品月份范围的关键物料入口。个人工作台已有采购弹窗不能替代此页覆盖。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "R01",
+    "title": "研发任务与资料详情",
+    "group": "总览与研发",
+    "currentEntry": "/rd-task/:taskId → RDTaskDetailPage、TechnicalDocumentsPanel、采购与样品 Tab",
+    "implemented": "任务更新、协作者、受控技术资料与历史原文件、版本并发保护、采购交付快照、转采购、本人样品结论、生产任务镜像同步。",
+    "gap": "缺原生产质量异常及适用批次 ECN 的结构化关联和导航；新建一般问题或同步任务镜像不等于回到原异常。真实通知与普通研发返回路径待验证。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S00",
+    "title": "供应链管理总览",
+    "group": "供应链",
+    "currentEntry": "/proc-cockpit → ProcurementCockpitPage，采购任务／样品协同／备货计划 Tab",
+    "implemented": "真实采购任务、业务线与人员筛选、状态统计、默认瀑布流及系统 Table、分页、附件、子系统生产质量和人员入口。",
+    "gap": "选人员只筛任务列表，顶部六项统计仍为团队范围；未形成所选批次需求、当前及按期齐套、质量风险的统一管理总览。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S01",
+    "title": "采购工作台",
+    "group": "供应链",
+    "currentEntry": "/proc-my-workspace → ProcMyWorkspacePage、ProcWorkspaceTaskList、ProcWorkspaceTaskPanel",
+    "implemented": "本人任务、月份及跨月范围、产品／供应商／状态筛选、紧凑表格与分页、缩略图、右详情、下一步、独立到货模块和原样 MateChat。",
+    "gap": "缺本计划当前缺料、未验收义务、按期供给覆盖及建议新增采购的联动判断；需求和已到／未到数量不能替代这些指标。已批准取消的顶部计划条与步骤条不计缺口。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S02",
+    "title": "研发采购协同",
+    "group": "供应链",
+    "currentEntry": "/rd-task/:taskId → TransferToProcurementModal；研发工作台关联采购只读入口；采购接收到任务工作台",
+    "implemented": "草稿、本人确认、研发参与权限、需求字段及附件、冻结技术版本、同研发任务防重复采购、退回补充与真实采购记录。",
+    "gap": "正式提交仍允许缺需求日期和规格且无不适用原因约束；提交后资料变更通知采购重新确认的完整链路待验证。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S03",
+    "title": "样品确认",
+    "group": "供应链",
+    "currentEntry": "/proc-cockpit?tab=samples → ProcurementSampleWorkspace、ProcSampleTestDialog；研发工作台本人测试入口",
+    "implemented": "选中详情与右侧样品列表均有产品图；版本附件预览、真实测试时间、折叠采购条件、指定人员结论、失败重送样／重新询价及轮次历史。",
+    "gap": "样品页缺探索／转产验证类型和适用 SIP、SOP、治具、试装及证据检查；生产端另有独立转产门禁，不能笼统视为没有门禁。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S04",
+    "title": "整机齐套与物料库",
+    "group": "供应链",
+    "currentEntry": "/proc-inventory-readiness → InventoryReadinessPage；/production-execution → 齐套与占用／ReadinessPanel",
+    "implemented": "全 BOM 理论齐套、瓶颈与缺项、导出；生产端正式日期齐套含有效完工、确认线边、库存占用、采购可用日期及快照。",
+    "gap": "跨计划采购供给未分配，同一订单可重复覆盖多个计划，已只读复现；库存中心的在途未按日期，正式日期能力另需生产权限；供应链角色可达性待验证。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S05",
+    "title": "仓管工作台",
+    "group": "供应链",
+    "currentEntry": "/warehouse-flow → WarehouseFlowPage；与 /production-execution 派工共用发料及签收服务",
+    "implemented": "真实派工用料、分批发料及本人签收、待发待签数量、超额与并发防护、请求幂等、ERP 核对和待核对库存占用。",
+    "gap": "实际发料缺物料批号；现有 batchId 为生产批次。真实 BOM 换算、退料及 ERP 核销全链路仍需现场验收。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S06",
+    "title": "来料质量与原因分析",
+    "group": "供应链",
+    "currentEntry": "/proc-cockpit 具体子系统／备货计划 → SubsystemOperationsPanel；完整分析结构仅在 DEV /__preview/quality-exceptions",
+    "implemented": "正式采购与生产两来源检验量、不良率、批次／物料／供应商关联、处置和授权复验，来源及单位分开统计。",
+    "gap": "正式分析未覆盖仓库与售后来源、主因待确认分布、同类别供应商比较及跨来源同批去重；开发预览内存数据不算正式接通。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "S07",
+    "title": "供应链人员任务",
+    "group": "供应链",
+    "currentEntry": "/proc-people-management → ProcPeopleManagementPage、PersonTasksDrawer、独立 OperationalTasksPanel；/proc-operational-tasks",
+    "implemented": "稳定员工 ID、历史人员、月份及跨月任务、普通采购与样品、任务转交；仓管与质量有独立真实待办。",
+    "gap": "所选人员抽屉只汇总采购和样品，未与仓管及质量面板形成同一人员统一范围；历史改名、离职转交与同名员工实际行为待验证。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S08",
+    "title": "采购到货安排",
+    "group": "供应链",
+    "currentEntry": "/proc-my-workspace → ProcWorkspaceArrivals、日历 Tab／ProcurementDeliverySchedule；采购订单行交期抽屉",
+    "implemented": "真实到货清单、日历／甘特、分页与待确认范围；原承诺及最新承诺分开保存、改期原因证据、历史、订单行返回及可用日期只读展示。",
+    "gap": "日历分组筛选仍按 ERP ETA，供应商最新承诺只是行补充；缺检验可用日、需求日、受影响批次的统一计划轴及更新后的联动呈现。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S09",
+    "title": "库存记录与物料明细",
+    "group": "供应链",
+    "currentEntry": "/inventory-management → Inventory；/proc-materials → MaterialWorkbenchPage、MaterialDetailDrawer；本地仓库事件另在 /warehouse-flow",
+    "implemented": "多仓库存聚合、筛选搜索、同步重试及导出、物料明细、数据来源时间、关联采购单；本地仓库操作有事件记录。",
+    "gap": "正式库存仅编码×仓库余额，缺批次及待检／不良／冻结等状态台账；物料详情流水接口固定返回空数组，本地仓库事件未汇入。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "S10",
+    "title": "收货检验与入库",
+    "group": "供应链",
+    "currentEntry": "/purchase-orders/:id → PurchaseOrderDetail、PurchaseReceiptDrawer；/proc-operational-tasks；/warehouse-flow → WarehouseRecordsPanel",
+    "implemented": "逐批实收与检验分开、合格／不良／待判数量、不良关联正式质量记录、版本与幂等、仓管确认入库及履约退换。",
+    "gap": "本地确认后主账可用库存仍待 ERP 核对同步；正式入库缺独立库位、入库单号及附件录入。A06 与同步前后口径需隔离数据验收。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S11",
+    "title": "生产退料接收",
+    "group": "供应链",
+    "currentEntry": "/warehouse-flow → WarehouseRecordsPanel，return／receive-return；生产执行共用原领料入口",
+    "implemented": "关联本人签收领料，区分未耗用与已报工不良、良品／不良／待判，累计可退校验、版本幂等及历史，确认退料只扣一次线边。",
+    "gap": "主账可用仍依赖 ERP；缺独立实际物料批次、照片及异常号关联，生产批次不能替代来料批次。A08 与差异重提待验证。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S12",
+    "title": "盘点与库存调整",
+    "group": "供应链",
+    "currentEntry": "/warehouse-flow → WarehouseRecordsPanel，count／approve-count／reconcile",
+    "implemented": "账面实盘与原因、填报复核分离、确认前不改余额、来源冲突与重复盘点保护、ERP 核对、负盘点保守扣减领料和生产齐套。",
+    "gap": "只支持合格数量盘点，缺库位、批次及待检／不良／冻结状态盘点；库存查询和正向调整仍待 ERP 同步。A09 各页面一致性待验证。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S13",
+    "title": "实际出货记录",
+    "group": "供应链",
+    "currentEntry": "/production-execution → 放行与发货／批次档案，LifecyclePanel",
+    "implemented": "真实批次、日期、客户订单及凭证、部分发货、有效放行约束、完成和净发货分列、冲销与历史、档案导出。",
+    "gap": "正式发货模型及页面缺已有 SN 关联和未采集待补齐数量；不要求本期全量扫码。跨月净发货及质量重开后的放行失效待验证。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S14",
+    "title": "采购订单详情",
+    "group": "供应链",
+    "currentEntry": "/purchase-orders/:id → PurchaseOrderDetail、收货／履约／交期抽屉",
+    "implemented": "订单行定位、订购及净履约义务、取消与退换待补、收货检验、履约审批、原最新承诺、可用日期、任务及备货计划关联。",
+    "gap": "订单供给跨计划分配缺口同 S04／S15；合同附件能否从订单行追溯尚未证实。退货、冲销、取消组合与不同经办权限待现场验收。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S15",
+    "title": "月度齐套与历史预测",
+    "group": "供应链",
+    "currentEntry": "/production-execution → 齐套与占用／ReadinessPanel；/proc-inventory-readiness 为不同的理论套数口径",
+    "implemented": "正式月度剩余整机需求、全 BOM、确认线边、仓库计划占用、按检验可用日筛供给、缺依据待核对、不可覆盖历史快照。",
+    "gap": "同一订单供给进入多个计划预测已只读复现；缺无正式目标的下月草稿及未下单供给独立情景；批次和整月预测不能混用。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S16",
+    "title": "质量异常处置详情",
+    "group": "供应链",
+    "currentEntry": "/proc-cockpit 具体子系统 → SubsystemOperationsPanel、QualityVerificationDialog；生产执行处理同异常",
+    "implemented": "正式采购／生产异常、物料供应商及批次关联、处置结果、独立复验、部分通过累计、关闭重开历史与原来源保护。",
+    "gap": "缺独立主因确认、责任认定、图像附件及仓库／售后来源；完整原因流程仅开发预览。处理人不能替代责任人，跨来源关联待验收。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "S17",
+    "title": "供应商与物料清单",
+    "group": "供应链",
+    "currentEntry": "/proc-quote-book?view=suppliers → QuoteBookPage、QuoteBookSupplierView、QuoteImportModal；/proc-materials",
+    "implemented": "同料多厂家报价、供应商物料目录、正式供应商关联、MOQ／阶梯价／交期／有效期、图片 OCR 与 AI 预览后人工导入。",
+    "gap": "目录从报价生成，缺独立物料×供应商合格供货关系及状态；报价状态不等于供货资质。无报价清单导入及质量附件直达待验证。",
+    "assessment": "主要能力已实现但有缺口"
+  },
+  {
+    "id": "S18",
+    "title": "关键物料全量看板",
+    "group": "供应链",
+    "currentEntry": "/proc-key-materials → KeyMaterialsPage、KeyMaterialMonthlyPanel",
+    "implemented": "固定 31 条线索独立于需求、候选与多料号映射、正式 ID 去重、人工权限确认及历史、歧义保留、正式计划需求／订单／质量摘要。",
+    "gap": "月度面板未继承来源产品月份，原单详情仅展开文字不实际下钻；缺本月需采购／缺料筛选以及线边、待检、不良、完整供货关系明细。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P00",
+    "title": "生产管理总览",
+    "group": "生产",
+    "currentEntry": "/production-dashboard → ProductionDashboardPage；production-execution/overview API",
+    "implemented": "月份、生产及发货目标、实际净发货、搜索和本人范围、组件报工及良品分别显示、跨月未完作业与原计划入口。",
+    "gap": "缺整机完工与剩余、确认在岗、首次终检指标及趋势、质量和适用 ECN 风险；当前作业与发货聚合不能替代管理总览。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "P01",
+    "title": "生产计划与派工",
+    "group": "生产",
+    "currentEntry": "/production-execution → 批次与派工／现场作业，ProductionExecutionPage、ExecutionEditor",
+    "implemented": "独立生产及发货目标、新增批次和组件／整机作业、BOM 用量、确认派工及同事务仓库需求，组件与整机量不混加。",
+    "gap": "只支持编制、派工和取消，缺已开工作业调期、改量、换线及经办变更；缺日期区间／产线筛选和短期安排视图。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P02",
+    "title": "现场任务与不良登记",
+    "group": "生产",
+    "currentEntry": "/production-execution → 现场作业／登记报工；/warehouse-flow?taskId=… → 领料签收及退料",
+    "implemented": "派工日期、批次、产线、负责人及单位带入，人工报工数量与良品，领料不足保护，真实报工记录。",
+    "gap": "报工上下文缺现场不良现象、照片、实领批次和缺码标记；异常主要由授权初检产生；现场卡缺已冻结 SOP／SIP／ECN 资料直达。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P03",
+    "title": "生产检验与复验",
+    "group": "生产",
+    "currentEntry": "/production-execution → 现场作业／登记初检、QualityVerificationDialog、放行与发货",
+    "implemented": "初检关联报工、分批数量约束、同号质量异常、复验累计通过且不改初检分母，放行与实际发货分开。",
+    "gap": "模型未区分过程检与终检，缺工序、适用 SIP 版本及当日首次终检专属统计；不能用通用初检率替代终检指标。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P04",
+    "title": "生产问题转研发",
+    "group": "生产",
+    "currentEntry": "/production-execution → 原初检异常的转协同处理／回复原异常／验证与记录",
+    "implemented": "保留原异常 ID 和不良量、稳定员工选择、当前经办权限、发起与回复历史，未回复不能复验关闭。",
+    "gap": "缺协同期限、待补资料及安排现场验证阶段、指定验证人和跨作业待我处理队列；研发侧原记录入口及真实通知待验证。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P05",
+    "title": "转产确认与批次档案",
+    "group": "生产",
+    "currentEntry": "/production-execution → 转产与 ECN，LifecyclePanel、OperationalDialog",
+    "implemented": "关联真实样品与轮次、探索／转量产资料包、独立验证、当轮样品通过与结束时间门禁、发布后派工冻结依据。",
+    "gap": "资料仍为 SOP／SIP／图纸自由文本，缺受控文件和版本 ID、试装图片、样品直达及软件硬件适用范围；不能因此否认既有转产门禁。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P06",
+    "title": "生产全部任务",
+    "group": "生产",
+    "currentEntry": "/production-dashboard 作业聚合；/production-execution 各业务 Tab；?view=legacy 为原有协同任务入口",
+    "implemented": "真实作业 ID、跨月未完成保留、本人与管理权限裁剪、进入原计划；各业务在正式服务中已有独立办理链。",
+    "gap": "尚未聚合检验、不良、样品及 ECN 待办，缺当前下一步、期限风险、业务类型／产线／状态筛选及分页；原协同工作区不等于执行域全部待办。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "P07",
+    "title": "批次计划与工序安排",
+    "group": "生产",
+    "currentEntry": "/production-execution → 批次与派工、齐套与占用；当前齐套为整月计划口径",
+    "implemented": "批次目标和交期、批次关联作业日期及产线、全 BOM 月度齐套、库存占用、确认线边、日期采购与快照。",
+    "gap": "缺按日日程矩阵和既有作业调整；齐套 API 无 batchId，不能回答所选批次目标的需求日齐套。页面诚实标整月，不属于冒充批次结果。",
+    "assessment": "明显偏离"
+  },
+  {
+    "id": "P08",
+    "title": "生产不良处理",
+    "group": "生产",
+    "currentEntry": "/production-execution → 现场作业内质量处置／协同／复验；SubsystemOperationsPanel 生产不良 Tab",
+    "implemented": "原异常返工、退换、报废及让步处置，独立复验、关闭重开、剩余数量约束、正式生产不良登记与重复数量保护。",
+    "gap": "缺跨作业待处理／待验证队列、主因及责任确认、受控现象和发生次数、多现象去重、本线 Top10、工序及实领物料批次关联。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P09",
+    "title": "生产批次档案",
+    "group": "生产",
+    "currentEntry": "/production-execution → 批次档案／放行与发货，LifecyclePanel 及 JSON 导出",
+    "implemented": "汇集计划 BOM 指纹、派工报工、初检及原异常复验、领退料、资料、放行发货事件，冻结派工版本并导出。",
+    "gap": "缺软件／硬件、已有 SN 与批内版本数量范围模型、待补齐标记、批次／SN 检索及原单导航；不要求本期全量扫码。",
+    "assessment": "部分对齐"
+  },
+  {
+    "id": "P10",
+    "title": "ECN变更查看与确认",
+    "group": "生产",
+    "currentEntry": "/production-execution → 转产与 ECN，LifecyclePanel 及生命周期命令",
+    "implemented": "已发布替代资料包、批次和生效日、旧料处置、草稿发布、适用现场负责人本人已读、未读阻止派工、历史依据不自动换版。",
+    "gap": "缺旧新受控文件对比、页面确认时间、无法执行反馈、采购／产线协同待办及通知；已读不能替代验证结论。",
+    "assessment": "部分对齐"
+  }
+]

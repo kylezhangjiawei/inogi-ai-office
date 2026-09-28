@@ -25,6 +25,7 @@ export class OrderProcessingController {
   }
 
   @Post('orders/upload')
+  @Permissions('page:order-workbench')
   @UseInterceptors(FilesInterceptor('files', 20))
   uploadOrders(
     @UploadedFiles() files: Array<{ originalname: string; size?: number; mimetype?: string; buffer?: Buffer }> | undefined,
@@ -34,31 +35,37 @@ export class OrderProcessingController {
   }
 
   @Post('orders/sync-mail')
+  @Permissions('page:order-workbench')
   syncWecomMailOrders(@Body() payload: Record<string, unknown>) {
     return this.service.syncWecomMailOrders(payload);
   }
 
   @Post('orders/:orderId/generate-invoice')
+  @Permissions('page:order-workbench')
   generateInvoice(@Param('orderId') orderId: string, @Body() payload: Record<string, unknown>) {
     return this.service.generateInvoice(orderId, payload);
   }
 
   @Post('orders/:orderId/export-invoice')
+  @Permissions('page:order-workbench')
   exportInvoice(@Param('orderId') orderId: string) {
     return this.service.exportInvoice(orderId);
   }
 
   @Post('templates/active')
+  @Permissions('page:order-workbench')
   saveActiveTemplate(@Body() payload: Record<string, unknown>) {
     return this.service.saveActiveTemplate(String(payload.templateId ?? ''));
   }
 
   @Post('templates')
+  @Permissions('page:order-workbench')
   saveTemplate(@Body() payload: Record<string, unknown>) {
     return this.service.saveTemplate(payload);
   }
 
   @Post('templates/ai-generate')
+  @Permissions('page:order-workbench')
   @UseInterceptors(FilesInterceptor('files', 10))
   generateAiTemplate(
     @UploadedFiles() files: Array<{ originalname: string; size?: number; mimetype?: string; buffer?: Buffer }> | undefined,
@@ -68,6 +75,7 @@ export class OrderProcessingController {
   }
 
   @Post('reminder-rule')
+  @Permissions('page:order-workbench')
   saveReminderRule(@Body() payload: Record<string, unknown>) {
     return this.service.saveReminderRule(payload);
   }
@@ -101,16 +109,19 @@ export class OrderProcessingController {
   }
 
   @Get('purchase-orders')
+  @Permissions('page:purchase-orders')
   getPurchaseOrders(@Query() query: Record<string, unknown>) {
     return this.service.getPurchaseOrders(query);
   }
 
   @Get('purchase-orders/:id')
+  @Permissions('page:purchase-order-detail')
   getPurchaseOrder(@Param('id') id: string) {
     return this.service.getPurchaseOrder(id);
   }
 
   @Post('purchase-orders/import')
+  @Permissions('page:purchase-orders')
   @UseInterceptors(FilesInterceptor('files', 5))
   importPurchaseOrders(
     @UploadedFiles() files: Array<{ originalname: string; size?: number; mimetype?: string; buffer?: Buffer }> | undefined,

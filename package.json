@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "npm run test:dev-scripts && npm --prefix apps/api run test",
-    "test:dev-scripts": "node --test scripts/*.test.mjs",
+    "test:dev-scripts": "node --test scripts/*.test.mjs src/app/production/execution/*.test.mjs",
     "build": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
     "typecheck": "tsc --noEmit",
     "dev": "node ./scripts/dev-all.mjs",

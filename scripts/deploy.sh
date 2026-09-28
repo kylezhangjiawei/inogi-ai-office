@@ -108,6 +108,13 @@ DEPLOY_PLAN_API=1
 DEPLOY_PLAN_PRISMA=1
 DEPLOY_PLAN_MIGRATIONS=1
 DEPLOY_PLAN_QUALITY=1
+DEPLOY_CHECK_FRONTEND_TYPE=1
+DEPLOY_CHECK_API_TYPE=1
+DEPLOY_CHECK_SCRIPTS=1
+DEPLOY_CHECK_DEPLOY=1
+DEPLOY_CHECK_API=1
+DEPLOY_CHECK_POSTGRES=1
+DEPLOY_WORK_PREFIX=()
 DEPLOY_BACKUP_PID=""
 DEPLOY_BACKUP_LOG=""
 DEPLOY_BACKUP_STARTED_MONOTONIC_MS=0
@@ -117,8 +124,16 @@ DEPLOY_STAGE_NAMES=(
   frontend_build
   prisma_generate
   api_build
-  typecheck
-  tests
+  typecheck_frontend
+  typecheck_api
+  tests_scripts
+  tests_deploy
+  tests_api
+  tests_postgres_applicant_forms
+  tests_postgres_audit_receipts
+  tests_postgres_chat_workspace
+  tests_postgres_procurement_rollback
+  tests_postgres_rd_documents
   database_backup
   database_migration
   api_restart
@@ -130,6 +145,52 @@ DEPLOY_STAGE_NAMES=(
 # 连带 deploy-baseline 的用例在开发机上全部失败），这里改用空格分隔的字符串：
 # 阶段名取自上面的固定清单，不含空格或通配符，前后留空格即可精确匹配。
 DEPLOY_RECORDED_STAGES=" "
+
+# Only build/test/backup children inherit this prefix; PM2 and the online API do not.
+init_deploy_resources() {
+  local allowed selected
+  DEPLOY_WORK_PREFIX=()
+  if [ "$(uname -s)" = "Linux" ] && command -v taskset >/dev/null 2>&1; then
+    allowed="$(LC_ALL=C taskset -pc "$$" 2>/dev/null | sed -n 's/.*: //p' || true)"
+    if [[ "$allowed" =~ ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]]; then
+      selected="$(printf '%s\n' "$allowed" | awk -F, '{
+        n=0; for(i=1;i<=NF;i++) { split($i,r,"-"); end=(r[2]==""?r[1]:r[2]);
+          for(c=r[1];c<=end && n<3;c++) cpus[++n]=c; }
+        printf "%s",cpus[1]; if(n>=3) printf ",%s",cpus[2];
+      }')"
+      if [ -n "$selected" ] && taskset -c "$selected" true 2>/dev/null; then
+        DEPLOY_WORK_PREFIX=(taskset -c "$selected")
+        log "发布重任务 CPU 范围：${selected}（最多 2 核，与备份压缩共用）。"
+      fi
+    fi
+  fi
+  if [ "${#DEPLOY_WORK_PREFIX[@]}" = "0" ]; then
+    log "⚠️  CPU 亲和性限制不可用；本次无法保证发布 CPU 上限。"
+  fi
+  if command -v nice >/dev/null 2>&1 && nice -n 10 true 2>/dev/null; then
+    DEPLOY_WORK_PREFIX+=(nice -n 10)
+  else
+    log "⚠️  发布任务优先级调整不可用。"
+  fi
+}
+
+limited_run() { "${DEPLOY_WORK_PREFIX[@]}" "$@"; }
+
+# Keep the same test files as test:dev-scripts, but isolate costly deployment fixtures.
+run_script_tests() {
+  local group="$1" file kind
+  local files=()
+  for file in scripts/*.test.mjs src/app/production/execution/*.test.mjs; do
+    [ -f "$file" ] || continue
+    kind=scripts
+    case "$file" in
+      scripts/deploy-baseline.test.mjs|scripts/deploy-change-plan.test.mjs|scripts/test-postgres-release.test.mjs) kind=deploy ;;
+    esac
+    [ "$kind" != "$group" ] || files+=("$file")
+  done
+  [ "${#files[@]}" -gt 0 ] || { log "测试组 ${group} 没有找到测试文件。"; return 1; }
+  limited_run node --test --test-concurrency=2 "${files[@]}"
+}
 
 json_escape() {
   local value="${1-}"
@@ -456,7 +517,7 @@ init_change_plan() {
     return 0
   }
 
-  if ! planner_output="$(node scripts/deploy-change-plan.mjs "$DEPLOY_PLAN_STATE_FILE" "$DEPLOY_PLAN_CANDIDATE_FILE")"; then
+  if ! planner_output="$(limited_run node scripts/deploy-change-plan.mjs "$DEPLOY_PLAN_STATE_FILE" "$DEPLOY_PLAN_CANDIDATE_FILE" "$CACHE_DIR/quality-inputs.json")"; then
     log "⚠️  变更分类失败，保守执行全量发布。"
     DEPLOY_PLAN_REASON="planner-failed"
     rm -f -- "$DEPLOY_PLAN_CANDIDATE_FILE" 2>/dev/null || true
@@ -469,7 +530,7 @@ init_change_plan() {
       DEPLOY_PLAN_REASON)
         case "$value" in first-release|deploy-logic-changed|incremental) DEPLOY_PLAN_REASON="$value" ;; esac
         ;;
-      DEPLOY_PLAN_DEPENDENCIES|DEPLOY_PLAN_FRONTEND|DEPLOY_PLAN_API|DEPLOY_PLAN_PRISMA|DEPLOY_PLAN_MIGRATIONS|DEPLOY_PLAN_QUALITY)
+      DEPLOY_PLAN_DEPENDENCIES|DEPLOY_PLAN_FRONTEND|DEPLOY_PLAN_API|DEPLOY_PLAN_PRISMA|DEPLOY_PLAN_MIGRATIONS|DEPLOY_PLAN_QUALITY|DEPLOY_CHECK_FRONTEND_TYPE|DEPLOY_CHECK_API_TYPE|DEPLOY_CHECK_SCRIPTS|DEPLOY_CHECK_DEPLOY|DEPLOY_CHECK_API|DEPLOY_CHECK_POSTGRES)
         case "$value" in
           0|1) printf -v "$key" '%s' "$value" ;;
         esac
@@ -480,6 +541,29 @@ $planner_output
 EOF
 
   log "发布计划[$DEPLOY_PLAN_REASON]：dependencies=$DEPLOY_PLAN_DEPENDENCIES frontend=$DEPLOY_PLAN_FRONTEND api=$DEPLOY_PLAN_API prisma=$DEPLOY_PLAN_PRISMA migrations=$DEPLOY_PLAN_MIGRATIONS quality=$DEPLOY_PLAN_QUALITY"
+}
+
+reset_quality_plan() {
+  rm -f -- "$CACHE_DIR/quality-inputs.json" || die "无法撤销旧检查记录，已中止部署。"
+  DEPLOY_CHECK_FRONTEND_TYPE=1
+  DEPLOY_CHECK_API_TYPE=1
+  DEPLOY_CHECK_SCRIPTS=1
+  DEPLOY_CHECK_DEPLOY=1
+  DEPLOY_CHECK_API=1
+  DEPLOY_CHECK_POSTGRES=1
+}
+
+commit_quality_plan() {
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || return 0
+  local temporary
+  temporary="$(mktemp "$CACHE_DIR/.quality-inputs.XXXXXX" 2>/dev/null || true)"
+  if [ -n "$temporary" ] && cp -- "$DEPLOY_PLAN_CANDIDATE_FILE" "$temporary" \
+    && mv -f -- "$temporary" "$CACHE_DIR/quality-inputs.json"; then
+    log "完整质量检查通过，检查输入记录已保存。"
+  else
+    [ -z "$temporary" ] || rm -f -- "$temporary"
+    log "⚠️  检查记录保存失败；下次将重新检查。"
+  fi
 }
 
 commit_change_plan() {
@@ -501,13 +585,12 @@ read_database_url() {
 
 # 压缩是这条管道真正的瓶颈：实测 pg_dump 读完 7.5GB 只要 241s（user+sys 合计才 24s，
 # 全程在等 I/O），而 gzip -6 单线程跟不上，把总时长拖到 467s。
-# 有 pigz 就按核数并行压（输出仍是标准 .gz，restore.sh 的解压路径不用动）；
-# 没有就退回 gzip -1 —— 文件大一两成，但压缩不再是瓶颈，总时长回落到读库速度。
+# 压缩与构建共用发布 CPU 集合；单线程低压缩级别避免后台备份抢占整机。
 compress_backup_stream() {
   if command -v pigz >/dev/null 2>&1; then
-    pigz -p "$(nproc 2>/dev/null || echo 2)"
+    limited_run pigz -1 -p 1
   else
-    gzip -1
+    limited_run gzip -1
   fi
 }
 
@@ -544,9 +627,10 @@ backup_database() {
 
   log "备份数据库 → $file"
   if command -v pg_dump >/dev/null 2>&1; then
-    pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
+    limited_run pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
       || { rm -f "$partial"; die "pg_dump 备份失败；已中止，不执行迁移。"; }
   elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx "$container"; then
+    log "容器内 pg_dump 由 Docker 调度；发布 CPU 限制仅约束宿主机构建与压缩。"
     docker exec -i "$container" pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
       || { rm -f "$partial"; die "docker pg_dump 备份失败；已中止，不执行迁移。"; }
   else
@@ -669,6 +753,7 @@ log "使用 pnpm 严格按锁文件安装"
 # 增量安装：lockfile 内容没变就跳过安装
 CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
+init_deploy_resources
 init_change_plan
 # 越早起越好：后面的依赖安装、构建、测试都在给它让出并行窗口。
 start_background_backup
@@ -705,7 +790,7 @@ fi
 
 install_deps() {
   # --prod=false 确保装上构建工具；失败只重试相同命令，不放宽锁文件校验。
-  retry pnpm install --frozen-lockfile --prod=false --prefer-offline
+  retry limited_run pnpm install --frozen-lockfile --prod=false --prefer-offline
 }
 
 # argon2 是原生模块：它的预编译二进制要求的 glibc 版本可能高于本机
@@ -721,10 +806,11 @@ ensure_native_argon2() {
     return 0
   fi
   log "argon2 预编译与本机不兼容，改为从源码编译 ..."
+  reset_quality_plan
   py="${PYTHON:-}"
   [ -n "$py" ] || die "未找到 Python（node-gyp 需 ≥3.8）；请先 dnf install -y python3.11。"
-  command -v node-gyp >/dev/null 2>&1 || npm install -g node-gyp --registry="$NPM_REGISTRY" >/dev/null 2>&1 || true
-  ( cd "$dir" && rm -rf prebuilds build && node-gyp rebuild --python "$py" ) \
+  command -v node-gyp >/dev/null 2>&1 || limited_run npm install -g node-gyp --registry="$NPM_REGISTRY" >/dev/null 2>&1 || true
+  ( cd "$dir" && rm -rf prebuilds build && limited_run node-gyp rebuild --python "$py" ) \
     || die "argon2 源码编译失败；请检查 gcc/gcc-c++/make 与 Python ≥3.8。"
   ( cd "$dir" && node -e "require('.')" ) >/dev/null 2>&1 \
     || die "argon2 编译后仍无法加载。"
@@ -735,6 +821,8 @@ if [ "$NEW_HASH" = "$OLD_HASH" ] && [ -d node_modules ]; then
   log "依赖 lockfile 未变化，跳过安装。"
 else
   log "安装依赖（首次或依赖有变动）..."
+  # Revoke proof before mutating dependencies, including failure before the quality gate.
+  reset_quality_plan
   install_deps
   echo "$NEW_HASH" > "$CACHE_DIR/lock.sha"
 fi
@@ -751,7 +839,7 @@ finish_stage success || true
 if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
   start_stage frontend_build || true
   log "构建前端 ..."
-  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry npm run build
+  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry limited_run npm run build
   finish_stage success || true
 else
   log "前端输入未变化，跳过前端构建。"
@@ -763,7 +851,7 @@ fi
 if [ "$DEPLOY_PLAN_PRISMA" = "1" ]; then
   start_stage prisma_generate || true
   log "Prisma schema 或依赖发生变化，生成 Prisma Client ..."
-  ( cd apps/api && retry npx --no-install prisma generate )
+  ( cd apps/api && retry limited_run npx --no-install prisma generate )
   finish_stage success || true
 else
   log "Prisma 输入未变化，跳过 Client 生成。"
@@ -774,7 +862,7 @@ fi
 if [ "$DEPLOY_PLAN_API" = "1" ]; then
   start_stage api_build || true
   log "构建后端 ..."
-  retry npm --prefix apps/api run build
+  retry limited_run npm --prefix apps/api run build
   finish_stage success || true
 else
   log "API 输入未变化，跳过后端构建。"
@@ -787,70 +875,64 @@ fi
 # 放在构建之后是因为测试用 ts-node 直接跑 TS，需要第 4 步生成的 Prisma Client。
 # 不重试：测试失败是代码问题，重跑三次只会拖长部署时间。
 # 紧急情况跳过：DEPLOY_RUN_TESTS=0（不推荐，写法与 DEPLOY_DB_BACKUP 一致）。
+# Cached flags have already been read; only a completed gate may write new proof.
+rm -f -- "$CACHE_DIR/quality-inputs.json" || die "无法撤销旧检查记录，已中止部署。"
 if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
-  # 一律用 npx --no-install 直接调本地 tsc，不走 `pnpm typecheck`：
-  # pnpm v11 在执行脚本前会先跑一遍 lockfile 供应链校验（1000+ 条目、要联网），
-  # 依赖没变时这纯属浪费，还把部署绑到 registry 可用性上。
-  # 两端共用一个 typecheck 阶段：前端按前端输入决定，后端按 API/测试输入决定。
-  # 后端这一遍是必要的：测试改用 transpile-only 之后，test/*.spec.ts 自身不再随测试
-  # 被类型检查，改由这里一次 tsc 统一覆盖（比 50 个测试进程各查一遍便宜得多）。
-  typecheck_frontend=0
-  typecheck_api=0
-  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then typecheck_frontend=1; fi
-  if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then typecheck_api=1; fi
-
-  if [ "$typecheck_frontend" = "1" ] || [ "$typecheck_api" = "1" ]; then
-    start_stage typecheck || true
-    if [ "$typecheck_frontend" = "1" ]; then
-      log "前端类型检查 ..."
-      npx --no-install tsc --noEmit -p tsconfig.json \
-        || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
+  if [ "$DEPLOY_CHECK_FRONTEND_TYPE" = "1" ]; then
+    start_stage typecheck_frontend || true
+    limited_run npx --no-install tsc --noEmit -p tsconfig.json \
+      || die "前端类型检查未通过，已中止部署。"
+    finish_stage success || true
+  else
+    skip_stage typecheck_frontend || true
+  fi
+  if [ "$DEPLOY_CHECK_API_TYPE" = "1" ]; then
+    start_stage typecheck_api || true
+    limited_run npx --no-install tsc --noEmit -p apps/api/tsconfig.json \
+      --tsBuildInfoFile "$CACHE_DIR/tsbuildinfo-api" \
+      || die "后端类型检查未通过，已中止部署。"
+    finish_stage success || true
+  else
+    skip_stage typecheck_api || true
+  fi
+  for group in scripts deploy; do
+    if { [ "$group" = scripts ] && [ "$DEPLOY_CHECK_SCRIPTS" = 1 ]; } \
+      || { [ "$group" = deploy ] && [ "$DEPLOY_CHECK_DEPLOY" = 1 ]; }; then
+      start_stage "tests_$group" || true
+      run_script_tests "$group" || die "测试组 ${group} 未通过，已中止部署。"
+      finish_stage success || true
     else
-      log "前端未变化，跳过前端类型检查。"
+      skip_stage "tests_$group" || true
     fi
-    if [ "$typecheck_api" = "1" ]; then
-      log "后端类型检查（含 test/*.spec.ts）..."
-      npx --no-install tsc --noEmit -p apps/api/tsconfig.json \
-        --tsBuildInfoFile "$CACHE_DIR/tsbuildinfo-api" \
-        || die "后端类型检查未通过，已中止部署（线上仍是旧版本）。"
-    fi
+  done
+  if [ "$DEPLOY_CHECK_API" = "1" ]; then
+    start_stage tests_api || true
+    # The preflight requires Node >=22.19; both TS and MTS suites must pass.
+    limited_run npm --prefix apps/api run test || die "API 测试未通过，已中止部署。"
     finish_stage success || true
   else
-    log "前端与 API 输入均未变化，跳过类型检查。"
-    skip_stage typecheck || true
+    skip_stage tests_api || true
   fi
-
-  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ] || [ "$DEPLOY_PLAN_PRISMA" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
-    start_stage tests || true
-    log "运行受影响的测试 ..."
-    if [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
-      npm run test:dev-scripts || die "开发脚本测试未通过，已中止部署（线上仍是旧版本）。"
+  for suite in applicant-forms audit-receipts chat-workspace procurement-rollback rd-documents; do
+    stage="tests_postgres_${suite//-/_}"
+    if [ "$DEPLOY_CHECK_POSTGRES" = "1" ]; then
+      start_stage "$stage" || true
+      limited_run bash scripts/test-postgres-release.sh --suite "$suite" \
+        || die "隔离 PostgreSQL 验收 ${suite} 未通过，已中止正式迁移与重启。"
+      finish_stage success || true
+    else
+      skip_stage "$stage" || true
     fi
-
-    if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
-      # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离。
-      if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
-        npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
-        log "质量闸门通过（API 常规 TS/MTS 套件；隔离数据库套件另行检查）。"
-      else
-        npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
-        log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行。"
-        log "质量闸门通过（API ts-node 套件）。"
-      fi
-    fi
-    if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ] || [ "$DEPLOY_PLAN_PRISMA" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
-      bash scripts/test-postgres-release.sh || die "隔离 PostgreSQL 验收未通过，已中止正式迁移与重启（线上仍是旧版本）。"
-      log "质量闸门通过（应聘登记、审计/收货、聊天工作区、采购回退、研发资料五组隔离 PostgreSQL 验收）。"
-    fi
-    finish_stage success || true
-  else
-    log "前端、API、数据库与测试输入均未变化，跳过测试。"
-    skip_stage tests || true
-  fi
+  done
+  # Save only after every required group passed; a later restart failure can reuse it.
+  commit_quality_plan
 else
-  log "⚠️  已跳过类型检查与测试（DEPLOY_RUN_TESTS=0）。"
-  skip_stage typecheck || true
-  skip_stage tests || true
+  log "⚠️  已跳过类型检查与测试（DEPLOY_RUN_TESTS=0），不保存检查通过记录。"
+  for stage in typecheck_frontend typecheck_api tests_scripts tests_deploy tests_api \
+    tests_postgres_applicant_forms tests_postgres_audit_receipts tests_postgres_chat_workspace \
+    tests_postgres_procurement_rollback tests_postgres_rd_documents; do
+    skip_stage "$stage" || true
+  done
 fi
 
 # ----------------- 6. 数据库备份收口（仅 migration 变化时）-----------------

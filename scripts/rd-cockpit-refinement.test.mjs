@@ -24,6 +24,180 @@ const moveTasksDialog = section("function MoveTasksDialog(", "// ─── TaskC
 const taskManagementPage = page.slice(page.indexOf("export function RDTaskManagementPage("));
 const coreCockpit = `${systemPanorama}\n${personCockpit}\n${executiveOverview}`;
 
+// Execute the real handlers; only their API and React state effects are supplied here.
+function cockpitBindings(componentName, names, dependencies) {
+  const ast = ts.createSourceFile("cockpit.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const component = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === componentName);
+  assert.ok(component, `missing component ${componentName}`);
+  const declarations = new Map();
+  for (const statement of component.body.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && names.includes(declaration.name.text)) {
+        declarations.set(declaration.name.text, `const ${declaration.name.text} = ${declaration.initializer.getText(ast)};`);
+      }
+    }
+  }
+  for (const name of names) assert.ok(declarations.has(name), `missing binding ${name}`);
+  const helpers = ast.statements.filter((node) => ts.isFunctionDeclaration(node) &&
+    node.name?.text === "resolveDeleteDialogTargetAfterSuccess").map((node) => node.getText(ast)).join("\n");
+  const javascript = ts.transpileModule(
+    helpers + "\n" + names.map((name) => declarations.get(name)).join("\n") + `\nreturn { ${names.join(", ")} };`,
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+  ).outputText;
+  return new Function("exports", ...Object.keys(dependencies), javascript)({}, ...Object.values(dependencies));
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+  return { promise, resolve, reject };
+}
+
+function deletionFixture(workspace, response = Promise.resolve()) {
+  const state = { target: { task_id: "task-old" }, pendingId: null, successes: [], errors: [], refreshes: 0, requests: [] };
+  const requestRef = { current: null };
+  const sequenceRef = { current: 0 };
+  const bind = () => cockpitBindings("RDTaskManagementPage", ["usCollab", "productionWorkspace", "nativeRdCockpit", "handleDeleteTaskConfirm"], {
+    isUsCollabWorkspace: () => workspace === "us-collab",
+    isProductionWorkspace: () => workspace === "production",
+    deleteTaskTarget: state.target,
+    deleteTaskPendingRequestRef: requestRef,
+    deleteTaskRequestSequenceRef: sequenceRef,
+    setDeleteTaskPendingId: (value) => { state.pendingId = typeof value === "function" ? value(state.pendingId) : value; },
+    setDeleteTaskTarget: (value) => { state.target = typeof value === "function" ? value(state.target) : value; },
+    deleteRdTask: async (id) => { state.requests.push({ method: "delete", id }); await response; },
+    updateRdTask: async (id, patch) => { state.requests.push({ method: "update", id, patch }); await response; },
+    toast: { success: (text) => state.successes.push(text), error: (text) => state.errors.push(text) },
+    t: (text) => text,
+    loadCategories: () => { state.refreshes++; },
+  });
+  return { state, requestRef, bind };
+}
+
+test("研发驾驶舱删除只提交删除审核申请，保留任务并刷新最新状态", async () => {
+  const { state, bind } = deletionFixture("rd");
+  await bind().handleDeleteTaskConfirm();
+  assert.deepEqual(state.requests, [{ method: "update", id: "task-old", patch: { status: "pending_review", pending_review_type: "abandon" } }]);
+  assert.deepEqual(state.successes, ["删除申请已提交，等待审核"]);
+  assert.equal(state.refreshes, 1);
+  assert.equal(state.target, null);
+  assert.equal(state.pendingId, null);
+});
+
+test("协同和生产驾驶舱仍使用原直接删除接口", async () => {
+  for (const workspace of ["us-collab", "production"]) {
+    const { state, bind } = deletionFixture(workspace);
+    await bind().handleDeleteTaskConfirm();
+    assert.deepEqual(state.requests, [{ method: "delete", id: "task-old" }]);
+    assert.deepEqual(state.successes, ["任务已删除"]);
+    assert.equal(state.refreshes, 1);
+  }
+});
+
+test("研发清空入口关闭，协同和生产继续遵循清空权限", () => {
+  for (const workspace of ["rd", "us-collab", "production"]) {
+    for (const permitted of [true, false]) {
+      const { canClearData } = cockpitBindings("RDTaskManagementPage", ["usCollab", "productionWorkspace", "nativeRdCockpit", "canClearData"], {
+        isUsCollabWorkspace: () => workspace === "us-collab",
+        isProductionWorkspace: () => workspace === "production",
+        usePermission: () => permitted,
+        PERMISSIONS: { RD_DATA_CLEAR: "rd:data-clear" },
+      });
+      assert.equal(canClearData, workspace !== "rd" && permitted, `${workspace}, permitted=${permitted}`);
+    }
+  }
+});
+
+test("即使绕过入口调用清空处理器，研发也不发请求；其他工作区保留确认保护", async () => {
+  for (const workspace of ["rd", "us-collab", "production"]) {
+    for (const overrides of [{}, { keywordMatched: false }, { cooldown: 1 }, { clearing: true }]) {
+      const calls = { requests: 0, cleared: 0, successes: [] };
+      const { handleClear } = cockpitBindings("ClearDataDialog", ["usCollab", "productionWorkspace", "handleClear"], {
+        isUsCollabWorkspace: () => workspace === "us-collab",
+        isProductionWorkspace: () => workspace === "production",
+        keywordMatched: true, cooldown: 0, clearing: false,
+        setClearing() {}, setConfirmText() {}, moduleName: workspace,
+        clearRdAllTaskData: async () => { calls.requests++; },
+        onCleared: () => { calls.cleared++; },
+        toast: { success: (message) => calls.successes.push(message), error() {} },
+        t: (text) => text,
+        ...overrides,
+      });
+      await handleClear();
+      const expected = workspace !== "rd" && Object.keys(overrides).length === 0 ? 1 : 0;
+      assert.equal(calls.requests, expected, `${workspace}, ${JSON.stringify(overrides)}`);
+      assert.equal(calls.cleared, expected);
+      assert.equal(calls.successes.length, expected);
+    }
+  }
+});
+
+test("研发删除申请同一事件循环防重，请求结束才解除 pending", async () => {
+  const pending = deferred();
+  const { state, requestRef, bind } = deletionFixture("rd", pending.promise);
+  const handler = bind().handleDeleteTaskConfirm;
+  const first = handler();
+  await handler();
+  assert.equal(state.requests.length, 1);
+  assert.equal(state.pendingId, "task-old");
+  assert.equal(state.target.task_id, "task-old");
+  assert.deepEqual(state.successes, []);
+  pending.resolve();
+  await first;
+  assert.equal(state.pendingId, null);
+  assert.equal(requestRef.current, null);
+});
+
+test("旧删除申请返回不关闭后来打开的任务弹窗", async () => {
+  const pending = deferred();
+  const { state, bind } = deletionFixture("rd", pending.promise);
+  const first = bind().handleDeleteTaskConfirm();
+  const newerTarget = { task_id: "task-new" };
+  state.target = newerTarget;
+  pending.resolve();
+  await first;
+  assert.equal(state.target, newerTarget);
+  assert.equal(state.pendingId, null);
+});
+
+test("已失效删除申请的成功或失败均不能覆盖新请求状态", async () => {
+  for (const fails of [false, true]) {
+    const pending = deferred();
+    const { state, requestRef, bind } = deletionFixture("rd", pending.promise);
+    const first = bind().handleDeleteTaskConfirm();
+    const newerTarget = { task_id: "task-new" };
+    const newerRequest = { sequence: 2, taskId: "task-new" };
+    state.target = newerTarget;
+    state.pendingId = "task-new";
+    requestRef.current = newerRequest;
+    if (fails) pending.reject(new Error("old request failed"));
+    else pending.resolve();
+    await first;
+    assert.equal(state.target, newerTarget);
+    assert.equal(state.pendingId, "task-new");
+    assert.equal(requestRef.current, newerRequest);
+    assert.deepEqual(state.successes, []);
+    assert.deepEqual(state.errors, []);
+    assert.equal(state.refreshes, 0);
+  }
+});
+
+test("删除申请失败保留确认目标并释放自己的锁", async () => {
+  const pending = deferred();
+  const { state, requestRef, bind } = deletionFixture("rd", pending.promise);
+  const request = bind().handleDeleteTaskConfirm();
+  pending.reject(new Error("service unavailable"));
+  await request;
+  assert.equal(state.target.task_id, "task-old");
+  assert.equal(state.pendingId, null);
+  assert.equal(requestRef.current, null);
+  assert.deepEqual(state.errors, ["service unavailable"]);
+  assert.deepEqual(state.successes, []);
+  assert.equal(state.refreshes, 0);
+});
+
 test("核心驾驶舱保持 Horizon 统一品牌令牌和信息层级且无旧装饰", () => {
   assert.match(executiveOverview, /horizon-theme hz-page rd-horizon-cockpit/);
   assert.match(executiveOverview, /\bbg-primary\b/);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const workspaceSource = await readFile(
   new URL("../src/app/RDMyWorkspacePage.tsx", import.meta.url),
@@ -10,6 +11,140 @@ const peopleSource = await readFile(
   new URL("../src/app/RDPeopleManagementPage.tsx", import.meta.url),
   "utf8",
 );
+
+function workspaceLoadingFixture() {
+  const ast = ts.createSourceFile("RDMyWorkspacePage.tsx", workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const page = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "RDMyWorkspacePage");
+  assert.ok(page?.body, "Missing workspace component");
+  const names = ["workspaceLoadSeqRef", "workspaceKey", "loadWorkspace"];
+  const declarations = page.body.statements.filter(ts.isVariableStatement)
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .filter((declaration) => names.includes(declaration.name.getText(ast)));
+  assert.equal(declarations.length, names.length);
+  const callbackStatement = page.body.statements.findIndex((statement) => ts.isVariableStatement(statement)
+    && statement.declarationList.declarations.some((declaration) => declaration.name.getText(ast) === "loadWorkspace"));
+  const mountEffect = page.body.statements[callbackStatement + 1];
+  assert.ok(ts.isExpressionStatement(mountEffect) && ts.isCallExpression(mountEffect.expression)
+    && mountEffect.expression.expression.getText(ast) === "useEffect", "Missing workspace mount/cleanup effect");
+
+  const empty = { myTasks: [], collabTasks: [], aiSuggestions: [], notifications: [] };
+  const state = { workspace: empty, loading: true, error: null };
+  const requests = [], loads = [], updates = [];
+  let cleanup;
+  const set = (key) => (value) => { state[key] = value; updates.push({ key, value }); };
+  const bindings = {
+    React: {
+      useRef: (value) => ({ current: value }),
+      useCallback: (callback) => (...args) => { const load = callback(...args); loads.push(load); return load; },
+    },
+    useEffect: (callback) => { cleanup = callback(); },
+    isUsCollabWorkspace: () => false,
+    fetchRdWorkspace: () => new Promise((resolve, reject) => { requests.push({ resolve, reject }); }),
+    EMPTY_WORKSPACE: empty,
+    setWorkspace: set("workspace"), setLoading: set("loading"), setLoadError: set("error"),
+  };
+  // Execute the real callback and mount cleanup. Only React state and the network are replaced.
+  const code = ts.transpileModule(`${declarations.map((declaration) => `const ${declaration.getText(ast)};`).join("\n")}
+    ${mountEffect.getText(ast)}
+    return loadWorkspace;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const loadWorkspace = new Function(...Object.keys(bindings), code)(...Object.values(bindings));
+  return { state, requests, loads, updates, loadWorkspace, unmount: () => cleanup() };
+}
+
+const workspacePayload = (taskId) => ({ myTasks: [{ task_id: taskId }], collabTasks: [], notifications: [{ id: taskId }] });
+
+test("工作台加载状态：普通首屏成功后展示任务并结束加载", async () => {
+  const f = workspaceLoadingFixture();
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.state.loading, true);
+  f.requests[0].resolve(workspacePayload("first"));
+  await f.loads[0];
+  assert.equal(f.state.workspace.myTasks[0].task_id, "first");
+  assert.equal(f.state.loading, false);
+  assert.equal(f.state.error, null);
+  f.unmount();
+});
+
+for (const order of [[1, 0], [0, 1]]) {
+  test(`工作台加载状态：首屏被静默刷新接管，${order[0] === 1 ? "新" : "旧"}请求先返回仍结束加载`, async () => {
+    const f = workspaceLoadingFixture();
+    f.loadWorkspace({ silent: true });
+    for (const index of order) {
+      f.requests[index].resolve(workspacePayload(index === 1 ? "latest" : "stale"));
+      await f.loads[index];
+      if (index === 0 && order[0] === 0) {
+        assert.equal(f.state.loading, true, "旧请求不能提前关闭仍在等待的新请求加载态");
+        assert.deepEqual(f.state.workspace.myTasks, []);
+      }
+    }
+    assert.equal(f.state.workspace.myTasks[0].task_id, "latest");
+    assert.equal(f.state.loading, false, "最新静默请求也必须结束首屏骨架屏");
+    assert.equal(f.state.error, null);
+    f.unmount();
+  });
+}
+
+test("工作台加载状态：最新静默请求失败结束首屏加载，旧成功不能覆盖错误", async () => {
+  const f = workspaceLoadingFixture();
+  const latest = f.loadWorkspace({ silent: true });
+  f.requests[1].reject(new Error("最新请求失败"));
+  await latest;
+  f.requests[0].resolve(workspacePayload("stale"));
+  await f.loads[0];
+  assert.deepEqual(f.state.workspace.myTasks, []);
+  assert.equal(f.state.error, "最新请求失败");
+  assert.equal(f.state.loading, false, "失败后必须允许用户重新加载");
+  f.unmount();
+});
+
+test("工作台加载状态：已有数据静默刷新不出现骨架屏，失败保留上次结果", async () => {
+  const f = workspaceLoadingFixture();
+  f.requests[0].resolve(workspacePayload("first"));
+  await f.loads[0];
+  const start = f.updates.length;
+  const success = f.loadWorkspace({ silent: true });
+  assert.equal(f.state.loading, false);
+  assert.equal(f.state.workspace.myTasks[0].task_id, "first");
+  f.requests[1].resolve(workspacePayload("updated"));
+  await success;
+  assert.equal(f.state.loading, false);
+  const previous = f.state.workspace;
+  const failure = f.loadWorkspace({ silent: true });
+  f.requests[2].reject(new Error("后台刷新失败"));
+  await failure;
+  assert.equal(f.state.workspace, previous);
+  assert.equal(f.state.error, "后台刷新失败");
+  assert.equal(f.state.loading, false);
+  assert.ok(f.updates.slice(start).every(({ key, value }) => key !== "loading" || value === false));
+  f.unmount();
+});
+
+test("工作台加载状态：过期失败不能覆盖新请求的结果或错误状态", async () => {
+  const f = workspaceLoadingFixture();
+  const latest = f.loadWorkspace();
+  f.requests[1].resolve(workspacePayload("latest"));
+  await latest;
+  const updateCount = f.updates.length;
+  f.requests[0].reject(new Error("旧请求失败"));
+  await f.loads[0];
+  assert.equal(f.state.workspace.myTasks[0].task_id, "latest");
+  assert.equal(f.state.error, null);
+  assert.equal(f.state.loading, false);
+  assert.equal(f.updates.length, updateCount);
+  f.unmount();
+});
+
+for (const outcome of ["success", "failure"]) {
+  test(`工作台加载状态：卸载后${outcome === "success" ? "成功" : "失败"}响应均不再更新状态`, async () => {
+    const f = workspaceLoadingFixture();
+    f.unmount();
+    const updateCount = f.updates.length;
+    if (outcome === "success") f.requests[0].resolve(workspacePayload("unmounted"));
+    else f.requests[0].reject(new Error("卸载后的请求失败"));
+    await f.loads[0];
+    assert.equal(f.updates.length, updateCount);
+  });
+}
 
 test("研发工作台保留三工作区数据隔离并优化派生查询", () => {
   assert.match(workspaceSource, /fetchRdWorkspace\(\{ includeCollaboration: !isUsCollabWorkspace\(\) \}\)/);

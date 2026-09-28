@@ -1,0 +1,11 @@
+{
+  "pages": 33,
+  "captures": 14,
+  "comparisons": 8,
+  "findings": 18,
+  "priorities": {
+    "P1": 8,
+    "P2": 10
+  },
+  "markdownChars": 23844
+}

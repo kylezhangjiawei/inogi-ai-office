@@ -1,0 +1,1636 @@
+[
+  {
+    "url": "/src/app/MobileRDCockpit.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 40,
+    "bytes": 255993,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/src/app/components/ui/button.tsx",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/react-dom.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/node_modules/.vite-app/deps/react-router.js?v=92a001ea",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/MobileZoomableImage.tsx",
+      "/src/app/lib/i18n.ts",
+      "/src/app/hooks/useRDCockpitData.ts",
+      "/src/app/lib/taskDue.ts",
+      "/src/app/lib/rdMemberIdentity.ts",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/RDTaskConversation.tsx",
+      "/src/app/RDProgressEvidence.tsx",
+      "/src/app/rd/TechnicalDocumentsPanel.tsx",
+      "/src/app/lib/auditLog.ts",
+      "/src/app/procurement/components/rdInsertion.tsx",
+      "/src/app/hooks/useMobileOverlay.ts",
+      "/src/app/hooks/useModalFocus.ts",
+      "/src/app/components/ui/input.tsx"
+    ]
+  },
+  {
+    "url": "/@vite/client",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 182867,
+    "imports": [
+      "/node_modules/.pnpm/vite@6.4.3_@types+node@25.9_e4c4211608475223747b652ff2366eff/node_modules/vite/dist/client/env.mjs"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 29,
+    "bytes": 37171,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/@react-refresh",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 37,
+    "bytes": 113132,
+    "imports": [
+      "/@vite/client"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/button.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 35,
+    "bytes": 10561,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/@radix-ui_react-slot.js?v=8f971152",
+      "/node_modules/.vite-app/deps/class-variance-authority.js?v=70781e03",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 40,
+    "bytes": 1068,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/react-dom.js?v=5f76666f",
+    "status": 504,
+    "type": null,
+    "ms": 40,
+    "bytes": 0,
+    "imports": [],
+    "error": ""
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 1027964,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/react-router.js?v=92a001ea",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 75,
+    "bytes": 465741,
+    "imports": [
+      "/@vite/client",
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/utils.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 122,
+    "bytes": 780,
+    "imports": [
+      "/node_modules/.vite-app/deps/clsx.js?v=68bbddb1",
+      "/node_modules/.vite-app/deps/tailwind-merge.js?v=95f966aa"
+    ]
+  },
+  {
+    "url": "/src/app/components/MobileZoomableImage.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 123,
+    "bytes": 83894,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/lib/mobileRouting.ts",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/lib/taskImageGesture.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/lib/i18n.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 127,
+    "bytes": 227581,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/lib/authSession.ts"
+    ]
+  },
+  {
+    "url": "/src/app/hooks/useRDCockpitData.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 132,
+    "bytes": 16937,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/rdCockpitMetrics.ts",
+      "/src/app/lib/rdTaskTreeVisibility.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/taskDue.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 10722,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/rdMemberIdentity.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 6442,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/rdApi.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 304207,
+    "imports": [
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/rdAttachmentPayload.ts",
+      "/src/app/lib/resourceImage.ts",
+      "/src/app/lib/rdWorkspace.ts",
+      "/src/app/lib/rdAttachmentPayload.ts",
+      "/src/app/lib/rdWorkspace.ts"
+    ]
+  },
+  {
+    "url": "/src/app/RDTaskConversation.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 19,
+    "bytes": 440893,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/src/app/components/ui/button.tsx",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/motion_react.js?v=750a2e68",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+      "/src/app/auth.tsx",
+      "/src/app/components/MentionInput.tsx",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/auditLog.ts",
+      "/src/app/lib/i18n.ts",
+      "/src/app/lib/userAvatar.ts",
+      "/src/app/RDProgressEvidence.tsx",
+      "/src/app/components/ui/input.tsx",
+      "/src/app/components/ui/textarea.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/RDProgressEvidence.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 31,
+    "bytes": 256285,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/src/app/components/ui/button.tsx",
+      "/src/app/components/RenewableImage.tsx",
+      "/src/app/components/ResourceDownloadLink.tsx",
+      "/src/app/lib/attachmentAccess.ts",
+      "/src/app/lib/useRenewableResource.ts",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/lib/i18n.ts",
+      "/src/app/components/MentionInput.tsx",
+      "/src/app/components/AttachmentPreviewDialog.tsx",
+      "/src/app/components/TranslatableText.tsx",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/xlsxPreview.ts",
+      "/src/app/lib/mobileRouting.ts",
+      "/src/app/hooks/useMobileOverlay.ts",
+      "/src/app/lib/taskImageGesture.ts"
+    ]
+  },
+  {
+    "url": "/src/app/rd/TechnicalDocumentsPanel.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 37,
+    "bytes": 167427,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/button.tsx",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/components/ui/input.tsx",
+      "/src/app/components/ui/textarea.tsx",
+      "/src/app/components/ui/tabs.tsx",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/rd/TechnicalDocumentPreview.tsx",
+      "/src/app/rd/technicalDocuments.css",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/rdTechnicalDocumentsApi.ts",
+      "/src/app/components/ui/native-select.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/lib/auditLog.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 20,
+    "bytes": 104373,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/auth.tsx",
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/permissions.ts",
+      "/src/app/lib/rdApi.ts"
+    ]
+  },
+  {
+    "url": "/src/app/procurement/components/rdInsertion.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 22,
+    "bytes": 182860,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/react-router.js?v=92a001ea",
+      "/src/app/components/ui/input.tsx",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/components/ui/alert-dialog.tsx",
+      "/src/app/components/ui/select.tsx",
+      "/src/app/components/ui/utils.ts",
+      "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+      "/src/app/auth.tsx",
+      "/src/app/components/TranslatableText.tsx",
+      "/src/app/lib/i18n.ts",
+      "/src/app/procurement/components/TransferDraftSupport.tsx",
+      "/src/app/procurement/transferDraftStore.ts",
+      "/src/app/lib/procurementApi.ts",
+      "/src/app/RDProgressEvidence.tsx",
+      "/src/app/procurement/data.ts",
+      "/src/app/procurement/components/common.tsx",
+      "/src/app/hooks/usePermission.ts",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/rdTechnicalDocumentsApi.ts",
+      "/src/app/lib/rdProcurementTransfer.ts",
+      "/src/app/components/ui/button.tsx",
+      "/src/app/components/ui/checkbox.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/hooks/useMobileOverlay.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 26,
+    "bytes": 7925,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f"
+    ]
+  },
+  {
+    "url": "/src/app/hooks/useModalFocus.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 27,
+    "bytes": 8802,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/input.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 27,
+    "bytes": 6806,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.pnpm/vite@6.4.3_@types+node@25.9_e4c4211608475223747b652ff2366eff/node_modules/vite/dist/client/env.mjs",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 28,
+    "bytes": 3861,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 1,
+    "bytes": 77950,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 6,
+    "bytes": 12993,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-slot.js?v=8f971152",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 1900,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/class-variance-authority.js?v=70781e03",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 1448,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-5ZRXVGMT.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DEX2RCYB.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/clsx.js?v=68bbddb1",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 1205,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-DEX2RCYB.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/tailwind-merge.js?v=95f966aa",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 8,
+    "bytes": 91451,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/lib/mobileRouting.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 1,
+    "bytes": 2466,
+    "imports": []
+  },
+  {
+    "url": "/src/app/components/ui/dialog.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 2,
+    "bytes": 19988,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/@radix-ui_react-dialog.js?v=c2b569b3",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/taskImageGesture.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 3,
+    "bytes": 8537,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/authSession.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 3,
+    "bytes": 32244,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/rdCockpitMetrics.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 4,
+    "bytes": 20408,
+    "imports": [
+      "/src/app/lib/taskDue.ts",
+      "/src/app/lib/i18n.ts",
+      "/src/app/lib/rdTaskTreeVisibility.ts",
+      "/src/app/lib/rdMemberIdentity.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/rdTaskTreeVisibility.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 1242,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/rdAttachmentPayload.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 6242,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/resourceImage.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 13730,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/rdWorkspace.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 4417,
+    "imports": [
+      "/node_modules/.vite-app/deps/react-router.js?v=92a001ea",
+      "/src/app/lib/routePaths.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/motion_react.js?v=750a2e68",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 19,
+    "bytes": 486758,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 65,
+    "bytes": 58057,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/auth.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 68,
+    "bytes": 28940,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/departmentDirectory.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/MentionInput.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 8,
+    "bytes": 43043,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/lib/i18n.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/lib/userAvatar.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 9,
+    "bytes": 17244,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/auth.tsx",
+      "/src/app/lib/authSession.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/textarea.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 5703,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/RenewableImage.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 4575,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/src/app/lib/useRenewableResource.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ResourceDownloadLink.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 11,
+    "bytes": 6153,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+      "/src/app/lib/resourceAccess.ts",
+      "/src/app/lib/i18n.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/attachmentAccess.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 11,
+    "bytes": 5005,
+    "imports": [
+      "/src/app/lib/procurementApi.ts",
+      "/src/app/lib/rdApi.ts",
+      "/src/app/lib/resourceAccess.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/useRenewableResource.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 1,
+    "bytes": 11772,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/lib/resourceAccess.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/AttachmentPreviewDialog.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 2,
+    "bytes": 91026,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/lib/i18n.ts",
+      "/src/app/lib/resourceAccess.ts",
+      "/src/app/lib/useRenewableResource.ts",
+      "/src/app/lib/xlsxPreview.ts",
+      "/src/app/components/MobileZoomableImage.tsx",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/components/TranslatableText.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 4,
+    "bytes": 24397,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/i18n.ts",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/lib/xlsxPreview.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 13613,
+    "imports": []
+  },
+  {
+    "url": "/src/app/components/ui/tabs.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 6,
+    "bytes": 9494,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/@radix-ui_react-tabs.js?v=119f7d1f",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/src/app/rd/TechnicalDocumentPreview.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 6,
+    "bytes": 19348,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/AttachmentPreviewDialog.tsx",
+      "/src/app/components/MobileZoomableImage.tsx",
+      "/src/app/lib/rdApi.ts"
+    ]
+  },
+  {
+    "url": "/src/app/rd/technicalDocuments.css",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 4,
+    "bytes": 870,
+    "imports": [
+      "/@vite/client",
+      "/@vite/client"
+    ]
+  },
+  {
+    "url": "/src/app/lib/rdTechnicalDocumentsApi.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 19181,
+    "imports": [
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/rdApi.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/native-select.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 6,
+    "bytes": 22766,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/components/ui/select.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/lib/permissions.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 21309,
+    "imports": []
+  },
+  {
+    "url": "/src/app/components/ui/alert-dialog.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 8,
+    "bytes": 24386,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/@radix-ui_react-alert-dialog.js?v=65210ecf",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/select.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 8,
+    "bytes": 29447,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/@radix-ui_react-select.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/src/app/procurement/components/TransferDraftSupport.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 11,
+    "bytes": 33862,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/react-router.js?v=92a001ea",
+      "/src/app/components/ui/alert-dialog.tsx",
+      "/src/app/procurement/transferDraftStore.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/procurement/transferDraftStore.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 12,
+    "bytes": 12466,
+    "imports": []
+  },
+  {
+    "url": "/src/app/lib/procurementApi.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 14,
+    "bytes": 125383,
+    "imports": [
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/resourceUpload.ts"
+    ]
+  },
+  {
+    "url": "/src/app/procurement/data.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 34352,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/auth.tsx",
+      "/src/app/lib/authSession.ts",
+      "/src/app/lib/procurementApi.ts",
+      "/src/app/lib/rdApi.ts"
+    ]
+  },
+  {
+    "url": "/src/app/procurement/components/common.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 114221,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/node_modules/.vite-app/deps/sonner.js?v=edc46176",
+      "/src/app/auth.tsx",
+      "/src/app/components/ui/alert-dialog.tsx",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/calendar.tsx",
+      "/src/app/components/ui/command.tsx",
+      "/src/app/components/ui/dialog.tsx",
+      "/src/app/components/ui/button.tsx",
+      "/src/app/components/ui/input.tsx",
+      "/src/app/components/ui/popover.tsx",
+      "/src/app/components/ui/toggle.tsx",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/MobileZoomableImage.tsx",
+      "/src/app/lib/userAvatar.ts",
+      "/src/app/lib/departmentDirectory.ts",
+      "/src/app/lib/permissions.ts",
+      "/src/app/lib/i18n.ts",
+      "/src/app/lib/procurementApi.ts",
+      "/src/app/procurement/data.ts"
+    ]
+  },
+  {
+    "url": "/src/app/hooks/usePermission.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 20,
+    "bytes": 1898,
+    "imports": [
+      "/src/app/auth.tsx",
+      "/src/app/lib/permissions.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/rdProcurementTransfer.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 6,
+    "bytes": 6883,
+    "imports": [
+      "/src/app/lib/rdTechnicalDocumentsApi.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/checkbox.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 6643,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/@radix-ui_react-checkbox.js?v=a7bd156a",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 7,
+    "bytes": 4916,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 8,
+    "bytes": 37504,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-5ZRXVGMT.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 2326,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-DEX2RCYB.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-DEX2RCYB.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 656,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-dialog.js?v=c2b569b3",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 12,
+    "bytes": 8404,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-A3DHDYRG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/lib/routePaths.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 9371,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 20,
+    "bytes": 932278,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/lib/departmentDirectory.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 18326,
+    "imports": [
+      "/node_modules/.vite-app/deps/react.js?v=5f76666f",
+      "/src/app/lib/authSession.ts"
+    ]
+  },
+  {
+    "url": "/src/app/lib/resourceAccess.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 72,
+    "bytes": 15550,
+    "imports": [
+      "/src/app/lib/authSession.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-tabs.js?v=119f7d1f",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 73,
+    "bytes": 7424,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KLL7W6VD.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-HM734C6M.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-TZUYHMV7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-alert-dialog.js?v=65210ecf",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 8538,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-A3DHDYRG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-select.js?v=5f76666f",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 51722,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-J5N23GBR.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KP7T37RP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KB6GAOQO.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHEEKLSB.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EZFPJVS4.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-HM734C6M.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-TZUYHMV7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-WJN74PNH.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/src/app/lib/resourceUpload.ts",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 17062,
+    "imports": [
+      "/src/app/lib/authSession.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/calendar.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 12092,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/node_modules/.vite-app/deps/react-day-picker.js?v=ed00487d",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/button.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/command.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 22009,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/cmdk.js?v=4846c6de",
+      "/node_modules/.vite-app/deps/lucide-react.js?v=a9c3c18e",
+      "/src/app/components/ui/utils.ts",
+      "/src/app/components/ui/dialog.tsx"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/popover.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 18,
+    "bytes": 8883,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/@radix-ui_react-popover.js?v=444d3bb0",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/src/app/components/ui/toggle.tsx",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 2,
+    "bytes": 7220,
+    "imports": [
+      "/@vite/client",
+      "/node_modules/.vite-app/deps/react_jsx-dev-runtime.js?v=5f76666f",
+      "/@react-refresh",
+      "/node_modules/.vite-app/deps/@radix-ui_react-toggle.js?v=cc4ef780",
+      "/node_modules/.vite-app/deps/class-variance-authority.js?v=70781e03",
+      "/src/app/components/ui/utils.ts"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-checkbox.js?v=a7bd156a",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 2,
+    "bytes": 6804,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EZFPJVS4.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-WJN74PNH.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-A3DHDYRG.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 3,
+    "bytes": 13978,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 4,
+    "bytes": 9793,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 5,
+    "bytes": 11761,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 4,
+    "bytes": 31187,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 17,
+    "bytes": 7597,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 18,
+    "bytes": 5330,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 19,
+    "bytes": 856,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 19,
+    "bytes": 1752,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 19,
+    "bytes": 558,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 20,
+    "bytes": 561,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 745,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 14,
+    "bytes": 3906,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 14,
+    "bytes": 1609,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-KLL7W6VD.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 14,
+    "bytes": 9837,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-HM734C6M.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-TZUYHMV7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-HM734C6M.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 15,
+    "bytes": 3633,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-TZUYHMV7.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 16,
+    "bytes": 774,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-J5N23GBR.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 1404,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-KP7T37RP.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 13,
+    "bytes": 238,
+    "imports": []
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-KB6GAOQO.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 14,
+    "bytes": 13169,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-VHEEKLSB.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-WJN74PNH.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-VHEEKLSB.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 15,
+    "bytes": 61207,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-EZFPJVS4.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 22,
+    "bytes": 725,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-WJN74PNH.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 22,
+    "bytes": 1614,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/react-day-picker.js?v=ed00487d",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 11,
+    "bytes": 820521,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/cmdk.js?v=4846c6de",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 59,
+    "bytes": 18015,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-AJPMM3RI.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-A3DHDYRG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-popover.js?v=444d3bb0",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 61,
+    "bytes": 13237,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-KB6GAOQO.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHEEKLSB.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-WJN74PNH.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-G5ELWDSG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-SPX2BGRU.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-VHPK5G5N.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-QF73RJPA.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-7VFKZCX7.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LZOMYKGG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-JVSO667T.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-XXJCGVX3.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/@radix-ui_react-toggle.js?v=cc4ef780",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 62,
+    "bytes": 3816,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-BR2OC2CG.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-DMBDZIGP.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Z2EYXEVW.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-AJPMM3RI.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 9,
+    "bytes": 9440,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-PJ5O5MOZ.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  },
+  {
+    "url": "/node_modules/.vite-app/deps/chunk-BR2OC2CG.js?v=044e6ecd",
+    "status": 200,
+    "type": "text/javascript",
+    "ms": 10,
+    "bytes": 1674,
+    "imports": [
+      "/node_modules/.vite-app/deps/chunk-63T5DFZ5.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-65EEJLDM.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-Y26QC4NS.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-EM7HWY4Y.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-KBP2TVUK.js?v=044e6ecd",
+      "/node_modules/.vite-app/deps/chunk-LK32TJAX.js?v=044e6ecd"
+    ]
+  }
+]

@@ -16,8 +16,16 @@ const expectedStages = [
   "frontend_build",
   "prisma_generate",
   "api_build",
-  "typecheck",
-  "tests",
+  "typecheck_frontend",
+  "typecheck_api",
+  "tests_scripts",
+  "tests_deploy",
+  "tests_api",
+  "tests_postgres_applicant_forms",
+  "tests_postgres_audit_receipts",
+  "tests_postgres_chat_workspace",
+  "tests_postgres_procurement_rollback",
+  "tests_postgres_rd_documents",
   "database_backup",
   "database_migration",
   "api_restart",
@@ -98,15 +106,17 @@ async function createFakeDeployment() {
   await Promise.all([
     writeFile(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8"),
     writeFile(join(repoDir, "scripts", "test-postgres-release.sh"), "exit 0\n", "utf8"),
+    ...["deploy-baseline", "deploy-change-plan", "test-postgres-release", "business"].map((name) =>
+      writeFile(join(repoDir, "scripts", `${name}.test.mjs`), "export {};\n", "utf8")),
     writeStub(binDir, "pnpm"),
     writeStub(binDir, "npm"),
     writeStub(binDir, "npx"),
     writeStub(binDir, "pm2", `
 if [ "\${1:-}" = "start" ] || [ "\${1:-}" = "restart" ]; then
-  printf '{"ok":true,"database":"ready","git_sha":"%s","release":"%s"}\\n' "$APP_GIT_SHA" "$APP_VERSION" > "$REPO_DIR/app-health.json"
+  printf '{"ok":true,"database":"ready","git_sha":"%s","release":"%s"}\\n' "$APP_GIT_SHA" "$APP_VERSION" > "$REPO_DIR/.deploy-cache/app-health.json"
 fi
 exit 0`),
-    writeStub(binDir, "curl", 'cat "$REPO_DIR/app-health.json"'),
+    writeStub(binDir, "curl", 'cat "$REPO_DIR/.deploy-cache/app-health.json"'),
     writeStub(binDir, "nginx"),
     writeStub(binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo v22.22.1; exit 0; fi
 if [ "\${1:-}" = "-e" ]; then exec "${bashPath(process.execPath)}" "$@"; fi
@@ -172,6 +182,69 @@ function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
 const bash = await availableBash();
 const utf8Locale = availableUtf8Locale(bash);
 
+const resourceHelpers = deploySource.slice(deploySource.indexOf("init_deploy_resources()"), deploySource.indexOf("json_escape()"));
+for (const [allowed, expected, probeFails] of [["4-7", "4,5"], ["3,8", "3"], ["9", "9"], ["2-3,8-9", "2,3"], ["4-7", null, true], [null, null, true]]) {
+  test(`resource budget uses allowed CPUs ${allowed}${probeFails ? " with safe fallback" : ""}`, { skip: !bash }, async () => {
+    const fixture = await createFakeDeployment();
+    try {
+      await writeStub(fixture.binDir, "uname", "echo Linux");
+      await writeStub(fixture.binDir, "taskset", `
+if [ "$1" = -pc ]; then echo 'pid affinity list: ${allowed}'; exit ${allowed ? 0 : 1}; fi
+if [ "$3" = true ]; then exit ${probeFails ? 1 : 0}; fi
+printf 'affinity:%s\\n' "$2" >> "$RESOURCE_LOG"
+shift 2
+exec "$@"`);
+      await writeStub(fixture.binDir, "nice", 'shift 2; exec "$@"');
+      await writeStub(fixture.binDir, "work", 'echo work >> "$RESOURCE_LOG"; exit 37');
+      const logPath = join(fixture.root, "resources.log");
+      const result = spawnSync(bash, ["-s"], {
+        input: `set -Eeuo pipefail\nexport PATH="$STUB_PATH"\nlog() { echo "$*"; }\n${resourceHelpers}\ninit_deploy_resources\nlimited_run work\n`,
+        env: { ...process.env, STUB_PATH: `${bashPath(fixture.binDir)}:/usr/bin:/bin`, RESOURCE_LOG: bashPath(logPath) },
+        encoding: "utf8", timeout: 10_000,
+      });
+      assert.equal(result.status, 37, result.stdout + result.stderr);
+      const calls = (await readFile(logPath, "utf8")).trim().split(/\r?\n/);
+      assert.deepEqual(calls, expected ? [`affinity:${expected}`, "work"] : ["work"]);
+      if (probeFails) assert.match(result.stdout, /无法保证发布 CPU 上限/);
+    } finally { await rm(fixture.root, { recursive: true, force: true }); }
+  });
+}
+
+test("root test groups preserve every file once, including production UI tests", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    const uiDir = join(fixture.repoDir, "src", "app", "production", "execution");
+    await mkdir(uiDir, { recursive: true });
+    await writeFile(join(uiDir, "behavior.test.mjs"), "export {};\n");
+    const result = spawnSync(bash, ["-s"], {
+      cwd: fixture.repoDir,
+      input: `set -Eeuo pipefail\nDEPLOY_WORK_PREFIX=()\nlog() { echo "$*"; }\n${resourceHelpers}\nnode() { printf '%s\\n' "$@"; }\nrun_script_tests scripts\nrun_script_tests deploy\n`,
+      encoding: "utf8", timeout: 10_000,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const lines = result.stdout.trim().split(/\r?\n/);
+    assert.deepEqual(lines, ["--test", "--test-concurrency=2", "scripts/business.test.mjs", "src/app/production/execution/behavior.test.mjs",
+      "--test", "--test-concurrency=2", "scripts/deploy-baseline.test.mjs", "scripts/deploy-change-plan.test.mjs", "scripts/test-postgres-release.test.mjs"]);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+for (const compressor of ["pigz", "gzip"]) {
+  test(`backup ${compressor} uses the shared resource budget and low compression`, { skip: !bash }, () => {
+    const helper = deploySource.slice(deploySource.indexOf("compress_backup_stream()"), deploySource.indexOf("backup_file_path()"));
+    const result = spawnSync(bash, ["-s"], {
+      input: `set -Eeuo pipefail\n${helper}\n
+limited_run() { printf 'limited:'; "$@"; }
+pigz() { printf 'pigz:%s\\n' "$*"; }
+gzip() { printf 'gzip:%s\\n' "$*"; }
+command() { if [ "\${2:-}" = pigz ]; then return ${compressor === "pigz" ? 0 : 1}; fi; builtin command "$@"; }
+compress_backup_stream\n`,
+      encoding: "utf8", timeout: 5_000,
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(result.stdout.trim(), compressor === "pigz" ? "limited:pigz:-1 -p 1" : "limited:gzip:-1");
+  });
+}
+
 function runQualityGate(overrides = {}) {
   const start = deploySource.indexOf('if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then');
   const end = deploySource.indexOf("# ----------------- 6. 数据库备份收口", start);
@@ -189,6 +262,9 @@ npx() { printf 'command:npx %s\\n' "$*"; }
 npm() { printf 'command:npm %s\\n' "$*"; [ "$*" != "\${DEPLOY_TEST_FAILURE:-}" ]; }
 bash() { printf 'command:bash %s\\n' "$*"; [ "\${DEPLOY_TEST_FAILURE:-}" != "postgres" ]; }
 node() { return 0; }
+limited_run() { "$@"; }
+run_script_tests() { printf 'command:root-tests %s\\n' "$*"; [ "\${DEPLOY_TEST_FAILURE:-}" != "scripts" ]; }
+commit_quality_plan() { printf 'quality-saved\\n'; }
 ${deploySource.slice(start, end)}
 printf 'gate-complete\\n'
 `;
@@ -201,6 +277,12 @@ printf 'gate-complete\\n'
       DEPLOY_PLAN_QUALITY: "0",
       DEPLOY_PLAN_PRISMA: "0",
       DEPLOY_PLAN_MIGRATIONS: "0",
+      DEPLOY_CHECK_FRONTEND_TYPE: "0",
+      DEPLOY_CHECK_API_TYPE: "0",
+      DEPLOY_CHECK_SCRIPTS: "0",
+      DEPLOY_CHECK_DEPLOY: "0",
+      DEPLOY_CHECK_API: "0",
+      DEPLOY_CHECK_POSTGRES: "0",
       DEPLOY_RUN_TESTS: "1",
       DEPLOY_TEST_FAILURE: "",
       ...overrides,
@@ -212,21 +294,20 @@ printf 'gate-complete\\n'
 
 const frontendTypecheck = "npx --no-install tsc --noEmit -p tsconfig.json";
 const apiTypecheck = "npx --no-install tsc --noEmit -p apps/api/tsconfig.json --tsBuildInfoFile unused-test-cache/tsbuildinfo-api";
-const frontendTests = "npm run test:dev-scripts";
+const frontendTests = "root-tests scripts";
 const apiTests = "npm --prefix apps/api run test";
-const postgresTests = "bash scripts/test-postgres-release.sh";
+const postgresTests = ["applicant-forms", "audit-receipts", "chat-workspace", "procurement-rollback", "rd-documents"]
+  .map((suite) => `bash scripts/test-postgres-release.sh --suite ${suite}`);
 for (const [name, env, commands, status = 0] of [
-  ["frontend-only runs frontend regression tests", { DEPLOY_PLAN_FRONTEND: "1" }, [frontendTypecheck, frontendTests]],
-  ["API-only runs API and isolated database tests", { DEPLOY_PLAN_API: "1" }, [apiTypecheck, apiTests, postgresTests]],
-  ["quality-only runs both suites and isolated database tests", { DEPLOY_PLAN_QUALITY: "1" }, [apiTypecheck, frontendTests, apiTests, postgresTests]],
-  ["combined changes run both suites once", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1" }, [frontendTypecheck, apiTypecheck, frontendTests, apiTests, postgresTests]],
-  ["schema-only runs isolated database tests", { DEPLOY_PLAN_PRISMA: "1" }, [postgresTests]],
-  ["migration-only runs isolated database tests", { DEPLOY_PLAN_MIGRATIONS: "1" }, [postgresTests]],
-  ["unchanged inputs skip checks", {}, []],
-  ["explicit disable skips checks", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_PLAN_API: "1", DEPLOY_PLAN_QUALITY: "1", DEPLOY_RUN_TESTS: "0" }, []],
-  ["frontend test failure blocks release", { DEPLOY_PLAN_FRONTEND: "1", DEPLOY_TEST_FAILURE: "run test:dev-scripts" }, [frontendTypecheck, frontendTests], 1],
-  ["API test failure blocks release", { DEPLOY_PLAN_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test" }, [apiTypecheck, apiTests], 1],
-  ["isolated database failure blocks release", { DEPLOY_PLAN_API: "1", DEPLOY_TEST_FAILURE: "postgres" }, [apiTypecheck, apiTests, postgresTests], 1],
+  ["frontend checks are independently selected", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_CHECK_SCRIPTS: "1" }, [frontendTypecheck, frontendTests]],
+  ["API checks run with five separately timed database suites", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_CHECK_POSTGRES: "1" }, [apiTypecheck, apiTests, ...postgresTests]],
+  ["deployment regression group is independently selected", { DEPLOY_CHECK_DEPLOY: "1" }, ["root-tests deploy"]],
+  ["database checks do not depend on build selection", { DEPLOY_CHECK_POSTGRES: "1" }, postgresTests],
+  ["verified unchanged inputs reuse checks", {}, []],
+  ["explicit disable does not save proof", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_RUN_TESTS: "0" }, []],
+  ["frontend test failure blocks release", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_CHECK_SCRIPTS: "1", DEPLOY_TEST_FAILURE: "scripts" }, [frontendTypecheck, frontendTests], 1],
+  ["API test failure blocks release", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test" }, [apiTypecheck, apiTests], 1],
+  ["isolated database failure blocks release", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_CHECK_POSTGRES: "1", DEPLOY_TEST_FAILURE: "postgres" }, [apiTypecheck, apiTests, postgresTests[0]], 1],
 ]) {
   test(`quality gate: ${name}`, { skip: !bash }, () => {
     const result = runQualityGate(env);
@@ -234,6 +315,7 @@ for (const [name, env, commands, status = 0] of [
     assert.equal(result.status, status, result.stdout + result.stderr);
     assert.deepEqual(result.stdout.split(/\r?\n/).filter((line) => line.startsWith("command:")).map((line) => line.slice(8)), commands);
     assert.equal(result.stdout.includes("gate-complete"), status === 0);
+    assert.equal(result.stdout.includes("quality-saved"), status === 0 && env.DEPLOY_RUN_TESTS !== "0");
   });
 }
 
@@ -251,7 +333,7 @@ test("isolated database failure prevents production migration and restart", { sk
     await assert.rejects(readFile(join(fixture.repoDir, "restarted")));
     const records = (await readdir(fixture.metricsDir)).filter((name) => name.endsWith(".json"));
     const record = JSON.parse(await readFile(join(fixture.metricsDir, records[0]), "utf8"));
-    assert.equal(record.stages.find((stage) => stage.name === "tests")?.status, "failed");
+    assert.equal(record.stages.find((stage) => stage.name === "tests_postgres_applicant_forms")?.status, "failed");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -271,7 +353,7 @@ printf '%s\\n' "\${PYTHON:-}" > "$REPO_DIR/install-python.txt"
       assert.equal(result.error, undefined);
       assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.equal((await readFile(join(fixture.repoDir, "install-python.txt"), "utf8")).trim(), bashPath(join(fixture.binDir, selected)));
-      assert.equal(JSON.parse(await readFile(join(fixture.repoDir, "app-health.json"), "utf8")).ok, true);
+      assert.equal(JSON.parse(await readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json"), "utf8")).ok, true);
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }
@@ -307,6 +389,9 @@ exit 0`);
 test("failed frozen dependency installation blocks release instead of falling back", { skip: !bash }, async () => {
   const fixture = await createFakeDeployment();
   try {
+    const cache = join(fixture.repoDir, ".deploy-cache");
+    await mkdir(cache, { recursive: true });
+    await writeFile(join(cache, "quality-inputs.json"), '{"previous":"proof"}');
     await writeStub(fixture.binDir, "pnpm", `
 printf '%s\\n' "$*" >> "$REPO_DIR/install-calls.txt"
 case "$*" in *--frozen-lockfile*) exit 42 ;; *) exit 0 ;; esac`);
@@ -316,8 +401,9 @@ case "$*" in *--frozen-lockfile*) exit 42 ;; *) exit 0 ;; esac`);
     const calls = (await readFile(join(fixture.repoDir, "install-calls.txt"), "utf8")).trim().split("\n");
     assert.equal(calls.length, 3);
     assert.ok(calls.every((call) => call.includes("--frozen-lockfile")));
-    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+    await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json")));
     await assert.rejects(readFile(join(fixture.webRoot, "version.json")));
+    await assert.rejects(readFile(join(cache, "quality-inputs.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -332,7 +418,7 @@ test("a missing pnpm lockfile blocks installation and activation", { skip: !bash
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout + result.stderr, /pnpm-lock.yaml/);
     await assert.rejects(readFile(join(fixture.repoDir, "npm-was-called")));
-    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+    await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -350,7 +436,7 @@ command() {
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout + result.stderr, /缺少 pnpm/);
     await assert.rejects(readFile(join(fixture.repoDir, "npm-was-called")));
-    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+    await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -362,7 +448,7 @@ test("a manifest-only change invalidates the installation cache and rechecks the
     await writeFile(join(fixture.repoDir, "apps", "api", "package.json"), "{}\n");
     const first = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: "0" });
     assert.equal(first.status, 0, first.stdout + first.stderr);
-    const previousHealth = await readFile(join(fixture.repoDir, "app-health.json"), "utf8");
+    const previousHealth = await readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json"), "utf8");
     await writeFile(join(fixture.repoDir, "apps", "api", "package.json"), '{"dependencies":{"synthetic-package":"2.0.0"}}\n');
     await writeStub(fixture.binDir, "pnpm", `
 printf '%s\\n' "$*" >> "$REPO_DIR/install-calls.txt"
@@ -372,7 +458,7 @@ exit 42`);
     const calls = (await readFile(join(fixture.repoDir, "install-calls.txt"), "utf8")).trim().split("\n");
     assert.equal(calls.length, 3);
     assert.ok(calls.every((call) => call.includes("--frozen-lockfile")));
-    assert.equal(await readFile(join(fixture.repoDir, "app-health.json"), "utf8"), previousHealth);
+    assert.equal(await readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json"), "utf8"), previousHealth);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -384,7 +470,7 @@ test("the minimum supported Node version reaches a successful deployment", { ski
     await writeStub(fixture.binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo v22.19.0; exit 0; fi\nexec "${bashPath(process.execPath)}" "$@"`);
     const result = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: "0" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(JSON.parse(await readFile(join(fixture.repoDir, "app-health.json"), "utf8")).ok, true);
+    assert.equal(JSON.parse(await readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json"), "utf8")).ok, true);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -400,7 +486,7 @@ test("unsupported Node versions fail before dependency installation", { skip: !b
       assert.equal(result.status, 1, result.stdout + result.stderr);
       assert.match(result.stdout + result.stderr, /Node.*22\.19/);
       await assert.rejects(readFile(join(fixture.repoDir, "pnpm-was-called")));
-      await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+      await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "app-health.json")));
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }
@@ -413,17 +499,13 @@ test("deployment baseline declares the complete stage order", () => {
   assert.equal(new Set(stages).size, stages.length);
 });
 
-test("deployment flow wires every baseline stage in order", () => {
-  let previousIndex = -1;
-  for (const stage of expectedStages) {
-    const startPattern = new RegExp(`(?:start_stage|skip_stage) ${stage}\\b`);
-    const match = startPattern.exec(deploySource.slice(previousIndex + 1));
-    assert.ok(match, `missing deployment stage wiring: ${stage}`);
-    previousIndex += match.index + 1;
-  }
-
-  assert.match(deploySource, /record_missing_stages/);
-  assert.match(deploySource, /record_stage "\$stage_name" skipped/);
+test("quality timing records each executed group in order", { skip: !bash }, () => {
+  const result = runQualityGate(Object.fromEntries(["FRONTEND_TYPE", "API_TYPE", "SCRIPTS", "DEPLOY", "API", "POSTGRES"]
+    .map((name) => [`DEPLOY_CHECK_${name}`, "1"])));
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(result.stdout.split(/\r?\n/).filter((line) => line.startsWith("start:")).map((line) => line.slice(6)),
+    expectedStages.slice(5, 15));
+  assert.equal(result.stdout.split(/\r?\n/).filter((line) => line === "finish:success").length, 10);
 });
 
 test("deployment failures retain the original stage, line and exit code", () => {
@@ -639,6 +721,48 @@ test("a second unchanged deployment skips every runtime stage", { skip: !bash },
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+test("quality proof requires passing checks and survives only a later deployment failure", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  const proof = join(fixture.repoDir, ".deploy-cache", "quality-inputs.json");
+  try {
+    await enableChangePlanner(fixture);
+    const overrides = { DEPLOY_CHANGE_PLAN: "1", DEPLOY_METRICS_ENABLED: "0" };
+    let result = runFakeDeployment(bash, fixture, { ...overrides, DEPLOY_RUN_TESTS: "0" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    await assert.rejects(readFile(proof));
+
+    // A successful publish with disabled checks is not evidence for the next gate.
+    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test" ]; then exit 29; fi');
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /API 测试未通过/);
+    await assert.rejects(readFile(proof));
+
+    await writeStub(fixture.binDir, "npm");
+    await writeFile(join(fixture.repoDir, "apps", "api", "src", "main.ts"), "export const api = 2;\n");
+    await writeStub(fixture.binDir, "pm2", "exit 23");
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 23, result.stdout + result.stderr);
+    const verified = await readFile(proof, "utf8");
+    assert.ok(JSON.parse(verified).checks);
+
+    // The exact same verified inputs can retry the failed restart without repeating checks.
+    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test" ]; then exit 29; fi');
+    await writeStub(fixture.binDir, "pm2", `
+if [ "\${1:-}" = start ] || [ "\${1:-}" = restart ]; then
+  printf '{"ok":true,"database":"ready","git_sha":"%s","release":"%s"}\\n' "$APP_GIT_SHA" "$APP_VERSION" > "$REPO_DIR/.deploy-cache/app-health.json"
+fi`);
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(await readFile(proof, "utf8"), verified);
+
+    // A forced full run that now fails must invalidate the earlier successful proof.
+    result = runFakeDeployment(bash, fixture, { ...overrides, DEPLOY_CHANGE_PLAN: "0" });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    await assert.rejects(readFile(proof));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
 test("a frontend deployment cannot succeed or save its snapshot without WEB_ROOT", { skip: !bash }, async () => {
