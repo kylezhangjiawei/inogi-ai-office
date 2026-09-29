@@ -49,9 +49,13 @@ EOF
 
 开发者本地 `git push origin main` 即可，全自动。无需上服务器。
 
+发布钩子与手动发布使用同一个 `.deploy-cache/release.lock`（系统 `flock`，由 util-linux 提供），覆盖代码检出到发布结束；已有发布时立即返回 75，不覆盖正在构建的工作目录。钩子按收到的提交 SHA 检出，避免并发推送时误用后来的分支头。**升级本次钩子需要先将仓库的 `deploy/git-hooks/post-receive` 同步安装到裸仓库 `hooks/post-receive`；仅推送文件不会自动更新已安装的钩子。** Git 接收成功而发布失败时，代码可能已经在远端，空推送不会重试，请按下方“手动部署”对目标 SHA 重试。
+
+发布计划确定后会提前检查静态发布目录、PM2 与 curl，避免等待全部构建测试后才发现环境缺项。缺少前后端入口产物时强制重建；构建返回成功但入口产物为空时，也会在迁移和重启前中止。
+
 发布脚本会把成功版本的输入指纹保存到 `.deploy-cache/deploy-inputs.json`。下一次发布按内容变化选择阶段：
 
-- 纯前端改动：前端构建、前端类型检查、静态文件同步；
+- 纯前端改动：前端类型检查、业务脚本测试、前后端契约测试、前端构建与静态文件同步；后端 TS 与数据库检查可按有效记录复用；
 - 纯 API 改动：API 构建、API 类型检查（含 `test/*.spec.ts`）、API 测试、PM2 重启；
 - Prisma schema 改动：重新生成 Client，并构建/测试 API；
 - migration 改动：先备份数据库，再执行 `prisma migrate deploy`；
@@ -61,6 +65,10 @@ EOF
 
 首次启用、缓存丢失或发布逻辑自身变化时会保守执行一次全量发布。变更快照只在全部阶段成功后更新，失败重试不会误跳过阶段。
 
+质量检查另按组保存通过记录（`.deploy-cache/quality-inputs.json`）：后面的 API 测试失败时，前面已经通过且输入未变化的类型检查、脚本检查可以在重试中复用。失败组没有通过记录；源代码、测试、配置、运行环境或依赖变化会使相关记录失效。显式关闭检查、强制全量发布、重新安装依赖时会撤销旧记录。发布成功快照仍只在全部部署步骤成功后更新，数据库备份、迁移和健康检查不会因此绕过。
+
+API 的 TypeScript 测试由 `scripts/run-tests.cjs` 先统一增量编译到仓库 `.deploy-cache/api-test-build/`，再在独立测试进程中运行编译结果，避免每个进程重新加载 TypeScript 并转译相同业务代码。测试仍使用原始源码路径解析附件、目录和路径别名，错误堆栈映射回 TypeScript；全部断言照常执行。源文件及配置变化由 TypeScript 增量编译处理，JS 或 source map 丢失时自动重建；编译失败直接阻止测试和发布，不复用旧产物继续发布。API 类型检查使用同一 runner 的 `--compile-only`，不再额外维护一份 noEmit 编译状态；测试启动时仍运行增量编译以防源码或输出变化。读取前端实现的断言已集中到 `.spec.mts` 契约组，前端变化不再触发后端 TS 全量测试。契约组先于 TS 全量测试运行，两组及五组 PostgreSQL 验收分别保存通过记录。所有质量检查在生产构建之前执行，尽早暴露失败。
+
 每次发布都会额外写一份结构化基线记录，不改变原有发布结果。查看最近一次：
 
 ```bash
@@ -69,19 +77,49 @@ latest="$(find /var/log/inogi-deploy -maxdepth 1 -type f -name '*.json' -printf 
 [ -n "$latest" ] && python3 -m json.tool "$latest"
 ```
 
-记录包含完整 Git SHA、触发方式、Node 版本、毫秒级总耗时、12 个固定阶段的状态/耗时/阶段内系统 CPU 与内存峰值，以及整次部署期间的系统峰值。其中 `database_backup` 记的是「还需要等待后台备份多久」，不是备份总耗时（总耗时见同次发布的文本日志）。记录采用字段白名单，不包含命令行、环境变量、原始错误文本或 `DATABASE_URL`。目录不可写或 `/proc` 指标不可用时只告警，部署继续执行。
+记录包含完整 Git SHA、触发方式、模式（prepare / artifact-deploy / source-deploy）、Node 版本、毫秒级总耗时、22 个固定阶段的状态/耗时/阶段内系统 CPU 与内存峰值，以及整次部署期间的系统峰值。其中 `database_backup` 记的是「还需要等待后台备份多久」，不是备份总耗时（总耗时见同次发布的文本日志）。记录采用字段白名单，不包含命令行、环境变量、原始错误文本或 `DATABASE_URL`。目录不可写或 `/proc` 指标不可用时只告警，部署继续执行。
 
-## 手动部署（绕过钩子）
+## 失败重试与独立构建产物
+
+默认发布继续使用原入口，无需新增服务。前后端成功构建分别记录在 `.deploy-cache/build-frontend.json` 和 `build-api.json`；同一提交重试时，输入指纹、运行环境与整个输出目录逐文件校验一致才复用。丢文件、内容改变或新提交会重建。前端复用时保留编译时注入的版本号，避免客户端和健康检查版本不一致。强制全量模式仍不复用记录。
+
+可选的独立构建使用相同脚本和质量闸门；不需要新依赖。先准备一台受信任的 Linux 构建机或 Runner，与生产保持相同 Node 精确版本、CPU 架构和 libc 版本，提供隔离 PostgreSQL 验收所需工具。当前产物校验保守要求源码、锁文件、配置文件（含受保护的 dotenv 文件）及 VITE/NODE_ENV 构建配置一致；仅把准备流程迁到不同机器不会自动解决配置差异。配置不一致会拒绝上线，不回退绕过检查；需要在受控私有环境配置，禁止把凭据提交 Git 或放入公开 CI。产物只包含前后端输出、哈希和验收记录，不包含 dotenv、node_modules 或数据库备份。
+
+1. 在构建机检出目标提交，安装环境后执行准备。产物父目录需已存在，目标目录必须不存在：
+
+   ```bash
+   SHA=$(git rev-parse HEAD)
+   REPO_DIR="$PWD" DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" \
+     DEPLOY_PREPARE_ONLY=1 DEPLOY_ARTIFACT_DIR="/opt/inogi-release-out/$SHA" \
+     DEPLOY_METRICS_DIR="$PWD/.deploy-cache/metrics" bash scripts/deploy.sh
+   ```
+
+   准备仍执行全部受影响的类型、脚本、API、契约及五组隔离数据库检查；全部通过才写 manifest。不会备份或迁移业务数据库，不访问 PM2、静态发布目录或线上健康地址，也不写“部署成功”快照。生产构建完成后生成产物，前端与 API 使用同一版本标识。
+
+2. 使用现有受信任 SSH 通道，把整个目录传到服务器 `/opt/inogi-releases/<完整 SHA>`。先传到临时目录，传完再改成最终目录名；保留上一版目录。校验和用于发现传输损坏，不是签名；产物入口必须仅对受信任的构建账号/部署账号可写。
+
+3. 同步安装新版 Git 钩子后，在服务器启用产物入口（只需一次）：
+
+   ```bash
+   printf '%s\n' /opt/inogi-releases > /opt/git/inogi-ai-office.git/hooks/artifact-root
+   ```
+
+   之后 push 或手动重试会选取该提交的产物。缺少产物会在检出前失败；提交、源码、配置、运行环境或文件校验不一致会在迁移/重启前失败。不会回退到生产机重新跑全量构建。生产仍按锁文件安装变化的依赖、校验原生模块、生成 Prisma Client，并按需备份/迁移，最后检查版本就绪再发布前端；依赖首次安装和数据库迁移耗时需单独统计。
+
+4. 回退应用时使用保留的旧提交及其匹配产物重新发布，先确认当前数据库兼容旧代码。应用回退不会自动回退数据库。移除 `hooks/artifact-root` 可恢复默认源码发布流程；这不是部署动作，不会自动切换线上版本。
+
+构建机尚未配置时，默认的重试复用、测试分组与编译复用仍可直接生效。线上切换 1–2 分钟是无迁移、依赖已安装场景的验收目标，并非当前测得结果。分别查看准备日志和上线日志，不能把移到构建机的耗时算成消失。
+
+## 手动重试发布（复用钩子的锁和精确检出）
 
 ```bash
-cd /opt/inogi-ai-office-system
 SHA=$(git --git-dir=/opt/git/inogi-ai-office.git rev-parse main)
-DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" bash scripts/deploy.sh
+printf '%s %s refs/heads/main\n' "$SHA" "$SHA" | /opt/git/inogi-ai-office.git/hooks/post-receive
 ```
 
 可用环境变量：`DEPLOY_CHANGE_PLAN=0`（强制全量发布）、`DEPLOY_DB_BACKUP=0`（有 migration 时关闭备份）、`DEPLOY_RELOAD_NGINX=1`（显式重载 Nginx）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_BACKUP_EXCLUDE_TABLE_DATA`（跳过行数据的表，空格分隔；置空则全量备份）、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
 
-服务器上的 `.env` 不属于 Git 输入。手动修改 `apps/api/.env` 后，请执行 `pm2 restart inogi-api --update-env`；如果还需要重新验证完整构建和测试，执行 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
+服务器上的 `.env` 不纳入 Git，但内容参与质量检查及产物输入指纹。手动修改 `apps/api/.env` 后，请执行 `pm2 restart inogi-api --update-env`；如果还需要重新验证完整构建和测试，执行 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
 
 ## 数据库：备份与恢复
 

@@ -14,11 +14,13 @@
 
 > 钩子的输出会**实时回显到你本地 `git push` 的终端**，第一次部署可以一边推一边看完整日志。
 
+现行源码发布先进行类型与分组测试，再构建；已完成阶段按输入与产物校验复用。可选产物模式通过裸仓库 `hooks/artifact-root` 文件配置受信任产物根目录，按收到的完整提交 SHA 选择版本。必须先上传该提交的完整产物，再 push/重试；缺少产物时不会检出，也不会回退到耗时的源码构建。构建机准备、配置兼容要求、传输与回退步骤见 [运维手册](../RUNBOOK.md#失败重试与独立构建产物)。
+
 ---
 
 ## 前置条件（服务器，一次性）
 
-- 已装 `node`（建议 20+）、`pm2`、`nginx`；
+- 已装 `node`（至少 22.19.0）、`pm2`、`nginx` 和 util-linux 提供的 `flock`；
 - 工作目录 `/opt/inogi-ai-office-system` 下有可用的 `apps/api/.env`（含 `DATABASE_URL` 等）；
 - 自动备份需要能导出数据库：宿主机装了 `pg_dump`（`apt install postgresql-client`），**或**数据库跑在 docker 容器里（脚本会自动进容器导出）。
 
@@ -34,6 +36,8 @@ git init --bare /opt/git/inogi-ai-office.git
 ## 步骤 2：装 post-receive 钩子
 
 工作目录 `/opt/inogi-ai-office-system` 里需要先有本仓库代码（你现在已经有）。把钩子拷过去：
+
+升级已安装钩子也需要执行此步；普通推送不会更新裸仓库里的钩子。确认没有发布正在执行后再安装。当前钩子使用与手动发布共用的锁，忙时返回 75，并按收到的提交号检出。
 
 ```bash
 cp /opt/inogi-ai-office-system/deploy/git-hooks/post-receive \

@@ -12,6 +12,26 @@ set -Eeuo pipefail
 WORK_TREE="${DEPLOY_WORK_TREE:-/opt/inogi-ai-office-system}"
 BARE_DIR="${DEPLOY_BARE_DIR:-/opt/git/inogi-ai-office.git}"
 TARGET_BRANCH="${DEPLOY_BRANCH:-main}"
+# Optional trusted artifact inbox. A plain path file also works with SSH's minimal environment.
+ARTIFACT_ROOT="${DEPLOY_ARTIFACT_ROOT:-}"
+if [ -z "$ARTIFACT_ROOT" ] && [ -f "$BARE_DIR/hooks/artifact-root" ]; then
+  IFS= read -r ARTIFACT_ROOT < "$BARE_DIR/hooks/artifact-root" || true
+  [ -n "$ARTIFACT_ROOT" ] || { echo '[hook] artifact-root 为空。' >&2; exit 1; }
+fi
+
+# Hold one lock across checkout AND deployment. --close keeps PM2 children from retaining it.
+mkdir -p "$WORK_TREE/.deploy-cache"
+WORK_TREE="$(cd "$WORK_TREE" && pwd -P)"
+if [ "${DEPLOY_LOCK_HELD:-}" != "$WORK_TREE" ]; then
+  command -v flock >/dev/null 2>&1 || { echo '[hook] 缺少 flock，无法安全串行发布。' >&2; exit 1; }
+  if flock --exclusive --nonblock --conflict-exit-code 75 --close "$WORK_TREE/.deploy-cache/release.lock" \
+    env DEPLOY_LOCK_HELD="$WORK_TREE" bash "${BASH_SOURCE[0]}" "$@"; then exit 0;
+  else
+    status=$?
+    [ "$status" != 75 ] || echo '[hook] 已有发布正在执行，本次未检出或发布；请稍后重试。' >&2
+    exit "$status"
+  fi
+fi
 
 while read -r _oldrev newrev refname; do
   branch="${refname#refs/heads/}"
@@ -20,11 +40,18 @@ while read -r _oldrev newrev refname; do
     continue
   fi
 
+  if [ -n "$ARTIFACT_ROOT" ]; then
+    [[ "$newrev" =~ ^[a-f0-9]{40,64}$ ]] || { echo '[hook] 无效提交号。' >&2; exit 1; }
+    export DEPLOY_ARTIFACT_DIR="$ARTIFACT_ROOT/$newrev"
+    [ -s "$DEPLOY_ARTIFACT_DIR/manifest.json" ] \
+      || { echo "[hook] 缺少该提交的已验证产物：$DEPLOY_ARTIFACT_DIR；未检出或部署。" >&2; exit 1; }
+  fi
+
   echo "[hook] 收到 $branch 推送 $newrev，检出到 $WORK_TREE ..."
   mkdir -p "$WORK_TREE"
   # 用裸仓库作为 git-dir，把代码检出到工作目录；只覆盖被跟踪文件，
   # node_modules / apps/api/.env / dist 等未跟踪文件不受影响。
-  git --work-tree="$WORK_TREE" --git-dir="$BARE_DIR" checkout -f "$branch"
+  git --work-tree="$WORK_TREE" --git-dir="$BARE_DIR" checkout -f "$newrev"
 
   # 清理 git 钩子注入的 GIT_* 环境，避免污染部署脚本里的 git / 构建。
   unset GIT_DIR GIT_WORK_TREE GIT_QUARANTINE_PATH GIT_INDEX_FILE GIT_PREFIX GIT_PUSH_CERT_STATUS 2>/dev/null || true

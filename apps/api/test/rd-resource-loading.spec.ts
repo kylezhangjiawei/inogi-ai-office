@@ -1,6 +1,5 @@
 import * as assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -251,18 +250,6 @@ test('AI settings CAS serializes concurrent saves and rejects the stale baseline
   assert.equal(writes, 1, 'only the first request using a shared baseline may write');
   assert.equal(stored.version, 2);
   assert.notEqual(stored.updated_at, baseline);
-});
-
-test('image gallery controls are excluded before the swipe surface captures a pointer', () => {
-  const source = readFileSync(
-    resolve(__dirname, '../../../src/app/RDProgressEvidence.tsx'),
-    'utf8',
-  );
-  const controlGuard = source.indexOf('event.target instanceof Element && event.target.closest("button, a")');
-  const pointerCapture = source.indexOf('event.currentTarget.setPointerCapture(event.pointerId)');
-
-  assert.ok(controlGuard >= 0, 'gallery pointer handling must ignore button and link controls');
-  assert.ok(pointerCapture > controlGuard, 'interactive-control guard must run before pointer capture');
 });
 
 test('ordinary task edit permission cannot prepare a chat approval action', async () => {

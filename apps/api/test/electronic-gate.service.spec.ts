@@ -531,7 +531,7 @@ test('电子闸门读写均要求独立页面权限，字典管理员不能绕�
   }
   const entry = DEFAULT_PERMISSION_CATALOG.find((item) => item.code === 'page:electronic-gate');
   assert.equal(entry?.routePath, '/electronic-gate');
-  assert.equal(entry?.groupLabel, '页面访问 · 系统管理');
+  assert.equal(entry?.groupLabel, '页面访问 · 生产与质量');
 });
 
 

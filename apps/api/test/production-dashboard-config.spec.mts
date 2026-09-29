@@ -5,14 +5,14 @@ import ts from 'typescript';
 
 import { DEFAULT_PERMISSION_CATALOG } from '../src/modules/permission-catalog/permission-catalog.defaults.ts';
 
-test('production cockpit is visible in Quality & Production without invalidating existing roles', async () => {
+test('production cockpit is visible in Production & Quality without invalidating existing roles', async () => {
   const permission = DEFAULT_PERMISSION_CATALOG.find(
     (item) => item.code === 'page:rd-director-dashboard',
   );
 
   assert.ok(permission);
   assert.equal(permission.label, '生产驾驶舱');
-  assert.equal(permission.groupLabel, '页面访问 · 质量与生产');
+  assert.equal(permission.groupLabel, '页面访问 · 生产与质量');
   assert.equal(permission.routePath, '/production-dashboard');
   assert.notEqual(permission.navHidden, true);
 
@@ -29,9 +29,9 @@ test('production cockpit is visible in Quality & Production without invalidating
   ]);
 
   const productionGroup = routesSource.match(
-    /label: "质量与生产",\s*items: \[([\s\S]*?)\r?\n\s*\],\r?\n\s*\},/,
+    /label: "生产与质量",\s*items: \[([\s\S]*?)\r?\n\s*\],\r?\n\s*\},/,
   );
-  assert.ok(productionGroup, '质量与生产分组必须存在');
+  assert.ok(productionGroup, '生产与质量分组必须存在');
   assert.match(
     productionGroup[1],
     /label: "生产驾驶舱", path: "\/production-dashboard"[\s\S]*requiredPermission: "page:rd-director-dashboard"/,
@@ -47,6 +47,7 @@ test('production cockpit is visible in Quality & Production without invalidating
   );
   assert.match(migrationSource, /"navHidden" = false/);
   assert.match(migrationSource, /"routePath" = '\/production-dashboard'/);
+  // Historical migrations remain immutable; the later navigation migration renames the group.
   assert.match(migrationSource, /"groupLabel" = '页面访问 · 质量与生产'/);
 });
 

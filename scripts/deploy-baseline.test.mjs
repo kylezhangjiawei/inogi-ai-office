@@ -13,19 +13,20 @@ const plannerSource = await readFile(new URL("./deploy-change-plan.mjs", import.
 const expectedStages = [
   "checkout",
   "dependency_install",
-  "frontend_build",
   "prisma_generate",
-  "api_build",
   "typecheck_frontend",
   "typecheck_api",
   "tests_scripts",
   "tests_deploy",
+  "tests_api_contracts",
   "tests_api",
   "tests_postgres_applicant_forms",
   "tests_postgres_audit_receipts",
   "tests_postgres_chat_workspace",
   "tests_postgres_procurement_rollback",
   "tests_postgres_rd_documents",
+  "frontend_build",
+  "api_build",
   "database_backup",
   "database_migration",
   "api_restart",
@@ -96,6 +97,8 @@ async function createFakeDeployment() {
   const metricsDir = join(root, "metrics");
   await Promise.all([
     mkdir(join(repoDir, "apps", "api"), { recursive: true }),
+    mkdir(join(repoDir, "apps", "api", "scripts"), { recursive: true }),
+    mkdir(join(repoDir, "apps", "api", "dist", "src"), { recursive: true }),
     mkdir(join(repoDir, "dist"), { recursive: true }),
     mkdir(join(repoDir, "node_modules", ".pnpm"), { recursive: true }),
     mkdir(join(repoDir, "scripts"), { recursive: true }),
@@ -104,11 +107,15 @@ async function createFakeDeployment() {
     mkdir(metricsDir, { recursive: true }),
   ]);
   await Promise.all([
+    writeFile(join(repoDir, "dist", "index.html"), "<main>build fixture</main>"),
+    writeFile(join(repoDir, "apps", "api", "dist", "src", "main.js"), "// build fixture\n"),
     writeFile(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8"),
+    writeFile(join(repoDir, "apps/api/scripts/run-tests.cjs"), "// Compiler subprocess fixture\nprocess.exit(0);\n"),
     writeFile(join(repoDir, "scripts", "test-postgres-release.sh"), "exit 0\n", "utf8"),
     ...["deploy-baseline", "deploy-change-plan", "test-postgres-release", "business"].map((name) =>
       writeFile(join(repoDir, "scripts", `${name}.test.mjs`), "export {};\n", "utf8")),
     writeStub(binDir, "pnpm"),
+    writeStub(binDir, "flock", 'shift 6; exec "$@"'),
     writeStub(binDir, "npm"),
     writeStub(binDir, "npx"),
     writeStub(binDir, "pm2", `
@@ -135,6 +142,7 @@ async function enableChangePlanner(fixture) {
   await Promise.all([
     writeFile(join(fixture.repoDir, "scripts", "deploy-change-plan.mjs"), plannerSource, "utf8"),
     writeFile(join(fixture.repoDir, "scripts", "deploy.sh"), deploySource, "utf8"),
+    writeFile(join(fixture.repoDir, "scripts", "deploy-artifacts.mjs"), await readFile(new URL("./deploy-artifacts.mjs", import.meta.url), "utf8")),
     writeFile(join(fixture.repoDir, "src", "App.tsx"), "export const App = 1;\n", "utf8"),
     writeFile(join(fixture.repoDir, "apps", "api", "src", "main.ts"), "export const api = 1;\n", "utf8"),
     writeFile(join(fixture.repoDir, "apps", "api", "prisma", "schema.prisma"), "generator client { provider = \"prisma-client-js\" }\n", "utf8"),
@@ -142,7 +150,7 @@ async function enableChangePlanner(fixture) {
   const realNode = bashPath(process.execPath).replaceAll('"', '\\"');
   await writeStub(fixture.binDir, "node", `
 case "\${1:-}" in
-  *deploy-change-plan.mjs|-e) exec "${realNode}" "$@" ;;
+  *deploy-change-plan.mjs|*deploy-artifacts.mjs|-e) exec "${realNode}" "$@" ;;
   --version) echo v22.22.1 ;;
 esac
 exit 0`);
@@ -155,12 +163,15 @@ function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
     PATH: stubPath,
     DEPLOY_TEST_PATH: stubPath,
     REPO_DIR: bashPath(fixture.repoDir),
+    DEPLOY_LOCK_HELD: bashPath(fixture.repoDir),
     WEB_ROOT: bashPath(fixture.webRoot),
     DEPLOY_METRICS_DIR: bashPath(fixture.metricsDir),
     DEPLOY_SKIP_GIT: "1",
     DEPLOY_GIT_SHA: "0123456789abcdef0123456789abcdef01234567",
     DEPLOY_DB_BACKUP: "0",
     DEPLOY_CHANGE_PLAN: "0",
+    DEPLOY_PREPARE_ONLY: "0",
+    DEPLOY_ARTIFACT_DIR: "",
     DEPLOY_RUN_TESTS: "1",
     DEPLOY_HEALTH_TIMEOUT_SECONDS: "2",
     DEPLOY_OPERATOR: 'qa"\n\u0001operator',
@@ -246,7 +257,7 @@ compress_backup_stream\n`,
 }
 
 function runQualityGate(overrides = {}) {
-  const start = deploySource.indexOf('if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then');
+  const start = deploySource.indexOf('if [ "$DEPLOY_USING_ARTIFACT" = 1 ]; then\n  log "构建环境');
   const end = deploySource.indexOf("# ----------------- 6. 数据库备份收口", start);
   assert.ok(start >= 0 && end > start, "unable to locate the real deployment quality gate");
   // Execute the production branch itself; all commands are shell functions, so no
@@ -261,10 +272,10 @@ die() { printf 'failure:%s\\n' "$*"; exit 1; }
 npx() { printf 'command:npx %s\\n' "$*"; }
 npm() { printf 'command:npm %s\\n' "$*"; [ "$*" != "\${DEPLOY_TEST_FAILURE:-}" ]; }
 bash() { printf 'command:bash %s\\n' "$*"; [ "\${DEPLOY_TEST_FAILURE:-}" != "postgres" ]; }
-node() { return 0; }
+node() { printf 'command:node %s\\n' "$*"; }
 limited_run() { "$@"; }
 run_script_tests() { printf 'command:root-tests %s\\n' "$*"; [ "\${DEPLOY_TEST_FAILURE:-}" != "scripts" ]; }
-commit_quality_plan() { printf 'quality-saved\\n'; }
+commit_quality_plan() { if [ -z "\${1:-}" ]; then printf 'quality-saved\\n'; else printf 'group-saved:%s\\n' "$1"; fi; }
 ${deploySource.slice(start, end)}
 printf 'gate-complete\\n'
 `;
@@ -282,6 +293,9 @@ printf 'gate-complete\\n'
       DEPLOY_CHECK_SCRIPTS: "0",
       DEPLOY_CHECK_DEPLOY: "0",
       DEPLOY_CHECK_API: "0",
+      DEPLOY_CHECK_API_CONTRACTS: "0",
+      DEPLOY_PREPARE_ONLY: "0",
+      DEPLOY_USING_ARTIFACT: "0",
       DEPLOY_CHECK_POSTGRES: "0",
       DEPLOY_RUN_TESTS: "1",
       DEPLOY_TEST_FAILURE: "",
@@ -293,12 +307,14 @@ printf 'gate-complete\\n'
 }
 
 const frontendTypecheck = "npx --no-install tsc --noEmit -p tsconfig.json";
-const apiTypecheck = "npx --no-install tsc --noEmit -p apps/api/tsconfig.json --tsBuildInfoFile unused-test-cache/tsbuildinfo-api";
+const apiTypecheck = "node apps/api/scripts/run-tests.cjs --compile-only";
 const frontendTests = "root-tests scripts";
-const apiTests = "npm --prefix apps/api run test";
+const apiTests = "npm --prefix apps/api run test:ts";
 const postgresTests = ["applicant-forms", "audit-receipts", "chat-workspace", "procurement-rollback", "rd-documents"]
   .map((suite) => `bash scripts/test-postgres-release.sh --suite ${suite}`);
 for (const [name, env, commands, status = 0] of [
+  ["contracts fail before the full API suite", { DEPLOY_CHECK_API: "1", DEPLOY_CHECK_API_CONTRACTS: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test:mts" }, ["npm --prefix apps/api run test:mts"], 1],
+  ["only the failed PostgreSQL suite reruns", { DEPLOY_CHECK_POSTGRES: "0", DEPLOY_CHECK_POSTGRES_RD_DOCUMENTS: "1" }, [postgresTests[4]]],
   ["frontend checks are independently selected", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_CHECK_SCRIPTS: "1" }, [frontendTypecheck, frontendTests]],
   ["API checks run with five separately timed database suites", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_CHECK_POSTGRES: "1" }, [apiTypecheck, apiTests, ...postgresTests]],
   ["deployment regression group is independently selected", { DEPLOY_CHECK_DEPLOY: "1" }, ["root-tests deploy"]],
@@ -306,7 +322,7 @@ for (const [name, env, commands, status = 0] of [
   ["verified unchanged inputs reuse checks", {}, []],
   ["explicit disable does not save proof", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_RUN_TESTS: "0" }, []],
   ["frontend test failure blocks release", { DEPLOY_CHECK_FRONTEND_TYPE: "1", DEPLOY_CHECK_SCRIPTS: "1", DEPLOY_TEST_FAILURE: "scripts" }, [frontendTypecheck, frontendTests], 1],
-  ["API test failure blocks release", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test" }, [apiTypecheck, apiTests], 1],
+  ["API test failure blocks release", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_TEST_FAILURE: "--prefix apps/api run test:ts" }, [apiTypecheck, apiTests], 1],
   ["isolated database failure blocks release", { DEPLOY_CHECK_API_TYPE: "1", DEPLOY_CHECK_API: "1", DEPLOY_CHECK_POSTGRES: "1", DEPLOY_TEST_FAILURE: "postgres" }, [apiTypecheck, apiTests, postgresTests[0]], 1],
 ]) {
   test(`quality gate: ${name}`, { skip: !bash }, () => {
@@ -500,12 +516,12 @@ test("deployment baseline declares the complete stage order", () => {
 });
 
 test("quality timing records each executed group in order", { skip: !bash }, () => {
-  const result = runQualityGate(Object.fromEntries(["FRONTEND_TYPE", "API_TYPE", "SCRIPTS", "DEPLOY", "API", "POSTGRES"]
+  const result = runQualityGate(Object.fromEntries(["FRONTEND_TYPE", "API_TYPE", "SCRIPTS", "DEPLOY", "API", "API_CONTRACTS", "POSTGRES"]
     .map((name) => [`DEPLOY_CHECK_${name}`, "1"])));
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.deepEqual(result.stdout.split(/\r?\n/).filter((line) => line.startsWith("start:")).map((line) => line.slice(6)),
-    expectedStages.slice(5, 15));
-  assert.equal(result.stdout.split(/\r?\n/).filter((line) => line === "finish:success").length, 10);
+    expectedStages.slice(3, 14));
+  assert.equal(result.stdout.split(/\r?\n/).filter((line) => line === "finish:success").length, 11);
 });
 
 test("deployment failures retain the original stage, line and exit code", () => {
@@ -584,6 +600,7 @@ test("fake deployment writes one parseable, secret-free baseline without real in
     const record = JSON.parse(text);
 
     assert.equal(record.status, "success");
+    assert.equal(record.mode, "source-deploy");
     assert.equal(record.exit_code, 0);
     assert.equal(record.git_sha, "0123456789abcdef0123456789abcdef01234567");
     assert.equal(record.operator, 'qa"\noperator');
@@ -723,7 +740,144 @@ test("a second unchanged deployment skips every runtime stage", { skip: !bash },
   }
 });
 
-test("quality proof requires passing checks and survives only a later deployment failure", { skip: !bash }, async () => {
+test("a busy release lock stops before checkout or installation", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeStub(fixture.binDir, 'flock', 'exit 75');
+    await writeStub(fixture.binDir, 'pnpm', 'touch "$REPO_DIR/install-started"');
+    const result = runFakeDeployment(bash, fixture, { DEPLOY_LOCK_HELD: '' });
+    assert.equal(result.status, 75, result.stdout + result.stderr);
+    assert.match(result.stderr, /已有发布正在执行/);
+    await assert.rejects(readFile(join(fixture.repoDir, 'install-started')));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test("Git hook locks before checkout and deploys the received commit, not a moving branch", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  const hook = join(fixture.root, 'post-receive');
+  const sha = '1234567890abcdef1234567890abcdef12345678';
+  try {
+    await writeFile(hook, await readFile(new URL('../deploy/git-hooks/post-receive', import.meta.url)));
+    await writeFile(join(fixture.root, 'shell-env'), 'export PATH="$DEPLOY_TEST_PATH"\n');
+    await writeStub(fixture.binDir, 'git', 'printf "%s\\n" "$*" > "$DEPLOY_WORK_TREE/checkout.txt"');
+    await writeFile(join(fixture.repoDir, 'scripts/deploy.sh'), 'printf "%s\\n%s\\n" "$DEPLOY_GIT_SHA" "$DEPLOY_LOCK_HELD" > "$REPO_DIR/release.txt"\n');
+    const run = () => spawnSync(bash, [bashPath(hook)], {
+      input: `0000000000000000000000000000000000000000 ${sha} refs/heads/main\n`, encoding: 'utf8', timeout: 10_000,
+      env: { ...process.env, PATH: `${bashPath(fixture.binDir)}:/usr/bin:/bin`, DEPLOY_TEST_PATH: `${bashPath(fixture.binDir)}:/usr/bin:/bin`, BASH_ENV: bashPath(join(fixture.root, 'shell-env')), DEPLOY_WORK_TREE: bashPath(fixture.repoDir), DEPLOY_BARE_DIR: bashPath(join(fixture.root, 'bare')), NVM_DIR: bashPath(join(fixture.root, 'no-nvm')), DEPLOY_LOCK_HELD: '' },
+    });
+    let result = run();
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(await readFile(join(fixture.repoDir, 'checkout.txt'), 'utf8'), new RegExp(`checkout -f ${sha}`));
+    assert.match(await readFile(join(fixture.repoDir, 'release.txt'), 'utf8'), new RegExp(`^${sha}\\n.+repo`));
+    await rm(join(fixture.repoDir, 'checkout.txt'));
+    await mkdir(join(fixture.root, 'bare/hooks'), { recursive: true });
+    await writeFile(join(fixture.root, 'bare/hooks/artifact-root'), bashPath(join(fixture.root, 'inbox')) + '\n');
+    result = run();
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    await assert.rejects(readFile(join(fixture.repoDir, 'checkout.txt')));
+    await mkdir(join(fixture.root, 'inbox', sha), { recursive: true });
+    await writeFile(join(fixture.root, 'inbox', sha, 'manifest.json'), '{}');
+    result = run();
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    await readFile(join(fixture.repoDir, 'checkout.txt'));
+    await rm(join(fixture.repoDir, 'checkout.txt'));
+    await writeStub(fixture.binDir, 'flock', 'exit 75');
+    result = run();
+    assert.equal(result.status, 75, result.stdout + result.stderr);
+    await assert.rejects(readFile(join(fixture.repoDir, 'checkout.txt')));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test("saving a successful group never resurrects invalid prior proof", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  const cache = join(fixture.repoDir, '.deploy-cache');
+  const candidate = join(cache, 'candidate.json');
+  const previous = join(cache, 'quality-inputs.json');
+  const snapshot = { schema_version: 1, fingerprints: { source: 'a'.repeat(64) }, checks: { frontend_type: 'b'.repeat(64), api_tests: 'c'.repeat(64) } };
+  const helper = deploySource.slice(deploySource.indexOf('commit_quality_plan() {'), deploySource.indexOf('commit_change_plan() {'));
+  try {
+    await mkdir(cache, { recursive: true });
+    await writeFile(candidate, JSON.stringify(snapshot));
+    for (const prior of [
+      { ...snapshot, schema_version: 0 },
+      { ...snapshot, fingerprints: {} },
+      { ...snapshot, checks: { ...snapshot.checks, frontend_type: 'broken' } },
+    ]) {
+      await writeFile(previous, JSON.stringify(prior));
+      const result = spawnSync(bash, ['-s'], {
+        input: `set -Eeuo pipefail\nCACHE_DIR="${bashPath(cache)}"\nDEPLOY_PLAN_CANDIDATE_FILE="${bashPath(candidate)}"\nnode() { "${bashPath(process.execPath)}" "$@"; }\nlog() { :; }\n${helper}\ncommit_quality_plan frontend_type\n`,
+        encoding: 'utf8', timeout: 10_000,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(await readFile(previous, 'utf8')).checks, { frontend_type: snapshot.checks.frontend_type });
+    }
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test("unchanged source with lost output rebuilds and revokes stale API incremental state", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await enableChangePlanner(fixture);
+    const apiChunk = join(fixture.repoDir, 'apps/api/dist/src/dependency.js');
+    const info = join(fixture.repoDir, 'apps/api/dist/tsconfig.build.tsbuildinfo');
+    const webChunk = join(fixture.repoDir, 'dist/chunk.js');
+    await writeFile(apiChunk, 'original api');
+    await writeFile(webChunk, 'original web');
+    await writeFile(info, 'incremental state');
+    const overrides = { DEPLOY_CHANGE_PLAN: '1', DEPLOY_METRICS_ENABLED: '0' };
+    let result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    await rm(apiChunk);
+    await rm(webChunk);
+    await writeStub(fixture.binDir, 'npm', `
+if [ "$*" = '--prefix apps/api run build' ]; then
+  [ ! -e apps/api/dist/tsconfig.build.tsbuildinfo ] || exit 99
+  printf 'recovered api' > apps/api/dist/src/dependency.js
+elif [ "$*" = 'run build' ]; then
+  printf 'recovered web' > dist/chunk.js
+else exit 98
+fi`);
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(await readFile(apiChunk, 'utf8'), 'recovered api');
+    assert.equal(await readFile(webChunk, 'utf8'), 'recovered web');
+    assert.doesNotMatch(result.stdout, /质量检查记录已保存：(?:api_tests|api_contracts)/);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test("prepared artifacts deploy without rebuilding or testing and corruption blocks activation", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await enableChangePlanner(fixture);
+    const artifact = join(fixture.root, 'artifact');
+    const calls = join(fixture.root, 'calls.log');
+    await writeStub(fixture.binDir, 'npm', 'echo "$*" >> "$DEPLOY_CALL_LOG"');
+    const overrides = { DEPLOY_CHANGE_PLAN: '1', DEPLOY_METRICS_ENABLED: '1', DEPLOY_GIT_SHA: 'a'.repeat(40),
+      DEPLOY_ARTIFACT_DIR: bashPath(artifact), DEPLOY_CALL_LOG: bashPath(calls) };
+    let result = runFakeDeployment(bash, fixture, { ...overrides, DEPLOY_PREPARE_ONLY: '1' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /重启后端 pm2|执行 prisma migrate deploy|发布前端 dist|启动后台数据库备份/);
+    await readFile(join(artifact, 'manifest.json'));
+    const preparedMetrics = (await readdir(fixture.metricsDir)).find(name => name.endsWith('.json'));
+    assert.equal(JSON.parse(await readFile(join(fixture.metricsDir, preparedMetrics), 'utf8')).mode, 'prepare');
+    await assert.rejects(readFile(join(fixture.repoDir, '.deploy-cache/deploy-inputs.json')));
+    // Reject every build/test command now. Only a verified artifact may bypass them.
+    await writeStub(fixture.binDir, 'npm', 'echo "$*" >> "$DEPLOY_CALL_LOG"; exit 29');
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /已载入通过验收的版本/);
+    const modes = await Promise.all((await readdir(fixture.metricsDir)).filter(name => name.endsWith('.json'))
+      .map(async name => JSON.parse(await readFile(join(fixture.metricsDir, name), 'utf8')).mode));
+    assert.ok(modes.includes('artifact-deploy'));
+    assert.equal(await readFile(join(fixture.webRoot, 'index.html'), 'utf8'), '<main>build fixture</main>');
+    await writeFile(join(artifact, 'dist/index.html'), 'corrupt');
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /重启后端 pm2|执行 prisma migrate deploy/);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test("successful quality groups survive a later failure but never certify failed groups", { skip: !bash }, async () => {
   const fixture = await createFakeDeployment();
   const proof = join(fixture.repoDir, ".deploy-cache", "quality-inputs.json");
   try {
@@ -734,11 +888,23 @@ test("quality proof requires passing checks and survives only a later deployment
     await assert.rejects(readFile(proof));
 
     // A successful publish with disabled checks is not evidence for the next gate.
-    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test" ]; then exit 29; fi');
+    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test:ts" ]; then exit 29; fi');
     result = runFakeDeployment(bash, fixture, overrides);
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.match(result.stdout + result.stderr, /API 测试未通过/);
-    await assert.rejects(readFile(proof));
+    const partial = JSON.parse(await readFile(proof, "utf8"));
+    assert.ok(partial.checks.frontend_type);
+    assert.ok(partial.checks.api_type);
+    assert.ok(partial.checks.scripts_tests);
+    assert.ok(partial.checks.deploy_tests);
+    assert.equal(partial.checks.api_tests, undefined);
+    assert.equal(partial.checks.postgres, undefined);
+
+    // Retry the unchanged failed publish: prior checks are skipped, failed API checks still run.
+    result = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /API 测试未通过/);
+    assert.doesNotMatch(result.stdout, /质量检查记录已保存：(frontend_type|api_type|scripts_tests|deploy_tests)/);
 
     await writeStub(fixture.binDir, "npm");
     await writeFile(join(fixture.repoDir, "apps", "api", "src", "main.ts"), "export const api = 2;\n");
@@ -749,7 +915,7 @@ test("quality proof requires passing checks and survives only a later deployment
     assert.ok(JSON.parse(verified).checks);
 
     // The exact same verified inputs can retry the failed restart without repeating checks.
-    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test" ]; then exit 29; fi');
+    await writeStub(fixture.binDir, "npm", 'if [ "$*" = "--prefix apps/api run test:ts" ]; then exit 29; fi');
     await writeStub(fixture.binDir, "pm2", `
 if [ "\${1:-}" = start ] || [ "\${1:-}" = restart ]; then
   printf '{"ok":true,"database":"ready","git_sha":"%s","release":"%s"}\\n' "$APP_GIT_SHA" "$APP_VERSION" > "$REPO_DIR/.deploy-cache/app-health.json"
@@ -757,6 +923,7 @@ fi`);
     result = runFakeDeployment(bash, fixture, overrides);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(await readFile(proof, "utf8"), verified);
+    assert.match(result.stdout, /复用已完成的 api 构建/);
 
     // A forced full run that now fails must invalidate the earlier successful proof.
     result = runFakeDeployment(bash, fixture, { ...overrides, DEPLOY_CHANGE_PLAN: "0" });
@@ -769,6 +936,7 @@ test("a frontend deployment cannot succeed or save its snapshot without WEB_ROOT
   const fixture = await createFakeDeployment();
   try {
     await enableChangePlanner(fixture);
+    await writeStub(fixture.binDir, 'npm', 'touch "$REPO_DIR/build-started"');
     const result = runFakeDeployment(bash, fixture, {
       DEPLOY_CHANGE_PLAN: "1",
       DEPLOY_METRICS_ENABLED: "0",
@@ -777,9 +945,25 @@ test("a frontend deployment cannot succeed or save its snapshot without WEB_ROOT
 
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
     assert.match(`${result.stdout}\n${result.stderr}`, /前端发布目录不存在/);
+    await assert.rejects(readFile(join(fixture.repoDir, 'build-started')));
     await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "deploy-inputs.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("empty frontend or API artifacts stop before production migration and restart", { skip: !bash }, async () => {
+  for (const path of ['dist/index.html', 'apps/api/dist/src/main.js']) {
+    const fixture = await createFakeDeployment();
+    try {
+      await writeFile(join(fixture.repoDir, path), '');
+      await writeStub(fixture.binDir, 'pm2', 'touch "$REPO_DIR/restarted"');
+      await writeStub(fixture.binDir, 'npx', 'touch "$REPO_DIR/database-command"');
+      const result = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: '0', DEPLOY_RUN_TESTS: '0' });
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout + result.stderr, /构建产物缺失或为空/);
+      await assert.rejects(readFile(join(fixture.repoDir, 'restarted')));
+    } finally { await rm(fixture.root, { recursive: true, force: true }); }
   }
 });
 

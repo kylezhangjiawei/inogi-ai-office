@@ -18,6 +18,19 @@ set -Eeuo pipefail
 
 # ----------------------------- 可配置项 -----------------------------
 REPO_DIR="${REPO_DIR:-/opt/inogi-ai-office-system}"
+# The installed Git hook takes this same lock before checkout; manual releases take it here.
+REPO_DIR="$(cd "$REPO_DIR" && pwd -P)" || { echo '找不到发布仓库目录。' >&2; exit 1; }
+if [ "${DEPLOY_LOCK_HELD:-}" != "$REPO_DIR" ]; then
+  command -v flock >/dev/null 2>&1 || { echo '缺少 flock，无法安全串行发布。' >&2; exit 1; }
+  mkdir -p "$REPO_DIR/.deploy-cache"
+  if flock --exclusive --nonblock --conflict-exit-code 75 --close "$REPO_DIR/.deploy-cache/release.lock" \
+    env DEPLOY_LOCK_HELD="$REPO_DIR" bash "${BASH_SOURCE[0]}" "$@"; then exit 0;
+  else
+    status=$?
+    [ "$status" != 75 ] || echo '已有发布正在执行，本次未开始；请稍后重试。' >&2
+    exit "$status"
+  fi
+fi
 BRANCH="${DEPLOY_BRANCH:-main}"
 PM2_APP_NAME="${PM2_APP_NAME:-inogi-api}"
 # nginx 实际服务的前端目录（root 指向这里）。构建产物在 dist/，部署时同步到此目录。
@@ -41,6 +54,10 @@ DEPLOY_BACKUP_EXCLUDE_TABLE_DATA="${DEPLOY_BACKUP_EXCLUDE_TABLE_DATA-public.\"Ap
 
 # 变更感知默认开启。它只读取工作区内容并写入 .deploy-cache；任何异常都会保守退回全量发布。
 DEPLOY_CHANGE_PLAN="${DEPLOY_CHANGE_PLAN:-1}"
+# Preparation stops before backup/migration/restart. Artifacts must come from a trusted builder.
+DEPLOY_PREPARE_ONLY="${DEPLOY_PREPARE_ONLY:-0}"
+DEPLOY_ARTIFACT_DIR="${DEPLOY_ARTIFACT_DIR:-}"
+DEPLOY_USING_ARTIFACT=0
 
 # ------------------------- 国内镜像（防超时）-------------------------
 # npm / pnpm 包源
@@ -113,6 +130,7 @@ DEPLOY_CHECK_API_TYPE=1
 DEPLOY_CHECK_SCRIPTS=1
 DEPLOY_CHECK_DEPLOY=1
 DEPLOY_CHECK_API=1
+DEPLOY_CHECK_API_CONTRACTS=1
 DEPLOY_CHECK_POSTGRES=1
 DEPLOY_WORK_PREFIX=()
 DEPLOY_BACKUP_PID=""
@@ -121,19 +139,20 @@ DEPLOY_BACKUP_STARTED_MONOTONIC_MS=0
 DEPLOY_STAGE_NAMES=(
   checkout
   dependency_install
-  frontend_build
   prisma_generate
-  api_build
   typecheck_frontend
   typecheck_api
   tests_scripts
   tests_deploy
+  tests_api_contracts
   tests_api
   tests_postgres_applicant_forms
   tests_postgres_audit_receipts
   tests_postgres_chat_workspace
   tests_postgres_procurement_rollback
   tests_postgres_rd_documents
+  frontend_build
+  api_build
   database_backup
   database_migration
   api_restart
@@ -184,7 +203,7 @@ run_script_tests() {
     [ -f "$file" ] || continue
     kind=scripts
     case "$file" in
-      scripts/deploy-baseline.test.mjs|scripts/deploy-change-plan.test.mjs|scripts/test-postgres-release.test.mjs) kind=deploy ;;
+      scripts/deploy-*.test.mjs|scripts/test-postgres-release.test.mjs) kind=deploy ;;
     esac
     [ "$kind" != "$group" ] || files+=("$file")
   done
@@ -416,6 +435,13 @@ EOF
     printf '  "operator": "%s",\n' "$(json_escape "$deploy_operator")"
     printf '  "host": "%s",\n' "$(json_escape "$deploy_host")"
     printf '  "trigger": "%s",\n' "$(json_escape "$deploy_trigger")"
+    if [ "$DEPLOY_PREPARE_ONLY" = 1 ]; then
+      printf '  "mode": "prepare",\n'
+    elif [ "$DEPLOY_USING_ARTIFACT" = 1 ]; then
+      printf '  "mode": "artifact-deploy",\n'
+    else
+      printf '  "mode": "source-deploy",\n'
+    fi
     printf '  "node_version": "%s",\n' "$(json_escape "$node_version")"
     printf '  "status": "%s",\n' "$(json_escape "$deploy_status")"
     printf '  "exit_code": %s,\n' "$exit_code"
@@ -530,7 +556,7 @@ init_change_plan() {
       DEPLOY_PLAN_REASON)
         case "$value" in first-release|deploy-logic-changed|incremental) DEPLOY_PLAN_REASON="$value" ;; esac
         ;;
-      DEPLOY_PLAN_DEPENDENCIES|DEPLOY_PLAN_FRONTEND|DEPLOY_PLAN_API|DEPLOY_PLAN_PRISMA|DEPLOY_PLAN_MIGRATIONS|DEPLOY_PLAN_QUALITY|DEPLOY_CHECK_FRONTEND_TYPE|DEPLOY_CHECK_API_TYPE|DEPLOY_CHECK_SCRIPTS|DEPLOY_CHECK_DEPLOY|DEPLOY_CHECK_API|DEPLOY_CHECK_POSTGRES)
+      DEPLOY_PLAN_DEPENDENCIES|DEPLOY_PLAN_FRONTEND|DEPLOY_PLAN_API|DEPLOY_PLAN_PRISMA|DEPLOY_PLAN_MIGRATIONS|DEPLOY_PLAN_QUALITY|DEPLOY_CHECK_FRONTEND_TYPE|DEPLOY_CHECK_API_TYPE|DEPLOY_CHECK_SCRIPTS|DEPLOY_CHECK_DEPLOY|DEPLOY_CHECK_API|DEPLOY_CHECK_API_CONTRACTS|DEPLOY_CHECK_POSTGRES|DEPLOY_CHECK_POSTGRES_APPLICANT_FORMS|DEPLOY_CHECK_POSTGRES_AUDIT_RECEIPTS|DEPLOY_CHECK_POSTGRES_CHAT_WORKSPACE|DEPLOY_CHECK_POSTGRES_PROCUREMENT_ROLLBACK|DEPLOY_CHECK_POSTGRES_RD_DOCUMENTS)
         case "$value" in
           0|1) printf -v "$key" '%s' "$value" ;;
         esac
@@ -541,25 +567,48 @@ $planner_output
 EOF
 
   log "发布计划[$DEPLOY_PLAN_REASON]：dependencies=$DEPLOY_PLAN_DEPENDENCIES frontend=$DEPLOY_PLAN_FRONTEND api=$DEPLOY_PLAN_API prisma=$DEPLOY_PLAN_PRISMA migrations=$DEPLOY_PLAN_MIGRATIONS quality=$DEPLOY_PLAN_QUALITY"
+  log "检查计划：frontend_type=$DEPLOY_CHECK_FRONTEND_TYPE api_type=$DEPLOY_CHECK_API_TYPE scripts=$DEPLOY_CHECK_SCRIPTS deploy=$DEPLOY_CHECK_DEPLOY api=$DEPLOY_CHECK_API contracts=$DEPLOY_CHECK_API_CONTRACTS（0=输入与通过记录一致，1=无匹配记录，需重新验收）"
 }
 
 reset_quality_plan() {
+  log "依赖安装或原生模块修复，撤销旧质量记录并重新验收。"
   rm -f -- "$CACHE_DIR/quality-inputs.json" || die "无法撤销旧检查记录，已中止部署。"
   DEPLOY_CHECK_FRONTEND_TYPE=1
   DEPLOY_CHECK_API_TYPE=1
   DEPLOY_CHECK_SCRIPTS=1
   DEPLOY_CHECK_DEPLOY=1
   DEPLOY_CHECK_API=1
+  DEPLOY_CHECK_API_CONTRACTS=1
   DEPLOY_CHECK_POSTGRES=1
+  for suite in APPLICANT_FORMS AUDIT_RECEIPTS CHAT_WORKSPACE PROCUREMENT_ROLLBACK RD_DOCUMENTS; do
+    printf -v "DEPLOY_CHECK_POSTGRES_$suite" '%s' 1
+  done
 }
 
 commit_quality_plan() {
   [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || return 0
   local temporary
   temporary="$(mktemp "$CACHE_DIR/.quality-inputs.XXXXXX" 2>/dev/null || true)"
-  if [ -n "$temporary" ] && cp -- "$DEPLOY_PLAN_CANDIDATE_FILE" "$temporary" \
+  if [ -n "$temporary" ] && node -e '
+    const fs = require("node:fs");
+    const [candidate, previous, output, group] = process.argv.slice(1);
+    const current = JSON.parse(fs.readFileSync(candidate, "utf8"));
+    if (group) {
+      let saved = {};
+      try {
+        const prior = JSON.parse(fs.readFileSync(previous, "utf8"));
+        const digest = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+        if (prior.schema_version === current.schema_version && prior.checks &&
+            Object.keys(current.fingerprints).every(name => digest(prior.fingerprints?.[name])) &&
+            Object.values(prior.checks).every(digest)) saved = prior.checks;
+      } catch {}
+      current.checks = Object.fromEntries(Object.entries(current.checks)
+        .filter(([name, hash]) => name === group || saved[name] === hash));
+    }
+    fs.writeFileSync(output, JSON.stringify(current) + "\n");
+  ' "$DEPLOY_PLAN_CANDIDATE_FILE" "$CACHE_DIR/quality-inputs.json" "$temporary" "${1:-}" \
     && mv -f -- "$temporary" "$CACHE_DIR/quality-inputs.json"; then
-    log "完整质量检查通过，检查输入记录已保存。"
+    log "质量检查记录已保存：${1:-all}。"
   else
     [ -z "$temporary" ] || rm -f -- "$temporary"
     log "⚠️  检查记录保存失败；下次将重新检查。"
@@ -755,8 +804,55 @@ CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
 init_deploy_resources
 init_change_plan
+if [ "$DEPLOY_PREPARE_ONLY" != 0 ] && [ "$DEPLOY_PREPARE_ONLY" != 1 ]; then die "DEPLOY_PREPARE_ONLY 必须为 0 或 1。"; fi
+if [ "$DEPLOY_PREPARE_ONLY" = 1 ] || [ -n "$DEPLOY_ARTIFACT_DIR" ]; then
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] && [ "${DEPLOY_RUN_TESTS:-1}" = 1 ] \
+    || die "产物流程要求启用变更计划和完整质量检查。"
+  [ -n "$DEPLOY_ARTIFACT_DIR" ] || die "准备版本需要指定 DEPLOY_ARTIFACT_DIR。"
+fi
+if [ "$DEPLOY_PREPARE_ONLY" = 1 ]; then
+  [ ! -e "$DEPLOY_ARTIFACT_DIR" ] || die "产物目录已存在；请选择新的目录。"
+  DEPLOY_PLAN_FRONTEND=1
+  DEPLOY_PLAN_API=1
+elif [ -n "$DEPLOY_ARTIFACT_DIR" ]; then
+  RELEASE="$(node scripts/deploy-artifacts.mjs verify "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$DEPLOY_ARTIFACT_DIR")" \
+    || die "部署产物校验失败，已中止。"
+  DEPLOY_USING_ARTIFACT=1
+  DEPLOY_PLAN_FRONTEND=1
+  DEPLOY_PLAN_API=1
+fi
+# Source fingerprints do not prove that previously built files still exist.
+if [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] && [ "$DEPLOY_USING_ARTIFACT" != 1 ]; then
+  for kind in frontend api; do
+    if [ -f "$CACHE_DIR/build-$kind.json" ] && ! node scripts/deploy-artifacts.mjs check-output \
+      "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$kind" >/dev/null; then
+      log "$kind 构建目录校验失败，强制重建。"
+      if [ "$kind" = frontend ]; then
+        DEPLOY_PLAN_FRONTEND=1
+      else
+        DEPLOY_PLAN_API=1
+        rm -f -- apps/api/dist/tsconfig.build.tsbuildinfo
+      fi
+    fi
+  done
+fi
+if [ ! -s dist/index.html ]; then DEPLOY_PLAN_FRONTEND=1; fi
+if [ ! -s apps/api/dist/src/main.js ]; then
+  DEPLOY_PLAN_API=1
+  rm -f -- apps/api/dist/tsconfig.build.tsbuildinfo
+fi
+if [ "$DEPLOY_PREPARE_ONLY" != 1 ] && [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
+  [ -d "$WEB_ROOT" ] || die "前端发布目录不存在：${WEB_ROOT}（请确认 nginx root 或设置 WEB_ROOT）"
+  [ -w "$WEB_ROOT" ] || die "前端发布目录不可写：${WEB_ROOT}"
+fi
+if [ "$DEPLOY_PREPARE_ONLY" != 1 ] && [ "$DEPLOY_PLAN_API" = "1" ]; then
+  command -v pm2 >/dev/null 2>&1 || die "未找到 pm2，已在构建和数据库迁移前中止。"
+fi
+if [ "$DEPLOY_PREPARE_ONLY" != 1 ] && { [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; }; then
+  command -v curl >/dev/null 2>&1 || die "缺少 curl，无法执行部署就绪检查。"
+fi
 # 越早起越好：后面的依赖安装、构建、测试都在给它让出并行窗口。
-start_background_backup
+if [ "$DEPLOY_PREPARE_ONLY" != 1 ]; then start_background_backup; fi
 # 服务器（Linux）有 sha256sum，macOS 只有 shasum；两者算的是同一个 SHA-256，
 # 输出格式也都是「哈希 + 空格 + 文件名」，所以回退不会改变服务器上已缓存的哈希值。
 sha256_stdin() {
@@ -829,24 +925,29 @@ fi
 
 # 2.5 确保 argon2 原生模块在本机可加载（否则后端崩溃 → 502）。即使跳过安装也校验。
 ensure_native_argon2
+if [ "$DEPLOY_USING_ARTIFACT" = 1 ]; then
+  RELEASE="$(node scripts/deploy-artifacts.mjs install "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$DEPLOY_ARTIFACT_DIR")" \
+    || die "部署产物安装失败，已中止。"
+  log "已载入通过验收的版本：$RELEASE"
+fi
 finish_stage success || true
 
-# ----------------- 3. 构建前端（仅前端输入变化时）-----------------
-# 统一用 npm run 而不是 pnpm：pnpm v11 在执行任何脚本前会先做一遍 lockfile
-# 供应链校验（本仓库 1000+ 条目，实测约 90 秒且全程联网），依赖没变时纯属浪费，
-# 还把部署成败绑到 registry 可用性上。npm run 只是执行脚本，没有这层开销。
-# 依赖安装仍按第 2 步严格使用 pnpm，此处只影响「怎么调用构建脚本」。
-if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
-  start_stage frontend_build || true
-  log "构建前端 ..."
-  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry limited_run npm run build
-  finish_stage success || true
-else
-  log "前端输入未变化，跳过前端构建。"
-  skip_stage frontend_build || true
-fi
+reuse_build() {
+  [ "$DEPLOY_USING_ARTIFACT" = 1 ] && return 0
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || return 1
+  local saved_release
+  saved_release="$(node scripts/deploy-artifacts.mjs check "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$1")" || return 1
+  # Frontend JS embeds its original release; preserve that identity on a retry.
+  if [ "$1" = frontend ]; then RELEASE="$saved_release"; fi
+  log "复用已完成的 $1 构建：提交、输入与全部产物校验一致。"
+}
+save_build() {
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || return 0
+  node scripts/deploy-artifacts.mjs save "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$1" \
+    || log "构建记录保存失败，下次将重新构建。"
+}
 
-# ------------- 4. 生成 Prisma Client（必须在后端构建之前）-------------
+# ------------- 3. 生成 Prisma Client（必须在后端构建之前）-------------
 # schema 或依赖变化时显式 generate；其余发布复用上次成功生成的 Client。
 if [ "$DEPLOY_PLAN_PRISMA" = "1" ]; then
   start_stage prisma_generate || true
@@ -858,39 +959,36 @@ else
   skip_stage prisma_generate || true
 fi
 
-# ---------------------------- 5. 构建后端 ----------------------------
-if [ "$DEPLOY_PLAN_API" = "1" ]; then
-  start_stage api_build || true
-  log "构建后端 ..."
-  retry limited_run npm --prefix apps/api run build
-  finish_stage success || true
-else
-  log "API 输入未变化，跳过后端构建。"
-  skip_stage api_build || true
-fi
-
-# --------------- 5.5 质量闸门（迁移与重启前的最后一道）---------------
-# 位置很关键：此刻两端都已构建成功，后台备份可能已开始，但正式迁移和 pm2 重启尚未执行。
+# --------------- 4. 质量闸门（迁移与重启前的最后一道）---------------
+# 检查先于生产构建，尽早阻断错误；正式迁移和 pm2 重启尚未执行。
 # 在这里失败直接退出，线上仍跑着旧版本；已启动的备份由现有退出处理收口。
-# 放在构建之后是因为测试用 ts-node 直接跑 TS，需要第 4 步生成的 Prisma Client。
+# 测试编译需要第 3 步生成的 Prisma Client；TS 编译结果供类型检查和测试共用。
 # 不重试：测试失败是代码问题，重跑三次只会拖长部署时间。
 # 紧急情况跳过：DEPLOY_RUN_TESTS=0（不推荐，写法与 DEPLOY_DB_BACKUP 一致）。
-# Cached flags have already been read; only a completed gate may write new proof.
-rm -f -- "$CACHE_DIR/quality-inputs.json" || die "无法撤销旧检查记录，已中止部署。"
-if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
+# Keep successful independent groups after a later failure. Forced/disabled runs revoke proof.
+if [ "$DEPLOY_CHANGE_PLAN" != "1" ] || [ "${DEPLOY_RUN_TESTS:-1}" != "1" ] || [ -z "$DEPLOY_PLAN_CANDIDATE_FILE" ]; then
+  rm -f -- "$CACHE_DIR/quality-inputs.json" || die "无法撤销旧检查记录，已中止部署。"
+fi
+if [ "$DEPLOY_USING_ARTIFACT" = 1 ]; then
+  log "构建环境的完整验收记录已校验；生产机只执行安装、迁移和就绪检查。"
+  for stage in typecheck_frontend typecheck_api tests_scripts tests_deploy tests_api tests_api_contracts \
+    tests_postgres_applicant_forms tests_postgres_audit_receipts tests_postgres_chat_workspace \
+    tests_postgres_procurement_rollback tests_postgres_rd_documents; do skip_stage "$stage" || true; done
+elif [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
   if [ "$DEPLOY_CHECK_FRONTEND_TYPE" = "1" ]; then
     start_stage typecheck_frontend || true
     limited_run npx --no-install tsc --noEmit -p tsconfig.json \
       || die "前端类型检查未通过，已中止部署。"
+    commit_quality_plan frontend_type
     finish_stage success || true
   else
     skip_stage typecheck_frontend || true
   fi
   if [ "$DEPLOY_CHECK_API_TYPE" = "1" ]; then
     start_stage typecheck_api || true
-    limited_run npx --no-install tsc --noEmit -p apps/api/tsconfig.json \
-      --tsBuildInfoFile "$CACHE_DIR/tsbuildinfo-api" \
+    limited_run node apps/api/scripts/run-tests.cjs --compile-only \
       || die "后端类型检查未通过，已中止部署。"
+    commit_quality_plan api_type
     finish_stage success || true
   else
     skip_stage typecheck_api || true
@@ -900,25 +998,37 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
       || { [ "$group" = deploy ] && [ "$DEPLOY_CHECK_DEPLOY" = 1 ]; }; then
       start_stage "tests_$group" || true
       run_script_tests "$group" || die "测试组 ${group} 未通过，已中止部署。"
+      commit_quality_plan "${group}_tests"
       finish_stage success || true
     else
       skip_stage "tests_$group" || true
     fi
   done
+  if [ "$DEPLOY_CHECK_API_CONTRACTS" = 1 ]; then
+    start_stage tests_api_contracts || true
+    limited_run npm --prefix apps/api run test:mts || die "前后端契约测试未通过，已中止部署。"
+    commit_quality_plan api_contracts
+    finish_stage success || true
+  else
+    skip_stage tests_api_contracts || true
+  fi
   if [ "$DEPLOY_CHECK_API" = "1" ]; then
     start_stage tests_api || true
-    # The preflight requires Node >=22.19; both TS and MTS suites must pass.
-    limited_run npm --prefix apps/api run test || die "API 测试未通过，已中止部署。"
+    # Compilation reuses the output produced by the API typecheck above.
+    limited_run npm --prefix apps/api run test:ts || die "API 测试未通过，已中止部署。"
+    commit_quality_plan api_tests
     finish_stage success || true
   else
     skip_stage tests_api || true
   fi
   for suite in applicant-forms audit-receipts chat-workspace procurement-rollback rd-documents; do
     stage="tests_postgres_${suite//-/_}"
-    if [ "$DEPLOY_CHECK_POSTGRES" = "1" ]; then
+    check="DEPLOY_CHECK_POSTGRES_$(printf '%s' "$suite" | tr 'a-z-' 'A-Z_')"
+    if [ "${!check:-$DEPLOY_CHECK_POSTGRES}" = "1" ]; then
       start_stage "$stage" || true
       limited_run bash scripts/test-postgres-release.sh --suite "$suite" \
         || die "隔离 PostgreSQL 验收 ${suite} 未通过，已中止正式迁移与重启。"
+      commit_quality_plan "postgres_${suite//-/_}"
       finish_stage success || true
     else
       skip_stage "$stage" || true
@@ -928,11 +1038,57 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
   commit_quality_plan
 else
   log "⚠️  已跳过类型检查与测试（DEPLOY_RUN_TESTS=0），不保存检查通过记录。"
-  for stage in typecheck_frontend typecheck_api tests_scripts tests_deploy tests_api \
+  for stage in typecheck_frontend typecheck_api tests_scripts tests_deploy tests_api tests_api_contracts \
     tests_postgres_applicant_forms tests_postgres_audit_receipts tests_postgres_chat_workspace \
     tests_postgres_procurement_rollback tests_postgres_rd_documents; do
     skip_stage "$stage" || true
   done
+fi
+
+# ----------------- 5. 构建前端（仅前端输入变化时）-----------------
+# 统一用 npm run 而不是 pnpm：pnpm v11 在执行任何脚本前会先做一遍 lockfile
+# 供应链校验（本仓库 1000+ 条目，实测约 90 秒且全程联网），依赖没变时纯属浪费，
+# 还把部署成败绑到 registry 可用性上。npm run 只是执行脚本，没有这层开销。
+# 依赖安装仍按第 2 步严格使用 pnpm，此处只影响「怎么调用构建脚本」。
+if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
+  if reuse_build frontend; then
+    skip_stage frontend_build || true
+  else
+    start_stage frontend_build || true
+    log "构建前端 ..."
+    VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry limited_run npm run build
+    [ -s dist/index.html ] || die "前端构建产物缺失或为空：dist/index.html"
+    save_build frontend
+    finish_stage success || true
+  fi
+else
+  log "前端输入未变化，跳过前端构建。"
+  skip_stage frontend_build || true
+fi
+
+# ---------------------------- 5.1 构建后端 ----------------------------
+if [ "$DEPLOY_PLAN_API" = "1" ]; then
+  if reuse_build api; then
+    skip_stage api_build || true
+  else
+    start_stage api_build || true
+    log "构建后端 ..."
+    retry limited_run npm --prefix apps/api run build
+    [ -s apps/api/dist/src/main.js ] || die "API 构建产物缺失或为空：apps/api/dist/src/main.js"
+    save_build api
+    finish_stage success || true
+  fi
+else
+  log "API 输入未变化，跳过后端构建。"
+  skip_stage api_build || true
+fi
+
+if [ "$DEPLOY_PREPARE_ONLY" = 1 ]; then
+  node scripts/deploy-artifacts.mjs pack "$DEPLOY_PLAN_CANDIDATE_FILE" "$GIT_SHA_FULL" "$RELEASE" "$DEPLOY_ARTIFACT_DIR" \
+    || die "生成已验证产物失败。"
+  DEPLOY_COMPLETED=1
+  log "版本准备完成：$DEPLOY_ARTIFACT_DIR；未执行业务数据库备份、迁移或服务重启。"
+  exit 0
 fi
 
 # ----------------- 6. 数据库备份收口（仅 migration 变化时）-----------------

@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "npm run test:ts && npm run test:mts",
-    "test:ts": "TS_NODE_TRANSPILE_ONLY=1 node --test --test-concurrency=2 -r ts-node/register -r tsconfig-paths/register test/*.spec.ts",
+    "test:ts": "node scripts/run-tests.cjs",
     "test:mts": "node --test --test-concurrency=1 test/*.spec.mts",
     "test:audit-receipts:postgres": "node scripts/test-audit-receipts-postgres.mjs",
     "build": "nest build",

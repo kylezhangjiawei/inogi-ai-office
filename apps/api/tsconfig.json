@@ -31,8 +31,8 @@
   // test/*.spec.ts 只进类型检查，不进构建产物（tsconfig.build.json 把它排除了）。
   // 不含 .mts：那几个跑在 Node 原生类型剥离下，是 ESM 语义，与这里的 commonjs 配置不兼容，
   // 且它们从来就没被类型检查过（原生剥离不做检查）。
-  // 部署时的 API 测试跑在 ts-node 的 transpile-only 下（快 3 倍），
-  // 类型检查改由这里的单次 tsc 统一覆盖，比 50 个测试进程各查一遍便宜得多。
+  // 部署类型检查与 TS 测试共用 .deploy-cache/api-test-build 中的增量编译结果，
+  // 测试进程加载已编译 JS，避免重复转译业务代码。
   "include": [
     "src/**/*",
     "prisma/**/*",

@@ -88,6 +88,36 @@ test("first release is conservative and a repeated snapshot is a no-op", async (
 
 const checkNames = ["FRONTEND_TYPE", "API_TYPE", "SCRIPTS", "DEPLOY", "API", "POSTGRES"];
 
+test("frontend contracts and PostgreSQL suites have independent retry records", async () => {
+  const { root, previous, candidate, quality } = await qualityFixture();
+  try {
+    const snapshot = JSON.parse(await readFile(candidate, "utf8"));
+    assert.ok(snapshot.checks.api_contracts);
+    assert.ok(snapshot.checks.postgres_applicant_forms);
+    delete snapshot.checks.postgres_rd_documents;
+    await writeFile(quality, JSON.stringify(snapshot));
+    let plan = runPlanner(root, previous, candidate, quality);
+    assert.equal(plan.DEPLOY_CHECK_POSTGRES_APPLICANT_FORMS, "0");
+    assert.equal(plan.DEPLOY_CHECK_POSTGRES_RD_DOCUMENTS, "1");
+    await writeFile(join(root, 'src/App.tsx'), 'export const App = 3;');
+    plan = runPlanner(root, previous, candidate, quality);
+    assert.equal(plan.DEPLOY_CHECK_API, "0");
+    assert.equal(plan.DEPLOY_CHECK_API_CONTRACTS, "1");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a failed later group preserves proof for earlier successful checks", async () => {
+  const { root, previous, candidate, quality } = await qualityFixture();
+  try {
+    const snapshot = JSON.parse(await readFile(candidate, "utf8"));
+    snapshot.checks = { frontend_type: snapshot.checks.frontend_type, api_type: snapshot.checks.api_type };
+    await writeFile(quality, JSON.stringify(snapshot));
+    assertChecks(runPlanner(root, previous, candidate, quality), ["SCRIPTS", "DEPLOY", "API", "POSTGRES"]);
+    await writeFile(join(root, "apps/api/src/main.ts"), "export const changed = true;");
+    assertChecks(runPlanner(root, previous, candidate, quality), ["API_TYPE", "SCRIPTS", "DEPLOY", "API", "POSTGRES"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 function assertChecks(plan, required = checkNames) {
   for (const name of checkNames) {
     assert.equal(plan[`DEPLOY_CHECK_${name}`], required.includes(name) ? "1" : "0", name);
@@ -131,7 +161,7 @@ test("quality checks invalidate only their declared source inputs and test sets"
     ["prototype fixture", "design-prototypes/direction-a/app.js", ["SCRIPTS"]],
     ["new root business test", "scripts/new-business.test.mjs", checkNames],
     ["database runner", "apps/api/scripts/test-chat-workspace-postgres.mjs", checkNames],
-    ["API test", "apps/api/test/api.spec.ts", checkNames],
+    ["API test", "apps/api/test/api.spec.ts", ["API_TYPE", "SCRIPTS", "API", "POSTGRES"]],
     ["lockfile", "pnpm-lock.yaml", checkNames],
     ["package lifecycle", "package.json", checkNames],
     ["deploy implementation", "scripts/deploy.sh", checkNames],

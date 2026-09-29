@@ -40,11 +40,11 @@ const groups = {
     "apps/api/prisma/migrations",
   ],
   quality: [
-    "apps/api/test",
     "apps/api/scripts",
     "patches",
     "scripts",
   ],
+  apiTests: ["apps/api/test"],
   fixtures: [
     ...["direction-a", "direction-b", "direction-c"].flatMap((direction) => [
       `design-prototypes/${direction}/app.js`,
@@ -62,12 +62,17 @@ const groups = {
 
 const checkGroups = {
   frontend_type: ["dependencies", "frontend", "quality", "deployment"],
-  api_type: ["dependencies", "api", "prisma", "migrations", "quality", "deployment"],
+  api_type: ["dependencies", "api", "prisma", "migrations", "quality", "apiTests", "deployment"],
   scripts_tests: Object.keys(groups),
   deploy_tests: ["dependencies", "quality", "deployment"],
-  api_tests: ["dependencies", "api", "prisma", "migrations", "quality", "deployment"],
-  postgres: ["dependencies", "api", "prisma", "migrations", "quality", "deployment"],
+  // Frontend-reading contracts live in *.spec.mts; the TS suite covers the backend.
+  api_tests: ["dependencies", "api", "prisma", "migrations", "quality", "apiTests", "deployment"],
+  api_contracts: ["dependencies", "api", "frontend", "prisma", "migrations", "quality", "apiTests", "deployment"],
+  postgres: ["dependencies", "api", "prisma", "migrations", "quality", "apiTests", "deployment"],
 };
+for (const suite of ["applicant_forms", "audit_receipts", "chat_workspace", "procurement_rollback", "rd_documents"]) {
+  checkGroups[`postgres_${suite}`] = checkGroups.postgres;
+}
 
 async function sharedConfigurationPaths() {
   const knownPaths = new Set(Object.values(groups).flat());
@@ -175,7 +180,7 @@ async function createSnapshot() {
   const postgres = postgresVersion();
   const checks = Object.fromEntries(Object.entries(checkGroups).map(([name, inputs]) => [
     name,
-    createHash("sha256").update(JSON.stringify([name, runtime, inputs.map((group) => [group, fingerprints[group]]), name === "postgres" ? postgres : null])).digest("hex"),
+    createHash("sha256").update(JSON.stringify([name, runtime, inputs.map((group) => [group, fingerprints[group]]), name.startsWith("postgres") ? postgres : null])).digest("hex"),
   ]));
   return {
     schema_version: STATE_SCHEMA_VERSION,
@@ -188,7 +193,8 @@ async function readQualityState(path) {
   if (!path) return null;
   try {
     const value = await readPreviousState(path);
-    for (const [field, names] of [["fingerprints", Object.keys(groups)], ["checks", Object.keys(checkGroups)]]) {
+    if (!value?.checks || typeof value.checks !== "object") return null;
+    for (const [field, names] of [["fingerprints", Object.keys(groups)], ["checks", Object.keys(value.checks)]]) {
       if (!names.every((name) => typeof value?.[field]?.[name] === "string" && /^[a-f0-9]{64}$/.test(value[field][name]))) return null;
     }
     return value;
@@ -254,7 +260,8 @@ const values = {
   DEPLOY_PLAN_QUALITY: Number(qualityChanged),
   ...Object.fromEntries(Object.entries({
     FRONTEND_TYPE: "frontend_type", API_TYPE: "api_type", SCRIPTS: "scripts_tests",
-    DEPLOY: "deploy_tests", API: "api_tests", POSTGRES: "postgres",
+    DEPLOY: "deploy_tests", API: "api_tests", API_CONTRACTS: "api_contracts", POSTGRES: "postgres",
+    ...Object.fromEntries(Object.keys(checkGroups).filter(name => name.startsWith("postgres_")).map(name => [name.toUpperCase(), name])),
   }).map(([flag, check]) => [`DEPLOY_CHECK_${flag}`, Number(previousQuality?.checks[check] !== current.checks[check])])),
 };
 
