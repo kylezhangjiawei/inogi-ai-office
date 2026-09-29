@@ -279,7 +279,7 @@ test('仓库侧栏只有工作台入口，保留旧驾驶舱兼容路由与权�
   const code = 'page:warehouse-flow';
   for (const path of ['/warehouse-flow', '/storage/workbench']) {
     const routes = evaluate(readCockpit('src/app/routesConfig.tsx'), { 'lucide-react': primitives, './lib/routePaths': { routePath: (key, fallback) => key === code ? path : fallback, subRoutePath: (_, base, suffix) => `${base}/${suffix}` } });
-    const entry = routes.navGroups.find(group => group.label === '订单与库存').items.find(item => item.requiredPermission === code);
+    const entry = routes.navGroups.find(group => group.label === '订单与仓储').items.find(item => item.requiredPermission === code);
     assert.equal(routes.navGroups.flatMap(group => group.items).some(item => item.requiredPermission === 'page:warehouse-cockpit'), false);
     assert.equal(entry.path, path); assert.equal(entry.label, '仓库工作台');
     assert.equal(routes.routeTitleMap[path], '仓库工作台'); assert.equal(routes.routePermissionMap[path], code);

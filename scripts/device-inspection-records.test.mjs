@@ -5,6 +5,7 @@ import ts from "typescript";
 import { createRequire } from "node:module";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createServer } from "vite";
 const source = fs.readFileSync(new URL("../src/app/lib/deviceInspectionRecords.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const m = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
@@ -64,14 +65,11 @@ test("production route does not import synthetic adapters or replace authenticat
 const pageSource = fs.readFileSync(new URL("../src/app/DeviceInspectionRecordsPage.tsx", import.meta.url), "utf8");
 const pageModule = { exports: {} };
 const require = createRequire(import.meta.url);
-function loadUiModule(file) {
-  const url = new URL(`../src/app/components/ui/${file}`, import.meta.url);
-  const code = ts.transpileModule(fs.readFileSync(url, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
-  const loaded = { exports: {} };
-  new Function("require", "module", "exports", code)(id => id === "./utils" ? loadUiModule("utils.ts") : require(id), loaded, loaded.exports);
-  return loaded.exports;
-}
-const uiModules = Object.fromEntries(["tooltip", "button", "input", "checkbox", "select", "tabs"].map(name => ["./components/ui/" + name, loadUiModule(name + ".tsx")]));
+const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false } });
+let uiModules;
+try {
+  uiModules = Object.fromEntries(await Promise.all(["tooltip", "button", "input", "date-picker", "checkbox", "select", "tabs"].map(async name => ["./components/ui/" + name, await uiServer.ssrLoadModule(`/src/app/components/ui/${name}.tsx`)])));
+} finally { await uiServer.close(); }
 const pageCode = ts.transpileModule(pageSource + "\nexport { RecordStaff, ManualConfirmations };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
 new Function("require", "module", "exports", pageCode)(id => id.endsWith(".css") ? {} : id === "./lib/deviceInspectionRecords" ? m : id === "./lib/deviceInspectionRecordsApi" ? {} : uiModules[id] ?? require(id), pageModule, pageModule.exports);
 const render = (component, evidence) => renderToStaticMarkup(React.createElement(pageModule.exports[component], { record: evidence }));

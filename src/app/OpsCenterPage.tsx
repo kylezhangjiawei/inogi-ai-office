@@ -690,8 +690,14 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
               <BarChart data={slowRows} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                 <CartesianGrid stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="path" width={190} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value) => [`${value}ms`, "P95 耗时"]} />
+                <YAxis type="category" dataKey="path" width={190} axisLine={false} tickLine={false}
+                  tick={({ x, y, payload }) => {
+                    const path = String(payload.value);
+                    const label = path.length > 26 ? `${path.slice(0, 10)}…${path.slice(-15)}` : path;
+                    return <g transform={`translate(${x},${y})`}><title>{path}</title><text x={-3} dy="0.32em" textAnchor="end" fill="var(--muted-foreground)" fontSize={11}>{label}</text></g>;
+                  }}
+                />
+                <Tooltip formatter={(value) => [`${value}ms`, "P95 耗时"]} contentStyle={{ maxWidth: 320, overflowWrap: "anywhere" }} />
                 <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
                   {slowRows.map((item: any, index) => (
                     <Cell key={item.path} fill={chartColors[index % chartColors.length]} />

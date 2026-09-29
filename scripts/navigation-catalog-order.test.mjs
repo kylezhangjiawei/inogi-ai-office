@@ -58,17 +58,16 @@ test('real catalog groups control navigation order independently of cross-group 
   const metadata = DEFAULT_PERMISSION_CATALOG.filter(item => item.type === 'page');
   const original = buildVisibleNavigation(navGroups, ['*'], metadata);
   const labels = original.map(group => group.label);
-  assert.ok(labels.indexOf('研发任务管理') < labels.indexOf('质量与生产'), 'supply-owned warehouse route must not pull the production group ahead of research');
-  const catalogLabels = { '知识库': '部门知识库', '人事与行政': '人事行政' };
-  const getRank = label => Math.min(...metadata.filter(item => item.groupLabel === `页面访问 · ${catalogLabels[label] ?? label}`).map(item => item.sortOrder));
+  assert.ok(labels.indexOf('研发任务管理') < labels.indexOf('生产与质量'), 'warehouse route must not pull the production group ahead of research');
+  const getRank = label => Math.min(...metadata.filter(item => item.groupLabel === `页面访问 · ${label}`).map(item => item.sortOrder));
   assert.deepEqual(labels, [...navGroups].sort((a, b) => getRank(a.label) - getRank(b.label)).map(group => group.label));
 
-  const moved = metadata.map(item => item.groupLabel === '页面访问 · 部门知识库' ? { ...item, sortOrder: item.sortOrder - 1000 } : item);
+  const moved = metadata.map(item => item.groupLabel === '页面访问 · 知识库' ? { ...item, sortOrder: item.sortOrder - 10000 } : item);
   const result = buildVisibleNavigation(navGroups, ['*'], moved);
   assert.equal(result[0].label, '知识库', 'moving the department catalog group also moves its aggregate navigation entry');
-  assert.deepEqual(result.find(group => group.label === '质量与生产').items.map(item => item.path), original.find(group => group.label === '质量与生产').items.map(item => item.path), 'group ordering does not change membership');
+  assert.deepEqual(result.find(group => group.label === '生产与质量').items.map(item => item.path), original.find(group => group.label === '生产与质量').items.map(item => item.path), 'group ordering does not change membership');
 
-  const mixed = [...metadata, { code: 'production:edit', groupLabel: '页面访问 · 质量与生产', sortOrder: -999 }];
+  const mixed = [...metadata, { code: 'production:edit', groupLabel: '页面访问 · 生产与质量', sortOrder: -999 }];
   assert.deepEqual(buildVisibleNavigation(navGroups, ['*'], mixed).map(group => group.label), labels, 'an action item in a mixed catalog group cannot rank the page group');
   const alternateSeparators = metadata.map(item => ({ ...item, groupLabel: item.groupLabel.replace(' · ', ' / ') }));
   assert.deepEqual(buildVisibleNavigation(navGroups, ['*'], alternateSeparators).map(group => group.label), labels);

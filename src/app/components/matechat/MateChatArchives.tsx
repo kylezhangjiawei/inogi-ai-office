@@ -1,3 +1,4 @@
+import { DatePicker } from '../ui/date-picker';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Check, Download, FileText, Loader2, Search, X } from "lucide-react";
 import { authFetch } from "../../lib/authSession";
@@ -156,8 +157,8 @@ export function MateChatArchives({ conversationId, active, refreshKey, selection
         {source === "task" ? <label className="space-y-1 text-xs text-slate-500">{t("项目或任务名称")}<Input className={`${control} w-full`} value={project} onChange={(e) => setProject(e.target.value)} placeholder={t("不填则不限项目")} /></label> : null}
         <label className="space-y-1 text-xs text-slate-500">{t("文件关键词")}<Input className={`${control} w-full`} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("名称或已有描述")} /></label>
         <label className="space-y-1 text-xs text-slate-500">{t("文件类型")}<NativeSelect className={`${control} w-full`} value={type} onChange={(e) => setType(e.target.value)}>{[["", "全部类型"], ["image", "图片"], ["video", "视频"], ["pdf", "PDF"], ["document", "文档与表格"], ["audio", "音频"]].map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</NativeSelect></label>
-        <label className="space-y-1 text-xs text-slate-500">{t("开始日期")}<Input type="date" className={`${control} w-full`} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /></label>
-        <label className="space-y-1 text-xs text-slate-500">{t("结束日期")}<Input type="date" className={`${control} w-full`} value={dateTo} onChange={(e) => setDateTo(e.target.value)} /></label>
+        <label className="space-y-1 text-xs text-slate-500">{t("开始日期")}<DatePicker aria-label={t("开始日期")} className={`${control} w-full`} value={dateFrom} onValueChange={setDateFrom} /></label>
+        <label className="space-y-1 text-xs text-slate-500">{t("结束日期")}<DatePicker aria-label={t("结束日期")} className={`${control} w-full`} value={dateTo} onValueChange={setDateTo} /></label>
         <Button variant="unstyled" className={`${action} col-span-2 sm:col-span-3`} disabled={!!busy} type="submit">{busy === "search" ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}{t("查找文件")}</Button>
       </form>
       </details>

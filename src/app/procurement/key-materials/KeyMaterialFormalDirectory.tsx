@@ -34,7 +34,8 @@ export function KeyMaterialFormalDirectory({ data, onSaved }: { data: KeyMateria
         <div className="km-workspace-search"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" aria-hidden="true" /><Input className="pl-9" aria-label={t('搜索正式关键物料')} placeholder={t('物料名称、正式编码、规格或分类')} value={query} onChange={event => change({ formalQ: event.target.value, formalPage: null })} /></div>
         <NativeSelect aria-label={t('正式目录范围')} value={scope} onChange={event => change({ formalScope: event.target.value, formalPage: null })}><option value="included">{t('当前纳入')}</option><option value="excluded">{t('已退出')}</option></NativeSelect>
       </div>
-      {rows.length ? <div className="km-workspace-table-scroll"><Table containerClassName="overflow-visible" className="min-w-[760px]">
+      {rows.length ? <div className="km-workspace-table-scroll"><Table containerClassName="overflow-visible" className="min-w-[760px] table-fixed [&_td]:whitespace-normal [&_td]:[overflow-wrap:anywhere]">
+        <colgroup><col className="w-1/4" /><col className="w-1/4" /><col className="w-[12%]" /><col className="w-[23%]" /><col className="w-[15%]" /></colgroup>
         <TableHeader><TableRow>{['正式物料 / 编码', '规格 / 单位', '分类', '纳入依据', '操作'].map(label => <TableHead key={label}>{t(label)}</TableHead>)}</TableRow></TableHeader>
         <TableBody>{page.items.map(row => <TableRow key={row.id}>
           <TableCell className="whitespace-normal"><p className="font-medium">{row.name}</p><p className="mt-1 text-xs text-muted-foreground">{row.tpInventoryCode || row.erpCode || t('编码待补齐')}</p></TableCell>
@@ -82,7 +83,7 @@ export function KeyMaterialScopeDialog({ initial, canReview, onClose, onSaved }:
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : t('保存失败，草稿已保留')); }
     finally { locked.current = false; if (mounted.current) setBusy(false); }
   }
-  return <><Dialog open onOpenChange={open => { if (!open) close(); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+  return <><Dialog open onOpenChange={open => { if (!open) close(); }}><DialogContent className="max-h-[90dvh] overflow-y-auto [overflow-wrap:anywhere] sm:max-w-2xl">
     <DialogHeader><DialogTitle>{t(material ? '关键物料范围与历史' : '从物料库纳入')}</DialogTitle><DialogDescription>{t('仅引用正式物料，不新建主档。退出后停止月度跟踪，保留历史并支持恢复。')}</DialogDescription></DialogHeader>
     {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
     {!material ? <>

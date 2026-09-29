@@ -219,10 +219,38 @@
   box-shadow: var(--shadow-focal) !important;
 }
 
+/* Keep one reliable focus outline even where module styles suppress control shadows. */
 .horizon-theme :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible,
 .horizon-portal :where(button, input, :is(select, :where([data-slot="select-trigger"])), textarea, a[href], [role="button"], [tabindex]):focus-visible {
   outline: 2px solid var(--primary) !important;
   outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+/* Text fields keep one crisp border and a quiet halo, not a second solid ring.
+   Include portalled filters so the focus treatment is the same in dialogs. */
+:is(.horizon-theme, .horizon-portal) :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="date-picker-trigger"]):focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.2) !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+:is(.horizon-theme, .horizon-portal) :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[aria-invalid="true"]:focus-visible {
+  outline-color: color-mix(in srgb, var(--destructive) 20%, transparent) !important;
+}
+
+/* A composite message field has one focus boundary; its buttons keep their own focus. */
+.rd-conversation-composer .rd-conversation-composer__field:has(textarea:focus) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.rd-conversation-composer .rd-conversation-composer__field textarea:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.rd-conversation-composer .rd-conversation-composer__attachment:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* CommandInput shows focus on the complete search row, inside its clipped surface. */

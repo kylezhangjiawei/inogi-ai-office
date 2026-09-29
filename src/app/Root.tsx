@@ -72,7 +72,7 @@ export function Root() {
     <LayoutChromeActionsContext.Provider value={actions}>
       <LayoutChromeStateContext.Provider value={state}>
         <Sheet open={mobileNavigationOpen && !immersive} onOpenChange={setMobileNavigationOpen}>
-          <div data-immersive={immersive} className="rd-horizon-app h-dvh min-w-0 bg-transparent">
+          <div data-immersive={immersive} className="horizon-theme rd-horizon-app h-dvh min-w-0 bg-transparent">
             <a href="#main-content" className="app-skip-link" onClick={() => document.getElementById('main-content')?.focus()}>{t("跳到主内容")}</a>
             <div className="material-shell flex h-full min-w-0 overflow-hidden">
               <div className="rd-horizon-desktop-navigation hidden h-full shrink-0 lg:block">

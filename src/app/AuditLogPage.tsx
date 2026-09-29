@@ -1,3 +1,4 @@
+import { DatePicker } from './components/ui/date-picker';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -539,12 +540,11 @@ export function AuditLogPage() {
                   <CalendarDays className="size-3" aria-hidden="true" />
                   {t("开始")}
                 </span>
-                <Input
+                <DatePicker
                   aria-label={t("开始")}
-                  type="date"
                   value={since}
-                  onChange={(event) => {
-                    setSince(event.target.value);
+                  onValueChange={(event) => {
+                    setSince(event);
                     setPage(1);
                   }}
                   className={cn("h-9 px-2 text-xs", HORIZON_FIELD)}
@@ -555,12 +555,11 @@ export function AuditLogPage() {
                   <CalendarDays className="size-3" aria-hidden="true" />
                   {t("结束")}
                 </span>
-                <Input
+                <DatePicker
                   aria-label={t("结束")}
-                  type="date"
                   value={until}
-                  onChange={(event) => {
-                    setUntil(event.target.value);
+                  onValueChange={(event) => {
+                    setUntil(event);
                     setPage(1);
                   }}
                   className={cn("h-9 px-2 text-xs", HORIZON_FIELD)}

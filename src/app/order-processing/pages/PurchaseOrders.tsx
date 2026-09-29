@@ -1,3 +1,4 @@
+import { DatePicker } from '../../components/ui/date-picker';
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -306,7 +307,7 @@ export function PurchaseOrders() {
       <div className="order-horizon-data-surface flex min-h-fit flex-1 shrink-0 flex-col overflow-hidden border bg-white" aria-busy={loading}>
         <div className="order-horizon-toolbar shrink-0 border-b border-slate-100 px-4 py-3">
           <div role="search" aria-label={t('采购订单筛选')} className="flex flex-wrap items-end gap-2">
-            <div className="relative w-full min-w-0 sm:min-w-[220px] sm:flex-1">
+            <div className="relative w-full min-w-0 sm:min-w-[220px] sm:max-w-xl sm:flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
@@ -360,25 +361,23 @@ export function PurchaseOrders() {
             </Select>
             <fieldset className="flex min-w-0 w-full flex-wrap items-center gap-2 sm:w-auto">
               <legend className="mb-1 text-xs font-medium text-muted-foreground">{t('下单日期')}</legend>
-            <Input
-              type="date"
+            <DatePicker
               aria-label={t('下单开始日期')}
               max={dateTo || undefined}
               value={dateFrom}
-              onChange={(event) => {
-                setDateFrom(event.target.value);
+              onValueChange={(event) => {
+                setDateFrom(event);
                 setPage(1);
               }}
               className="h-9 min-w-0 flex-1 border-slate-200 bg-white text-sm sm:w-[146px] sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">{t('至')}</span>
-            <Input
-              type="date"
+            <DatePicker
               aria-label={t('下单结束日期')}
               min={dateFrom || undefined}
               value={dateTo}
-              onChange={(event) => {
-                setDateTo(event.target.value);
+              onValueChange={(event) => {
+                setDateTo(event);
                 setPage(1);
               }}
               className="h-9 min-w-0 flex-1 border-slate-200 bg-white text-sm sm:w-[146px] sm:flex-none"

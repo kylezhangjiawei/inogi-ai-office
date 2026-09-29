@@ -51,6 +51,27 @@ function descendants(element) {
   return [element, ...React.Children.toArray(element.props.children).flatMap(descendants)];
 }
 
+test("邮件与报价库在手机保留原入口，包括自定义路由、查询和权限边界", () => {
+  for (const [code, fallback] of [["page:email-ai", "/email-ai"], ["page:proc-quote-book", "/proc-quote-book"]]) {
+    for (const pathname of [fallback, `/tools${fallback}`]) {
+      const location = { pathname, search: "?view=history", hash: "#details" };
+      let auth = { user: { id: "test" }, hydrated: true };
+      const layout = sourceFunction(appSource, "ProtectedLayout", {
+        React, Root: "Root", Navigate: "Navigate", useAuth: () => auth,
+        useLocation: () => location, useIsMobileViewport: () => true,
+        routePath: (key, original) => key === code ? pathname : original,
+      });
+      assert.equal(layout().type, "Root");
+      assert.deepEqual(location, { pathname, search: "?view=history", hash: "#details" });
+      auth = { user: null, hydrated: true };
+      assert.equal(layout().props.to, "/login");
+      assert.equal(layout().props.state.from, `${pathname}?view=history#details`);
+    }
+  }
+  assert.match(appSource, /makeLazyProtected\(<EmailAIPage \/>, "page:email-ai"\)/);
+  assert.match(appSource, /makeLazyProtected\(<QuoteBookPage \/>, "page:proc-quote-book"\)/);
+});
+
 test("聊天分析自定义路径后，手机入口与宽屏返回仍匹配同一页面", () => {
   for (const desktopPath of ["/chat-analytics", "/chat-feedback", "/reports/chat-feedback"]) {
     const routePath = (code, fallback) => code === "page:chat-analytics" ? desktopPath : fallback;

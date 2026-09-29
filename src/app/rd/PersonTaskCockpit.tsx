@@ -1,3 +1,4 @@
+import { useConfirmation } from '../components/ui/use-confirmation';
 import {
   type Priority,
   type Task,
@@ -344,6 +345,7 @@ export function PersonTaskCockpit({
   const [extractionBackfillBusy, setExtractionBackfillBusy] = useState(false);
   // 批量导出报告的进行中标记
   const [batchExportBusy, setBatchExportBusy] = useState(false);
+  const { confirm, confirmationDialog } = useConfirmation();
 
   const handleBackfillScores = useCallback(async (force = false) => {
     if (backfillBusy) return;
@@ -716,7 +718,7 @@ export function PersonTaskCockpit({
     }
     if (
       scopeTasks.length > 50 &&
-      !window.confirm(t("当前范围有 {count} 个已完成任务，将逐个拉取评分与留痕并生成多页报告，可能较慢。确定继续？", { count: scopeTasks.length }))
+      !await confirm({ title: t("批量导出报告"), description: t("当前范围有 {count} 个已完成任务，将逐个拉取评分与留痕并生成多页报告，可能较慢。确定继续？", { count: scopeTasks.length }) })
     ) {
       return;
     }
@@ -780,7 +782,7 @@ export function PersonTaskCockpit({
     } finally {
       setBatchExportBusy(false);
     }
-  }, [activeTab, aiScoreMap, allActiveTasks, batchExportBusy, notesMap, personLoads, personScopeTasks]);
+  }, [activeTab, aiScoreMap, allActiveTasks, batchExportBusy, confirm, notesMap, personLoads, personScopeTasks, t]);
 
   // 切换 KPI 筛选 / 搜索关键字时重置分页计数，避免旧偏移导致空白
   useEffect(() => {
@@ -1328,6 +1330,7 @@ export function PersonTaskCockpit({
 
   return (
     <>
+      {confirmationDialog}
       {/* ── Gallery Lightbox ──
           必须真的 portal 到 body：就地渲染时 z-[90] 会被祖先的 motion 动画
           （transform / opacity 都会新建层叠上下文）关在里面，于是同样 portal 到
@@ -1546,11 +1549,9 @@ export function PersonTaskCockpit({
                     </Button>
                     <Button variant="unstyled"
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
-                            t("将对【所有已完成任务】按最新评分标准重新评分，并覆盖现有分数（消耗 AI 额度、耗时较长）。\n通常仅在评分标准调整后执行一次。确定继续？"),
-                          )
+                          await confirm({ title: t("AI 复盘评分"), description: t("将对【所有已完成任务】按最新评分标准重新评分，并覆盖现有分数（消耗 AI 额度、耗时较长）。\n通常仅在评分标准调整后执行一次。确定继续？"), destructive: true })
                         ) {
                           void handleBackfillScores(true);
                         }

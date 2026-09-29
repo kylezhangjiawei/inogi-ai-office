@@ -1,3 +1,4 @@
+import { useConfirmation } from './components/ui/use-confirmation';
 import { Button } from "./components/ui/button";
 import React, { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
@@ -574,6 +575,7 @@ function GatewayRouteWorkspace({
     () => Object.fromEntries(existing?.targets.map((target) => [target.connection_id, target.weight]) ?? []),
   );
   const [saving, setSaving] = useState(false);
+  const { confirm, confirmationDialog } = useConfirmation();
   const [fallbackScenesOpen, setFallbackScenesOpen] = useState(false);
   const controlInputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/25";
   const iconButtonClass = "flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-35";
@@ -698,7 +700,7 @@ function GatewayRouteWorkspace({
   /** 删除已保存的路由：场景回到「默认回退」态（各业务用自带模型），与从未配置过等价。 */
   async function removeRoute() {
     if (!existing) return;
-    if (!window.confirm(`确定删除「${sceneDefinition.label}」的专用路由？删除后该场景回到默认回退（各业务使用自带模型）。`)) return;
+    if (!await confirm({ title: "删除专用路由", description: `确定删除「${sceneDefinition.label}」的专用路由？删除后该场景回到默认回退（各业务使用自带模型）。`, actionLabel: "删除路由", destructive: true })) return;
     setSaving(true);
     try {
       await integrationManagementApi.deleteAiGatewayRoute(selectedScene);
@@ -713,6 +715,7 @@ function GatewayRouteWorkspace({
 
   return (
     <div className="space-y-3">
+      {confirmationDialog}
       {/* 管辖范围说明：避免误以为路由是「所有 AI 的总控」——生图/视频/向量化/OCR 走各自专用通道 */}
       <p className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-[11px] leading-5 text-slate-500">
         路由策略仅覆盖<span className="font-medium text-slate-700">文本对话类调用</span>（chat.completions）。文生图、视频生成、向量化（Embedding）、OCR 与文档直读走各自的专用通道，不经网关路由——它们的模型与密钥仍由「模型连接」统一管理。

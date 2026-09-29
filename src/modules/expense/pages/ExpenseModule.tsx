@@ -1864,7 +1864,7 @@ export function ExpenseModule() {
                 id="expense-department-filter"
                 value={departmentFilter}
                 onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25 sm:w-56"
               >
                 <option value="all">{t('全部部门')}</option>
                 <option value="unassigned">{t('未分配')}</option>
@@ -1880,7 +1880,7 @@ export function ExpenseModule() {
                   id="expense-reassign-department"
                   value={reassignTargetCode}
                   onChange={(e) => setReassignTargetCode(e.target.value)}
-                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25"
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary/25 focus:ring-2 focus:ring-primary/25 sm:w-56"
                 >
                   <option value="">{t('改派到…')}</option>
                   {departmentOptions.map((d) => (
@@ -1963,8 +1963,8 @@ export function ExpenseModule() {
 
         {/* Tabs Nav */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-0">
-        <div className="hz-surface hz-toolbar flex min-w-0 shrink-0 flex-col gap-3 px-3 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <TabsList className="flex h-auto max-w-full items-center justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100/80 p-1">
+        <div className="hz-surface hz-toolbar flex min-w-0 shrink-0 flex-col gap-3 px-3 py-3 xl:flex-row xl:flex-wrap xl:items-center xl:justify-between">
+          <TabsList className="flex h-auto max-w-full shrink-0 items-center justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100/80 p-1">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               return (

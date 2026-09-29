@@ -248,7 +248,7 @@ function buildPermissionModules(groups: PermissionCatalogGroup[]): PermissionMod
   for (const group of groups) {
     const groupName = moduleOf(group.label);
     const pagePermissions = group.permissions.filter(
-      (permission) => permission.type === "page" || group.label.startsWith("页面访问"),
+      (permission) => permission.type === "page" || (!permission.type && group.label.startsWith("页面访问")),
     );
     if (pagePermissions.length > 0) {
       const module = ensureModule(groupName);
@@ -256,7 +256,7 @@ function buildPermissionModules(groups: PermissionCatalogGroup[]): PermissionMod
     }
 
     for (const permission of group.permissions) {
-      if (permission.type === "action" || group.label.startsWith("操作权限")) {
+      if (permission.type === "action" || (!permission.type && group.label.startsWith("操作权限"))) {
         actions.push({ groupName, permission });
       }
     }

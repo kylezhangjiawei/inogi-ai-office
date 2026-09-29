@@ -420,14 +420,14 @@ export function I18nManagementPage() {
                             aria-label={`编辑“${row.zh}”的英文翻译`}
                             className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           >
-                            <span className={cn("min-w-0 flex-1 break-all text-pretty", row.en ? "text-slate-700" : "text-muted-foreground")}>{row.en || "（未翻译）"}</span>
+                            <span className={cn("min-w-0 flex-1 [overflow-wrap:anywhere] text-pretty", row.en ? "text-slate-700" : "text-muted-foreground")}>{row.en || "（未翻译）"}</span>
                             <Pencil className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-hidden="true" />
                           </Button>
                         )}
                       </td>
                       <td className="border-b border-slate-100 px-4 py-3 text-xs text-slate-500">{row.module || "—"}</td>
                       <td className="border-b border-slate-100 px-4 py-3">
-                        <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium", meta.cls)}>{meta.label}</span>
+                        <span className={cn("inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium", meta.cls)}>{meta.label}</span>
                       </td>
                       <td className="border-b border-slate-100 px-4 py-3">
                         <Button variant="unstyled"
@@ -436,7 +436,7 @@ export function I18nManagementPage() {
                           disabled={translatingKey === row.zh}
                           aria-label={`使用 AI 重翻“${row.zh}”`}
                           title="AI 重翻此条（带术语基准与 UX Writer 校对）"
-                          className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-accent px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-accent px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {translatingKey === row.zh ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Bot className="size-3.5" aria-hidden="true" />}
                           AI 重翻

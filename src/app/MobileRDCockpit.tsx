@@ -1149,7 +1149,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
         </div>
       </header>
 
-      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label={t("任务详情视图")}>
+      <nav className="grid shrink-0 grid-cols-5 gap-1 border-b border-slate-200 bg-white px-2 py-1.5" aria-label={t("任务详情视图")}>
         {([
           { key: "progress", label: t("进度留痕"), icon: History },
           { key: "overview", label: t("任务概览"), icon: Info },
@@ -1166,12 +1166,12 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               onClick={() => setDetailTab(item.key)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                "flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-center text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
                 active ? "bg-accent text-primary" : "text-slate-500 active:bg-slate-50",
               )}
             >
               <Icon size={14} />
-              {item.label}
+              <span className="max-w-full break-words text-balance">{item.label}</span>
             </Button>
           );
         })}

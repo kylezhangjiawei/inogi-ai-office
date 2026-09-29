@@ -1,14 +1,16 @@
 import * as React from "react";
 
 import { cn } from "./utils";
+import { DateInput } from './date-input';
 
 // forwardRef：React 18 函数组件不透传 ref；Radix asChild（如 PopoverAnchor 包输入框）需要 DOM ref 测量定位
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function Input(
   { className, type, ...props },
   ref,
 ) {
+  const Control = type === 'date' ? DateInput : 'input';
   return (
-    <input
+    <Control
       ref={ref}
       type={type}
       data-slot="input"

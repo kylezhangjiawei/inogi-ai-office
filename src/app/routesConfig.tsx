@@ -108,33 +108,38 @@ export const DEPT_KBS: { id: string; label: string; departmentCode?: string }[] 
 const BASE_NAV_GROUPS: NavGroup[] = [
   {
     label: "总览",
-    items: [{ label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" }],
+    items: [
+      { label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" },
+    ],
   },
   {
     label: "供应链管理",
     items: [
       { label: "供应链任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
-      { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
+      { label: "采购工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
       { label: "全部关键物料", path: "/proc-key-materials", icon: ListChecks, requiredPermission: "page:proc-key-materials" },
       { label: "库存齐套中心", path: "/proc-inventory-readiness", icon: PackageCheck, requiredPermission: "page:proc-inventory-readiness" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
+      { label: "采购订单", path: "/purchase-orders", icon: ShoppingCart, requiredPermission: "page:purchase-orders" },
+      { label: "BOM 确认存档", path: "/bom-archive", icon: FileBox, requiredPermission: "page:bom-archive" },
     ],
   },
   {
     label: "研发任务管理",
     items: [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
-      { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
+      { label: "研发工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
       { label: "研发数据表", path: "/rd-sheet", icon: FileSpreadsheet, requiredPermission: "page:rd-sheet" },
       { label: "问题记录与 AI 定位", path: "/issue-ai", icon: Microscope, requiredPermission: "page:issue-ai" },
-      // 「研发知识库」入口已移到下方「部门知识库」分组（仍指向 /rd-knowledge-base 原页面）
+      { label: "研发问题分流", path: "/rd-triage", icon: Waypoints, requiredPermission: "page:rd-triage" },
+      { label: "设计开发变更", path: "/design-changes", icon: ScrollText, requiredPermission: "page:design-changes" },
       { label: "审批流配置", path: "/rd-approval-flow", icon: GitBranch, requiredPermission: "page:rd-approval-flow" },
       { label: "研发 AI 策略", path: "/rd-ai-settings", icon: Bot, requiredPermission: "page:rd-ai-settings" },
     ],
   },
   {
-    // 中美协同：美国团队使用、中国研发团队支持。驾驶舱/工作台复用研发页面（驾驶舱不含子系统全景），知识库为独立 us-collab 库。
+    // 协同任务池与知识库独立于研发；分类调整不改变各池的数据和权限边界。
     label: "中美协同",
     items: [
       { label: "协同任务驾驶舱", path: "/us-collab-cockpit", icon: LayoutGrid, requiredPermission: "page:us-collab-cockpit" },
@@ -147,9 +152,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
   {
     label: "知识库",
     items: [
-      // 部门库与研发库合成一个入口：进页面后默认落在自己部门的库，顶部下拉可切到其它
-      // 有权限的库（含研发库）。权限码仍是每库一个，只是不再各占一个导航位；
-      // 研发库点进去仍是原路由 /rd-knowledge-base，RAG/密级/任务入库等专属能力不变。
+      // 聚合部门库与研发库，仍按各库原页面码授权，研发库保留原路由与专属能力。
       {
         label: "知识库",
         path: "/dept-kb",
@@ -164,32 +167,27 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "信息流转",
+    label: "客户服务",
     items: [
+      { label: "多渠道询盘", path: "/inquiry", icon: Inbox, requiredPermission: "page:inquiry" },
       { label: "售后 Case 管理", path: "/after-sales", icon: ClipboardList, requiredPermission: "page:after-sales" },
-      { label: "研发问题分流", path: "/rd-triage", icon: Waypoints, requiredPermission: "page:rd-triage" },
-      { label: "注册项目里程碑", path: "/registration-projects", icon: GanttChartSquare, requiredPermission: "page:registration-projects" },
-      { label: "BOM 确认存档", path: "/bom-archive", icon: FileBox, requiredPermission: "page:bom-archive" },
-      { label: "设计开发变更", path: "/design-changes", icon: ScrollText, requiredPermission: "page:design-changes" },
     ],
   },
   {
-    label: "文件与知识",
+    label: "注册与关务",
     items: [
+      { label: "注册项目里程碑", path: "/registration-projects", icon: GanttChartSquare, requiredPermission: "page:registration-projects" },
+      { label: "法规知识库", path: "/ra-knowledge", icon: BookOpen, requiredPermission: "page:ra-knowledge" },
+      { label: "对外资料版本", path: "/external-docs", icon: FolderKanban, requiredPermission: "page:external-docs" },
       { label: "报关单证 AI", path: "/customs-ai", icon: FileSearch, requiredPermission: "page:customs-ai" },
       { label: "报关单证处理", path: "/customs-docs", icon: ScanSearch, requiredPermission: "page:customs-docs" },
-      { label: "对外资料版本", path: "/external-docs", icon: FolderKanban, requiredPermission: "page:external-docs" },
-      { label: "法规知识库", path: "/ra-knowledge", icon: BookOpen, requiredPermission: "page:ra-knowledge" },
-      { label: "质量文件 DMS", path: "/quality-dms", icon: ShieldCheck, requiredPermission: "page:quality-dms" },
-      { label: "全链路追溯", path: "/qa-traceability", icon: BadgeCheck, requiredPermission: "page:qa-traceability" },
     ],
   },
   {
-    label: "订单与库存",
+    label: "订单与仓储",
     items: [
-      { label: "仓库工作台", path: "/warehouse-flow", icon: Warehouse, requiredPermission: "page:warehouse-flow", requiredPermissionAny: ["page:warehouse-flow", "page:production-execution"] },
       { label: "订货单处理工作台", path: "/order-workbench", icon: PackageCheck, requiredPermission: "page:order-workbench" },
-      { label: "采购订单", path: "/purchase-orders", icon: ShoppingCart, requiredPermission: "page:purchase-orders" },
+      { label: "仓库工作台", path: "/warehouse-flow", icon: Warehouse, requiredPermission: "page:warehouse-flow", requiredPermissionAny: ["page:warehouse-flow", "page:production-execution"] },
       { label: "库存管理", path: "/inventory-management", icon: Warehouse, requiredPermission: "page:inventory-management" },
     ],
   },
@@ -204,7 +202,6 @@ const BASE_NAV_GROUPS: NavGroup[] = [
   {
     label: "沟通协同",
     items: [
-      { label: "多渠道询盘", path: "/inquiry", icon: Inbox, requiredPermission: "page:inquiry" },
       { label: "会议纪要", path: "/meeting", icon: NotebookPen, requiredPermission: "page:meeting" },
       { label: "邮件 AI 写作", path: "/email-ai", icon: Mail, requiredPermission: "page:email-ai" },
       { label: "汇报材料压缩", path: "/report-compression", icon: Presentation, requiredPermission: "page:report-compression" },
@@ -221,13 +218,17 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "质量与生产",
+    label: "生产与质量",
     items: [
-      // 复用原主管驾驶舱的完整能力与权限码，避免既有角色授权和历史链接失效。
+      // 沿用原主管驾驶舱的权限码，保持既有角色授权与访问地址有效。
       { label: "生产驾驶舱", path: "/production-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
       { label: "生产计划与执行", path: "/production-execution", icon: CalendarDays, requiredPermission: "page:production-execution" },
       { label: "电子批记录", path: "/ebpr", icon: ListChecks, requiredPermission: "page:ebpr" },
+      { label: "电子闸门", path: "/electronic-gate", icon: ShieldCheck, requiredPermission: "page:electronic-gate" },
+      { label: "设备检测记录", path: "/device-inspection-records", icon: ClipboardList, requiredPermission: "page:device-inspection-records" },
       { label: "检验与放行", path: "/inspection-release", icon: BadgeCheck, requiredPermission: "page:inspection-release" },
+      { label: "质量文件 DMS", path: "/quality-dms", icon: ShieldCheck, requiredPermission: "page:quality-dms" },
+      { label: "全链路追溯", path: "/qa-traceability", icon: BadgeCheck, requiredPermission: "page:qa-traceability" },
       { label: "BUG 日志分析", path: "/bug-log", icon: Bug, requiredPermission: "page:bug-log" },
     ],
   },
@@ -250,8 +251,6 @@ const BASE_NAV_GROUPS: NavGroup[] = [
   {
     label: "系统管理",
     items: [
-      { label: "电子闸门", path: "/electronic-gate", icon: ShieldCheck, requiredPermission: "page:electronic-gate" },
-      { label: "设备检测记录", path: "/device-inspection-records", icon: ClipboardList, requiredPermission: "page:device-inspection-records" },
       { label: "邮箱管理", path: "/mailbox-management", icon: Mail, requiredPermission: "page:mailbox-management" },
       { label: "AI模型管理", path: "/ai-model-management", icon: Bot, requiredPermission: "page:ai-model-management" },
       { label: "AI使用情况", path: "/ai-usage", icon: BarChart3, requiredPermission: "page:ai-usage-dashboard" },
@@ -259,16 +258,19 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "AI使用与反馈", path: "/chat-analytics", icon: BarChart3, requiredPermission: "page:chat-analytics" },
       { label: "翻译管理", path: "/i18n-management", icon: Languages, requiredPermission: "i18n:manage" },
       { label: "腾讯OCR配置", path: "/ocr-config-management", icon: ScanSearch, requiredPermission: "page:ocr-config-management" },
-      { label: "下载和教程", path: "/downloads", icon: Download, requiredPermission: "page:downloads" },
-      { label: "操作手册", path: "/manual", icon: BookOpen, requiredPermission: "page:manual" },
       { label: "部门管理", path: "/departments", icon: Building2, requiredPermission: "page:departments" },
       { label: "用户管理", path: "/users", icon: UserSquare2, requiredPermission: "page:users" },
       { label: "角色权限", path: "/roles", icon: UserCog, requiredPermission: "page:roles" },
-      // 研发 / 中美协同 / 采购三个「操作留痕」入口合并到这里：一个页面、一个页面码，
-      // 模块在页内下拉切换；旧地址仍可访问，会重定向过来并预选对应模块。
       { label: "操作留痕", path: "/audit-log", icon: ShieldCheck, requiredPermission: "page:audit-log" },
       { label: "页面路由管理", path: "/route-management", icon: Route, requiredPermission: "page:route-management" },
       { label: "字典列表", path: "/settings", icon: MonitorCog, requiredPermission: "page:settings" },
+    ],
+  },
+  {
+    label: "帮助与教程",
+    items: [
+      { label: "操作手册", path: "/manual", icon: BookOpen, requiredPermission: "page:manual" },
+      { label: "下载和教程", path: "/downloads", icon: Download, requiredPermission: "page:downloads" },
     ],
   },
 ];

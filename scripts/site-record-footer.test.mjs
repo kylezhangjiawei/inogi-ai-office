@@ -6,6 +6,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as router from 'react-router';
 import ts from 'typescript';
+import { createServer } from 'vite';
 
 const require = createRequire(import.meta.url);
 function loadSource(path, replacements = {}) {
@@ -22,6 +23,10 @@ function loadSource(path, replacements = {}) {
 const utils = loadSource('src/app/components/ui/utils.ts');
 const footerModule = loadSource('src/app/components/SiteRecordFooter.tsx', { './ui/utils': utils });
 const renderAt = (path, element) => renderToStaticMarkup(React.createElement(router.StaticRouter, { location: path }, element));
+const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false } });
+let inputModule;
+try { inputModule = await uiServer.ssrLoadModule('/src/app/components/ui/input.tsx'); }
+finally { await uiServer.close(); }
 
 test('备案号只在登录路由显示，背景透明且不模糊登录页背景', () => {
   for (const path of ['/login', '/login/', '/login?from=%2Fproc-inventory-readiness']) {
@@ -45,7 +50,7 @@ test('登录状态恢复及已登录跳转时不渲染备案，未登录表单�
   let auth = { hydrated: true, user: null, login: async () => ({ ok: true }) };
   const { LoginPage } = loadSource('src/app/LoginPage.tsx', {
     './components/ui/button': loadSource('src/app/components/ui/button.tsx', { './utils': utils }),
-    './components/ui/input': loadSource('src/app/components/ui/input.tsx', { './utils': utils }),
+    './components/ui/input': inputModule,
     './auth': { useAuth: () => auth },
     './lib/authSession': { authFetch: () => { throw new Error('SSR must not issue background requests'); } },
     './components/SiteRecordFooter': footerModule,

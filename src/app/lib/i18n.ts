@@ -30,6 +30,15 @@ let currentLang: I18nLang = (() => {
  * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
  */
 const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  "研发任务管理": "Research & development",
+  "客户服务": "Customer service",
+  "注册与关务": "Regulatory & customs",
+  "订单与仓储": "Orders & warehousing",
+  "生产与质量": "Production & quality",
+  "帮助与教程": "Help & tutorials",
+  "采购工作台": "Purchasing workspace",
+  "研发工作台": "R&D workspace",
+  "当前页面所在分组": "Current page group",
   "BOM 执行依据": "BOM execution basis",
   "产品归属": "Product ownership",
   "工作稿与最近发布版本一致": "Draft matches the latest published revision",
@@ -1801,7 +1810,7 @@ export function t(zhText: string, vars?: Record<string, string | number>): strin
 
 /** 响应式入口：组件里 const { lang, t } = useI18n()；切换语言自动重渲染 */
 export function useI18n() {
-  const snap = useSyncExternalStore(subscribe, () => snapshot);
+  const snap = useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
   return { lang: snap.lang, t };
 }
 

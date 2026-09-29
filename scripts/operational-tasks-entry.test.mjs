@@ -28,8 +28,8 @@ test('供应链导航保留独立权限与路径，所有角色均移除仓管�
   assert.equal(navigation(warehouse, ['page:purchase-order-detail']).some(item => item.path === path), false);
   const expected = [
     ['供应链管理', 'page:proc-cockpit', '/proc-cockpit', '供应链任务驾驶舱'],
-    ['供应链管理', 'page:proc-my-workspace', '/proc-my-workspace', '个人工作台'],
-    ['研发任务管理', 'page:rd-my-workspace', '/rd-my-workspace', '个人工作台'],
+    ['供应链管理', 'page:proc-my-workspace', '/proc-my-workspace', '采购工作台'],
+    ['研发任务管理', 'page:rd-my-workspace', '/rd-my-workspace', '研发工作台'],
   ];
   const { DEFAULT_PERMISSION_CATALOG } = load('apps/api/src/modules/permission-catalog/permission-catalog.defaults.ts');
   for (const overrides of [{}, { 'page:proc-cockpit': '/supply/tasks', 'page:proc-my-workspace': '/supply/mine', 'page:rd-my-workspace': '/research/mine' }]) {
@@ -43,8 +43,8 @@ test('供应链导航保留独立权限与路径，所有角色均移除仓管�
       const catalog = DEFAULT_PERMISSION_CATALOG.find(entry => entry.code === code);
       assert.deepEqual([catalog.label, catalog.routePath], [label, fallback]);
     }
-    assert.deepEqual(navigation(role('page:proc-my-workspace'), [], overrides).filter(item => item.label === '个人工作台').map(item => item.requiredPermission), ['page:proc-my-workspace']);
-    assert.deepEqual(navigation(role('page:rd-my-workspace'), [], overrides).filter(item => item.label === '个人工作台').map(item => item.requiredPermission), ['page:rd-my-workspace']);
+    assert.deepEqual(navigation(role('page:proc-my-workspace'), [], overrides).filter(item => item.label === '采购工作台').map(item => item.requiredPermission), ['page:proc-my-workspace']);
+    assert.deepEqual(navigation(role('page:rd-my-workspace'), [], overrides).filter(item => item.label === '研发工作台').map(item => item.requiredPermission), ['page:rd-my-workspace']);
   }
 });
 test('缺任一权限前提时菜单隐藏，既有知识库任一权限规则保留', () => {

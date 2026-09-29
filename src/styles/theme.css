@@ -3481,12 +3481,6 @@
   box-shadow: none !important;
 }
 
-.rd-horizon-task-detail .rd-conversation-composer__field:focus-within {
-  border-color: rgba(var(--primary-rgb), 0.3) !important;
-  background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
-}
-
 .rd-horizon-task-detail .rd-conversation-composer__send:not(:disabled) {
   border-radius: 10px !important;
   background: var(--rd-primary) !important;
@@ -5659,28 +5653,6 @@
   color: #fff !important;
   background: #cbd5e1 !important;
   opacity: 0.72;
-}
-
-.rd-horizon-discussion .rd-conversation-composer__field > label:first-child {
-  position: relative;
-}
-
-.rd-horizon-discussion .rd-conversation-composer__field > label:first-child > input[type="file"] {
-  display: block !important;
-  position: absolute !important;
-  width: 1px !important;
-  height: 1px !important;
-  padding: 0 !important;
-  margin: -1px !important;
-  overflow: hidden !important;
-  clip: rect(0, 0, 0, 0) !important;
-  white-space: nowrap !important;
-  border: 0 !important;
-}
-
-.rd-horizon-discussion .rd-conversation-composer__field > label:first-child:focus-within {
-  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
-  outline-offset: 2px !important;
 }
 
 .rd-horizon-discussion :where(button, [role="button"], input, textarea):focus-visible {
@@ -8724,6 +8696,11 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
   box-shadow: var(--rd-shadow-focal) !important;
 }
 
+/* Metadata forms scroll as a whole; upload and preview own an inner scroll area. */
+.rd-horizon-kb-dialog:not(.rd-horizon-kb-upload-dialog):not(.rd-horizon-kb-preview-dialog) {
+  overflow-y: auto;
+}
+
 .rd-horizon-kb-dialog [data-slot="dialog-header"] {
   border-bottom-color: var(--rd-line) !important;
   color: var(--rd-body);
@@ -8775,7 +8752,7 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
   background: var(--rd-surface) !important;
 }
 
-.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-red-500),
+.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-primary):not(.bg-red-500),
 .rd-horizon-kb-danger-dialog > div.border-t > button:not(.bg-red-500) {
   border-color: transparent !important;
   color: var(--rd-body) !important;
@@ -8783,20 +8760,20 @@ html.mobile-route :is(select, :where([data-slot="select-trigger"])) {
   box-shadow: none !important;
 }
 
-.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-red-500):hover,
+.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-primary):not(.bg-red-500):hover,
 .rd-horizon-kb-danger-dialog > div.border-t > button:not(.bg-red-500):hover {
   color: var(--rd-ink) !important;
   background: var(--rd-canvas) !important;
 }
 
-.rd-horizon-kb-dialog button.bg-indigo-600 {
+.rd-horizon-kb-dialog button:is(.bg-indigo-600, .bg-primary) {
   border-color: var(--rd-primary) !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
   box-shadow: none !important;
 }
 
-.rd-horizon-kb-dialog button.bg-indigo-600:hover:not(:disabled) {
+.rd-horizon-kb-dialog button:is(.bg-indigo-600, .bg-primary):hover:not(:disabled) {
   border-color: var(--rd-primary-hover) !important;
   color: #ffffff !important;
   background: var(--rd-primary-hover) !important;

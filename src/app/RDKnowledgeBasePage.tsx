@@ -1,4 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pageTokens } from "./lib/pagination";
 import {
   Archive,
   ArrowDownToLine,
@@ -897,7 +898,7 @@ function EditEntryDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className={cn(
         "sm:max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-edit-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-edit-dialog",
       )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
@@ -1317,7 +1318,7 @@ function CategoryFormDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className={cn(
         "sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-category-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-category-dialog",
       )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
@@ -1477,7 +1478,7 @@ function DeleteCategoryDialog({
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className={cn(
         "sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
       )}>
         <DialogTitle className="sr-only">{t("确认删除知识库类目")}</DialogTitle>
         <DialogDescription className="sr-only">
@@ -1542,7 +1543,7 @@ function MoveEntryDialog({
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className={cn(
         "sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-move-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-move-dialog",
       )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
@@ -1631,7 +1632,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className={cn(
         "sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
       )}>
         <DialogTitle className="sr-only">{t("确认删除文件")}</DialogTitle>
         <DialogDescription className="sr-only">
@@ -1730,7 +1731,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className={cn(
         "sm:max-w-5xl w-[calc(100vw-2rem)] gap-0 rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden",
-        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-preview-dialog",
+        horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-preview-dialog",
       )}>
         <DialogDescription className="sr-only">
           {t("预览知识库文件并查看文件元数据。")}
@@ -2150,8 +2151,8 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         className={cn(
-          "w-full max-w-xl overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.32)] sm:max-w-xl [&>button]:hidden",
-          horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-upload-dialog",
+          "flex flex-col gap-0 w-full max-w-xl overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.32)] sm:max-w-xl [&>button]:hidden",
+          horizonVariant && "horizon-portal rd-horizon-kb-dialog rd-horizon-kb-upload-dialog",
         )}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
@@ -2177,7 +2178,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
           </Button>
         </DialogHeader>
 
-        <div className="rd-kb-upload-body bg-[#f8fafc] p-6 flex flex-col gap-5 overflow-y-auto max-h-[72vh]">
+        <div className="rd-kb-upload-body min-h-0 flex-1 bg-[#f8fafc] p-6 flex flex-col gap-5 overflow-y-auto max-h-[72vh]">
           {/* Drop zone — use <label> so clicking anywhere (including the icon) natively opens file picker */}
           <label
             htmlFor="kb-upload-files"
@@ -3384,11 +3385,12 @@ export function RDKnowledgeBasePage({
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </Button>
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+                    {pageTokens(page, totalPages).map((pg) => typeof pg === "number" ? (
                       <Button variant="unstyled"
                         key={pg}
                         type="button"
                         onClick={() => setPage(pg)}
+                        aria-label={t("第 {page} 页", { page: pg })}
                         aria-current={pg === page ? 'page' : undefined}
                         className={cn(
                           'flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold tabular-nums transition',
@@ -3399,7 +3401,7 @@ export function RDKnowledgeBasePage({
                       >
                         {pg}
                       </Button>
-                    ))}
+                    ) : <span key={pg} aria-hidden="true" className="flex size-7 items-center justify-center text-muted-foreground">…</span>)}
                     <Button variant="unstyled"
                       type="button"
                       disabled={page === totalPages}

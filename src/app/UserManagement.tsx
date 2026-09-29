@@ -867,7 +867,7 @@ export function UserManagement() {
 
             {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="user-name" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("姓名")} <span className="text-red-600">*</span></Label>
                 <Input
@@ -889,7 +889,7 @@ export function UserManagement() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="user-account" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("账号")}</Label>
                 <Input id="user-account" value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder={t("可选，默认使用邮箱登录")} />
@@ -921,7 +921,7 @@ export function UserManagement() {
               ) : null}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <Label htmlFor="user-department" className="mb-1.5 block text-sm font-semibold text-slate-700">
                   {t("部门")} {!form.id ? <span className="text-red-600">*</span> : null}

@@ -497,21 +497,21 @@ function progressTone(progress?: number) {
     return {
       border: "border-l-emerald-500",
       header: "bg-emerald-50/70",
-      badge: "bg-emerald-600",
+      badge: "bg-emerald-700",
     };
   }
   if (progress >= 60) {
     return {
       border: "border-l-sky-500",
       header: "bg-sky-50/70",
-      badge: "bg-sky-600",
+      badge: "bg-sky-700",
     };
   }
   if (progress > 0) {
     return {
       border: "border-l-amber-500",
       header: "bg-amber-50/70",
-      badge: "bg-amber-500",
+      badge: "bg-amber-700",
     };
   }
   return {
@@ -539,7 +539,7 @@ function ThreadButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "group inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
+        "group inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-bold sm:min-h-8 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
         inverted
           ? "bg-white/12 text-primary hover:bg-white/20"
           : count > 0
@@ -796,7 +796,7 @@ function InlineNoteComments({
   };
 
   return (
-    <section id={id} aria-label={t("留痕留言")} className="rd-inline-note-comments mt-1.5 rounded-xl border border-blue-100 bg-slate-50/80 p-2">
+    <section id={id} aria-label={t("留痕留言")} className="rd-inline-note-comments mt-1.5 border-t border-slate-200 pt-2">
       {loading ? (
         <div className="space-y-2 py-1" aria-label={t("正在加载留言")}>
           {[0, 1].map((item) => (
@@ -929,10 +929,7 @@ function ProgressAnchorCard({
         timeline ? "min-h-10 gap-2 px-3 py-1.5" : "min-h-8 gap-1.5 px-2 py-1",
         tone.header,
       )}>
-        <span className={cn(
-          "inline-flex shrink-0 items-center gap-1 font-bold text-primary",
-          timeline ? "text-[11px]" : "text-[10px]",
-        )}>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-primary">
           <Sparkles className="h-3 w-3" />
           {t(timeline ? "进度更新" : "留痕")}
         </span>
@@ -944,8 +941,7 @@ function ProgressAnchorCard({
             onClick={() => onActorClick({ id: note.actor.id, name: note.actor.name })}
             title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
             className={cn(
-              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
-              timeline ? "text-[11px]" : "text-[10px]",
+              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-xs transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
               actorSelected && "bg-accent text-primary ring-1 ring-inset ring-primary/25",
             )}
           >
@@ -953,20 +949,20 @@ function ProgressAnchorCard({
             <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
           </Button>
         ) : (
-          <span className={cn("inline-flex min-w-0 shrink items-center gap-1", timeline ? "text-[11px]" : "text-[10px]")}>
+          <span className="inline-flex min-w-0 shrink items-center gap-1 text-xs">
             <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
             <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
           </span>
         )}
-        <div className={cn("min-w-0 flex-1 truncate text-slate-500", timeline ? "text-[11px]" : "text-[10px]")}>
+        <div className="min-w-0 flex-1 truncate text-xs text-slate-500">
           <span>{note.actor.role ? t(note.actor.role) : t("研发成员")}</span>
         </div>
         {typeof note.progress === "number" && (
-          <span className={cn("rd-progress-anchor-card__progress shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold leading-none text-white", tone.badge)}>
+          <span className={cn("rd-progress-anchor-card__progress shrink-0 rounded px-1.5 py-0.5 text-xs font-bold leading-none text-white", tone.badge)}>
             {note.progress}%
           </span>
         )}
-        <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
+        <time className="shrink-0 font-mono text-xs tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
       </div>
       <div className={cn("rd-progress-anchor-card__body", timeline ? "px-4 py-3" : "px-2.5 py-1.5")}>
         {sourceTask && (
@@ -976,23 +972,20 @@ function ProgressAnchorCard({
               onClick={() => onOpenSourceTask?.(sourceTask.task_id)}
               disabled={!onOpenSourceTask}
               title={sourceTask.path.join(" / ")}
-              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-accent px-1.5 py-1 text-[10px] font-semibold text-primary transition-colors hover:bg-accent disabled:cursor-default"
+              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-accent px-1.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-accent disabled:cursor-default"
             >
               <GitBranch className="h-3 w-3 shrink-0" />
               <span className="truncate">{sourceTask.title}</span>
             </Button>
             {sourceTask.is_before_merge && (
-              <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+              <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
                 {t("合并前")}
               </span>
             )}
           </div>
         )}
         {note.text && (
-          <p className={cn(
-            "whitespace-pre-wrap break-words text-pretty text-slate-800",
-            timeline ? "text-[13px] leading-5" : "text-[13px] leading-[18px]",
-          )}>
+          <p className="whitespace-pre-wrap break-words text-pretty text-sm leading-6 text-slate-800">
             {renderTextWithMentions(note.text, note.mentions)}
           </p>
         )}
@@ -1010,7 +1003,7 @@ function ProgressAnchorCard({
             aria-controls={commentsRegionId}
             onClick={() => setCommentsOpen((current) => !current)}
             className={cn(
-              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
+              "inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-bold sm:min-h-8 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-1",
               commentsOpen || commentCount > 0
                 ? "bg-accent text-primary hover:bg-accent"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
@@ -1244,7 +1237,7 @@ function Composer({
       className={cn(
         "rd-conversation-composer relative bg-white",
         presentation === "inline"
-          ? "mt-2 rounded-xl border border-slate-200 p-2"
+          ? "mt-2"
           : "border-t border-slate-200 px-3 py-2",
         variant === "mobile" && presentation === "panel" && "[padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]",
       )}
@@ -1313,10 +1306,10 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary">
+      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 transition-colors">
         <label
           className={cn(
-            "flex shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-primary",
+            "rd-conversation-composer__attachment relative flex shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white hover:text-primary",
             variant === "mobile" ? "size-11" : "size-9",
           )}
           title={t("添加附件")}
@@ -1327,7 +1320,7 @@ function Composer({
             multiple
             disabled={sending}
             aria-label={t("选择讨论附件")}
-            className="hidden"
+            className="sr-only"
             onChange={(event) => {
               addFiles(Array.from(event.target.files ?? []));
               event.target.value = "";
@@ -1359,7 +1352,7 @@ function Composer({
             }
           }}
           className={cn(
-            "max-h-28 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 leading-5 text-slate-800 outline-none placeholder:text-muted-foreground",
+            "max-h-28 min-w-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 leading-5 text-slate-800 shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground",
             variant === "mobile" ? "min-h-11 text-base" : "min-h-9 text-sm",
           )}
         />
@@ -1382,7 +1375,7 @@ function Composer({
           {submitError}
         </p>
       ) : null}
-      <div className="mt-1 flex items-center justify-between gap-3 px-2 text-[10px] text-slate-500">
+      <div className="mt-1 flex items-center justify-between gap-3 px-2 text-xs text-slate-500">
         <span>
           {contextHint}
           {variant === "mobile" ? t(" · 可上传图片、视频或文件") : ""}

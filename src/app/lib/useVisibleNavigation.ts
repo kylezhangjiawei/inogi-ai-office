@@ -5,7 +5,6 @@ import { hasPermission } from "./permissions";
 import { useNavMeta, type NavMetaItem } from "./permissionCatalogApi";
 
 const EMPTY_PERMISSIONS: string[] = [];
-const CATALOG_GROUP_LABELS: Record<string, string> = { "知识库": "部门知识库", "人事与行政": "人事行政" };
 
 // 聚合入口和操作权限入口没有独立页面排序，保留原位置，仅交换已配置项。
 function sortConfiguredSlots<T>(items: T[], getRank: (item: T) => number | undefined, getTieRank: (item: T) => number = () => 0): T[] {
@@ -24,11 +23,11 @@ export function buildVisibleNavigation(groups: NavGroup[], permissions: string[]
     const branch = item.groupLabel?.split(/[·>／\/|]/).map((part) => part.trim()).filter(Boolean).slice(1).join(" · ");
     if (branch) groupRanks.set(branch, Math.min(groupRanks.get(branch) ?? Infinity, item.sortOrder));
   }
-  const pageRank = (item: NavItem) => item.requiredPermission?.startsWith("page:")
+  const pageRank = (item: NavItem) => item.requiredPermission
     ? byCode.get(item.requiredPermission)?.sortOrder
     : undefined;
   const orderedGroups = sortConfiguredSlots(groups, (group) => {
-    const configuredRank = groupRanks.get(CATALOG_GROUP_LABELS[group.label] ?? group.label);
+    const configuredRank = groupRanks.get(group.label);
     if (configuredRank !== undefined) return configuredRank;
     // Older metadata responses lack group labels; retain their direct-page fallback.
     const ranks = group.items.map(pageRank).filter((rank) => Number.isFinite(rank));

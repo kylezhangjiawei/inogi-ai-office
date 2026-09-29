@@ -100,7 +100,7 @@ function NativeSelect({ children, className, contentClassName, value, defaultVal
         }}
         onInvalid={onInvalid}
         onFocus={() => triggerRef.current?.focus()}
-        style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, border: 0, clipPath: "inset(50%)", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: "none" }}
+        style={{ position: "absolute", top: 0, left: 0, width: 1, height: 1, padding: 0, margin: -1, border: 0, clipPath: "inset(50%)", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: "none" }}
       >
         {!options.some((option) => option.value === selectedValue) && <option value={selectedValue} />}
         {children}

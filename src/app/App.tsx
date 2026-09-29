@@ -390,6 +390,10 @@ function ProtectedLayout() {
   // 行政登记页自身适配窄屏；不转到无关的研发移动驾驶舱。
   if (location.pathname === routePath("page:applicant-forms", "/applicant-forms")) return <Root />;
 
+  // 已有窄屏布局的独立工具保留业务入口，权限仍由子路由校验。
+  if (location.pathname === routePath("page:email-ai", "/email-ai")
+    || location.pathname === routePath("page:proc-quote-book", "/proc-quote-book")) return <Root />;
+
   // 采购工作台及关联页自身支持窄屏，保留工作上下文和原路由权限检查。
   if (location.pathname === routePath("page:proc-my-workspace", "/proc-my-workspace")
     || location.pathname === routePath("page:proc-cockpit", "/proc-cockpit")

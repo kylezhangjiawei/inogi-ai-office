@@ -619,6 +619,11 @@ export function VideoLibraryPage() {
                                 src={item.video_url}
                                 aria-label={item.prompt ? `播放视频：${item.prompt}` : "播放未命名视频"}
                               />
+                            ) : item.status === "succeeded" ? (
+                              <div className="flex flex-col items-center gap-2 px-4 text-center text-slate-300">
+                                <AlertCircle className="size-8" />
+                                <span className="text-xs">视频地址暂不可用，请刷新列表后重试</span>
+                              </div>
                             ) : item.status === "failed" ? (
                               <div className="flex flex-col items-center gap-2 px-4 text-center text-rose-300">
                                 <AlertCircle className="size-8" />

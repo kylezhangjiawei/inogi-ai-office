@@ -9,17 +9,18 @@ type ScrollAreaProps = React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   scrollbars?: "vertical" | "horizontal" | "both" | "none";
 };
 
-function ScrollArea({
+const ScrollArea = React.forwardRef<React.ElementRef<typeof ScrollAreaPrimitive.Root>, ScrollAreaProps>(function ScrollArea({
   className,
   children,
   scrollbars = "vertical",
   ...props
-}: ScrollAreaProps) {
+}, ref) {
   const showVertical = scrollbars === "vertical" || scrollbars === "both";
   const showHorizontal = scrollbars === "horizontal" || scrollbars === "both";
 
   return (
     <ScrollAreaPrimitive.Root
+      ref={ref}
       data-slot="scroll-area"
       className={cn("relative", className)}
       {...props}
@@ -35,7 +36,7 @@ function ScrollArea({
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   );
-}
+});
 
 function ScrollBar({
   className,

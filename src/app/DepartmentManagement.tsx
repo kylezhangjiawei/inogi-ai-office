@@ -591,7 +591,7 @@ export function DepartmentManagement() {
 
             {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="department-name" className="mb-1.5 block text-sm font-semibold text-slate-700">部门名称 <span className="text-red-600">*</span></Label>
                 <Input
@@ -621,7 +621,7 @@ export function DepartmentManagement() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="department-category" className="mb-1.5 block text-sm font-semibold text-slate-700">业务分类 <span className="text-red-600">*</span></Label>
                 <Input
@@ -645,7 +645,7 @@ export function DepartmentManagement() {
               <Textarea id="department-description" rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="department-sort-order" className="mb-1.5 block text-sm font-semibold text-slate-700">排序</Label>
                 <Input id="department-sort-order" type="number" min={0} value={form.sortOrder} onChange={(event) => setForm((current) => ({ ...current, sortOrder: Number(event.target.value) || 0 }))} />

@@ -76,7 +76,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
 
     const keepActiveItemVisible = () => {
       if (!nav.clientWidth || !nav.clientHeight) return;
-      const activeItem = nav.querySelector<HTMLElement>('a[aria-current="page"]');
+      const activeItem = nav.querySelector<HTMLElement>('a[aria-current="page"], button[data-active="true"]');
       if (!activeItem) return;
 
       const navRect = nav.getBoundingClientRect();
@@ -161,22 +161,23 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
             {visibleGroups.map((group, groupIndex) => {
               const collapsible = group.items.length > 1;
               const groupClosed = collapsible && !collapsed && collapsedGroups.has(group.label);
+              const groupActive = group.items.some(item => isNavItemActive(item, pathname));
               return (
                 <Collapsible key={group.label} open={!groupClosed} onOpenChange={() => toggleGroup(group.label)}>
                   {collapsed && groupIndex > 0 && (
                     <div className="rd-horizon-sidebar-separator mx-auto mb-3 h-px w-7" />
                   )}
-                  {!collapsed && (
-                    collapsible ? (
+                  {!collapsed && collapsible && (
                       <CollapsibleTrigger asChild>
                         <Button variant="unstyled"
                           type="button"
+                          data-active={groupClosed && groupActive ? "true" : undefined}
                           title={groupClosed
                             ? (lang === "en" ? "Expand group" : "展开该分组")
                             : (lang === "en" ? "Collapse group" : "收起该分组")}
-                          className="rd-horizon-sidebar-group-trigger mb-1.5 flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          className={cn("rd-horizon-sidebar-group-trigger mb-1.5 flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary", groupClosed && groupActive && "bg-primary/10 !text-primary")}
                         >
-                          <span className="truncate">{t(group.label)}</span>
+                          <span className="flex min-w-0 items-center gap-2"><span className="truncate">{t(group.label)}</span>{groupClosed && groupActive && <span className="size-1.5 shrink-0 rounded-full bg-current" aria-label={t("当前页面所在分组")} />}</span>
                           <span className="flex shrink-0 items-center gap-1">
                             {groupClosed && (
                               <span className="rd-horizon-sidebar-group-count rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums">
@@ -187,11 +188,6 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                           </span>
                         </Button>
                       </CollapsibleTrigger>
-                    ) : (
-                      <div className="rd-horizon-sidebar-group-label mb-1.5 flex min-h-8 items-center px-3 text-xs font-semibold">
-                        {t(group.label)}
-                      </div>
-                    )
                   )}
                   <CollapsibleContent>
                     <div className="space-y-1">

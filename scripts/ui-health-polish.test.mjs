@@ -10,11 +10,26 @@ before(async () => {
   server = await createServer({
     configFile: false, envFile: false,
     optimizeDeps: { noDiscovery: true, include: [] },
-    appType: 'custom', logLevel: 'silent', server: { middlewareMode: true },
+    appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false },
   });
   fields = await server.ssrLoadModule('/src/app/components/MaterialFields.tsx');
 });
 after(async () => { await server?.close(); });
+
+test('shared date field preserves the native form contract behind its labelled calendar trigger', () => {
+  const html = renderToStaticMarkup(React.createElement(fields.MaterialDateInput, {
+    id: 'delivery-date', name: 'deliveryDate', label: '交货日期', hint: '按承诺交期填写',
+    value: '2026-09-17', onChange() {}, required: true, min: '2026-09-10', max: '2026-09-20', step: 2,
+  }));
+  const trigger = html.match(/<button\b[^>]*id="delivery-date"[^>]*>/)?.[0];
+  const native = html.match(/<input\b[^>]*type="date"[^>]*>/)?.[0];
+  assert.ok(trigger, 'visible label targets the interactive project calendar');
+  assert.match(trigger, /type="button"/);
+  assert.match(trigger, /aria-required="true"/);
+  assert.match(trigger, /aria-describedby="delivery-date-hint"/);
+  assert.ok(native, 'native form validation and serialization remain available');
+  for (const attribute of ['name="deliveryDate"', 'value="2026-09-17"', 'required=""', 'min="2026-09-10"', 'max="2026-09-20"', 'step="2"', 'tabindex="-1"', 'aria-hidden="true"']) assert.ok(native.includes(attribute), attribute);
+});
 
 for (const name of ['MaterialInput', 'MaterialTextarea', 'MaterialDateInput', 'MaterialSelect']) {
   test(`${name}: visible label and hint identify the actual field`, () => {

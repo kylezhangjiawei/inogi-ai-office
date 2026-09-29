@@ -203,10 +203,11 @@ test('public submit retries keep the original version, fill token and idempotenc
 function textContent(node) { return node == null || typeof node === 'boolean' ? '' : Array.isArray(node) ? node.map(textContent).join('') : typeof node === 'object' ? textContent(node.props?.children) : String(node); }
 async function adminHost(overrides = {}) {
   const initial = { id: 'template-1', name: '测试模板', slug: 'stable-slug', schema: schema([field('name', { label: '姓名' })]), revision: 3, publishedVersionId: null, publishedVersion: null, submissionCount: 0, createdAt: '2026-09-08T00:00:00Z', updatedAt: '2026-09-08T00:00:00Z', publicPath: null };
-  const calls = { saves: [], publishes: [], notifications: [] };
+  const calls = { saves: [], publishes: [], notifications: [], confirmations: [] };
   class FormsError extends Error { constructor(message, status) { super(message); this.status = status; } }
   const ui = (names) => Object.fromEntries(names.map((name) => [name, name]));
   const dependencies = {
+    './components/ui/use-confirmation': { useConfirmation: () => ({ confirmationDialog: null, confirm: async (request) => { calls.confirmations.push(request); return overrides.confirmed ?? false; } }) },
     'react-router': { useBlocker: () => ({ state: 'unblocked' }) },
     sonner: { toast: Object.fromEntries(['success', 'error', 'info'].map((level) => [level, (message) => calls.notifications.push({ level, message })])) },
     './auth': { useAuth: () => ({ user: { permissions: ['*'] } }) },
@@ -287,6 +288,8 @@ test('records refresh and review update refresh parent metadata, and record time
   const version = { id: 'version-1', templateId: 'template-1', version: 1, schema: schema([field('name', { label: '姓名' })]), publishedAt: '2026-09-08T00:00:00Z', submissionCount: 1 };
   const ui = (names) => Object.fromEntries(names.map((name) => [name, name]));
   const host = componentHost('src/app/applicant-forms/SubmissionRecords.tsx', 'SubmissionRecords', {
+    '../components/ui/use-confirmation': { useConfirmation: () => ({ confirmationDialog: null, confirm: async () => false }) },
+    '../components/ui/date-picker': ui(['DatePicker']),
     sonner: { toast: { success() {}, error() {} } }, '../components/ui/button': ui(['Button']),
     '../components/ui/sheet': ui(['Sheet', 'SheetContent', 'SheetDescription', 'SheetHeader', 'SheetTitle']),
     '../lib/applicantFormsApi': { ApplicantFormsError: class extends Error {}, listApplicantSubmissions: async () => ({ items: [record], total: 1, page: 1, pageSize: 20 }) },
@@ -303,6 +306,22 @@ test('records refresh and review update refresh parent metadata, and record time
   host.nodes(tree).find((node) => node.type === 'Button' && textContent(node) === '查看详情').props.onClick();
   host.nodes(host.render(props)).find((node) => typeof node.type === 'function' && node.type.name === 'SubmissionDrawer').props.onUpdated();
   assert.equal(metadataRefreshes, 2);
+});
+
+test('canceling new-template confirmation retains dirty draft; accepting opens creation', async () => {
+  const oldWindow = globalThis.window;
+  globalThis.window = { location: { origin: 'http://localhost' }, addEventListener() {}, removeEventListener() {} };
+  try {
+    for (const confirmed of [false, true]) {
+      const host = await adminHost({ confirmed });
+      host.nodes(host.render()).find((node) => node.type === 'Switch' && node.props['aria-label'] === '姓名必填').props.onCheckedChange(true);
+      await host.button('新建模板').props.onClick();
+      assert.equal(host.calls.confirmations.length, 1);
+      assert.equal(host.calls.saves.length, 0);
+      assert.equal(host.nodes(host.render()).find((node) => node.type === 'ApplicantFormRenderer').props.schema.fields[0].required, true);
+      assert.equal(host.nodes(host.render()).some((node) => node.type === 'Dialog' && node.props.open === true), confirmed);
+    }
+  } finally { globalThis.window = oldWindow; }
 });
 
 test('admin revision conflict retains edited draft and blocks overwrite and publish', async () => {

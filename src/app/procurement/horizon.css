@@ -26,7 +26,7 @@
   font-family: var(--font-sans);
 }
 
-.proc-horizon {
+.proc-horizon:not([data-slot="sheet-content"]) {
   position: relative;
   background: transparent;
 }
@@ -105,6 +105,8 @@
   .proc-readiness-filters > button { width: 100%; min-width: 0; }
 }
 @container proc-materials (max-width: 40rem) {
+  .proc-horizon-material-results { flex: none; overflow: visible; }
+  .proc-horizon-material-scroll { flex: none; height: clamp(18rem, 55dvh, 32rem); }
   .proc-horizon-material-scroll table .sticky { position: static; }
 }
 @container proc-readiness (min-width: 40rem) {
@@ -1506,12 +1508,14 @@
 .proc-horizon-overlay :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
+  box-shadow: none !important;
 }
 
 .proc-horizon :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible,
 .proc-horizon-drawer :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
+  box-shadow: none !important;
 }
 
 @container proc-command (min-width: 36rem) {
