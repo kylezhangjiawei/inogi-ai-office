@@ -104,7 +104,7 @@ export class ErpPurchaseOrderService {
      if(await this.sync.erpPurchaseOrderExists(input.orderNo))throw new ConflictException('ERP中仍可查到订单，删除结果尚未确认');
      await this.localDependencies(input.orderNo,true);
      await this.prisma.$transaction(async tx=>{
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:'+input.orderNo}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:'+input.orderNo}))::text`;
       await tx.runtimeState.upsert({where:{key:'erp-po-deleted:'+input.orderNo},create:{key:'erp-po-deleted:'+input.orderNo,value:input.expectedId},update:{value:input.expectedId}});
       await tx.procPurchaseOrderMirror.deleteMany({where:{tpOrderNo:input.orderNo,OR:[{tpOrderId:input.expectedId},{tpOrderId:null}]}});
      });

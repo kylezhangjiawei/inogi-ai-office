@@ -14,7 +14,7 @@ export const DELIVERY_WRITE_PERMISSION = 'proc-purchase-order:record-commitment'
 
 /** Local dependencies must finish before ERP order writes, or wait for their verified result. */
 export async function lockOrderDependency(tx: Prisma.TransactionClient, orderNo: string) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-write:' + orderNo}))`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-write:' + orderNo}))::text`;
   const blocked = await tx.$queryRaw<Array<{ key: string }>>`SELECT "key" FROM "RuntimeState"
     WHERE "key" IN (${'erp-po-pending:' + orderNo}, ${'erp-po-deleted:' + orderNo}) AND "value" <> ''`;
   if (blocked.length) throw new ConflictException('该ERP订单正在核对操作结果或已删除，暂不能新增收货、关联或备料记录');
@@ -87,11 +87,11 @@ export async function persistMirrorDelivery(
   data: Omit<Prisma.ProcPurchaseOrderMirrorUncheckedCreateInput, 'id' | 'tpOrderNo' | 'tpLineNo'>,
 ) {
   return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))::text`;
     const deleted = await tx.runtimeState.findUnique({where:{key:'erp-po-deleted:' + orderNo}});
     if (deleted && deleted.value === data.tpOrderId) throw new ConflictException('该ERP订单已确认删除，拒绝回填旧快照');
     const scope = `procurement:delivery:erp:${JSON.stringify([orderNo, lineNo])}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope}, 0))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope}, 0))::text`;
     await tx.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE "tpOrderNo" = ${orderNo} AND "tpLineNo" = ${lineNo} FOR UPDATE`;
     const previous = await tx.procPurchaseOrderMirror.findUnique({ where: { tpOrderNo_tpLineNo: { tpOrderNo: orderNo, tpLineNo: lineNo } } });
     const priorMetadata = previous?.metadata && typeof previous.metadata === 'object' && !Array.isArray(previous.metadata) ? previous.metadata as Record<string, unknown> : {};

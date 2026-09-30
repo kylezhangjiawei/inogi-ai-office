@@ -81,7 +81,7 @@ export class PurchaseDeliveryService {
     const fingerprint = deliveryHash({ lineId, orderNo, evidence, reason, promisedDate, communicatedOn, original: input.declareOriginal, version: input.expectedVersion, source: input.expectedSourceUpdatedAt });
     const requestKey = `${DELIVERY_PREFIX}request:${deliveryHash(input.requestId)}`;
     return this.prisma.$transaction(async (db) => {
-      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestKey}, 0))`;
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestKey}, 0))::text`;
       await db.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE id = ${lineId} AND "tpOrderNo" = ${orderNo} FOR UPDATE`;
       const line = await this.line(db, lineId, orderNo);
       const repeated = await db.runtimeState.findUnique({ where: { key: requestKey } });

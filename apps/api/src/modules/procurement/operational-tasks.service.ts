@@ -101,7 +101,7 @@ export class OperationalTasksService {
     const candidate = userId ? (await this.candidates(actor)).find(user => user.id === userId && user.kinds.includes(kind)) : null;
     if (userId && !candidate) throw new BadRequestException('接收人没有该岗位操作权限或账号已停用');
     return this.prisma.$transaction(async db => {
-      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key(kind, id)}))`;
+      await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key(kind, id)}))::text`;
       const source = kind === 'warehouse' ? await db.procPurchaseOrderMirror.findUnique({ where: { id } }) : await db.procPurchaseReceipt.findUnique({ where: { id } });
       if (!source) throw new NotFoundException('原业务记录已不存在');
       const current = object((await db.runtimeState.findUnique({ where: { key: key(kind, id) } }))?.value);

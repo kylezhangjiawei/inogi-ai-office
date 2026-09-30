@@ -3782,7 +3782,7 @@ export class ProcurementService {
       if (dto.remark !== undefined) data.remark = dto.remark || null;
       if (dto.imageKey !== undefined) data.imageKey = dto.imageKey.trim() || null;
       const row = await this.prisma.$transaction(async tx=>{
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'tplus-publish-material:'+id}))`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'tplus-publish-material:'+id}))::text`;
         const pending=await tx.runtimeState.findUnique({where:{key:'erp-material-publish:'+id}});
         if(pending?.value){
           const attempt=JSON.parse(pending.value) as {identity:string};

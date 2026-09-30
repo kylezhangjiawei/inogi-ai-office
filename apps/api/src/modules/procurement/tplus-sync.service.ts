@@ -1643,7 +1643,7 @@ export class TplusSyncService {
     // Foreign keys intentionally prevent removal of lines referenced by local receipt/stock-plan records.
     await this.prisma.$transaction(async tx => {
       const orderNo = String(voucher.Code);
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))::text`;
       const savedVersion = await tx.runtimeState.findUnique({where:{key:'erp-po-version:' + orderNo}});
       const latest = savedVersion ? JSON.parse(savedVersion.value) : null;
       if (latest && (latest.id !== String(voucher.ID) || latest.ts !== String(voucher.Ts))) throw new ConflictException('本地订单已同步更新版本，请重新读取ERP');

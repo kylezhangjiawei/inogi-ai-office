@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { PrismaClient } from '@prisma/client';
 import { PurchaseReceiptsService } from '../src/modules/procurement/purchase-receipts.service';
+import { lockOrderDependency } from '../src/modules/procurement/purchase-delivery-store';
 import { auditReceiptsTestDatabaseUrl } from './helpers/audit-receipts-database';
 
 /**
@@ -36,6 +37,20 @@ test('PostgreSQL: receipt migration, decimal totals, identity, idempotency, conc
     }
     for (const statement of migration.split(';').map((value) => value.trim()).filter(Boolean)) await admin.$executeRawUnsafe(statement);
     assert.equal((await db.$queryRaw<Array<{ current_schema: string }>>`SELECT current_schema()`)[0].current_schema, schema);
+    // The lock query must deserialize successfully without weakening serialization.
+    const lockOrder = 'QA-PO-LOCK', lockKey = 'erp-po-write:' + lockOrder;
+    const tryLock = () => db.$transaction(async (tx) =>
+      (await tx.$queryRaw<Array<{ acquired: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext(${lockKey})) AS acquired`)[0].acquired);
+    await db.$transaction(async (tx) => {
+      await lockOrderDependency(tx, lockOrder);
+      assert.equal(await tryLock(), false, 'another transaction must not acquire the same order lock');
+    });
+    assert.equal(await tryLock(), true, 'commit must release the transaction lock');
+    await assert.rejects(db.$transaction(async (tx) => {
+      await lockOrderDependency(tx, lockOrder);
+      throw new Error('qa-order-lock-rollback');
+    }), /qa-order-lock-rollback/);
+    assert.equal(await tryLock(), true, 'rollback must release the transaction lock');
     await db.procTaskTreeNode.create({ data: { id: 'qa-receipt-node', productId: 'qa-product', name: '来料检验模块' } });
     const service = new PurchaseReceiptsService(db as never);
     const actor = { id: 'qa-warehouse', name: '隔离验收仓管', permissions: ['*'] };
@@ -44,6 +59,14 @@ test('PostgreSQL: receipt migration, decimal totals, identity, idempotency, conc
       inventoryCode: 'QA-MAT-1', inventoryName: '隔离验收物料', spec: 'V1', unit: '件', supplierName: '隔离供应商', orderedQty: 20, receivedQty: 18,
     } });
     const input = { requestId: 'qa-receipt-main-0001', expectedSourceUpdatedAt: line.updatedAt.toISOString(), deliveryNo: 'QA-DELIVERY-001', receivedDate: '2026-09-01', receivedQty: 10, note: '隔离测试' };
+    for (const prefix of ['erp-po-pending:', 'erp-po-deleted:']) {
+      const key = prefix + line.tpOrderNo;
+      await db.runtimeState.create({ data: { key, value: line.tpOrderId! } });
+      await assert.rejects(service.receive(line.id, input, actor), /正在核对操作结果或已删除/);
+      assert.equal(await db.procPurchaseReceipt.count(), 0, 'blocked ERP orders must not create receipts');
+      assert.equal(await db.auditLog.count(), 0, 'blocked receipts must not emit success audits');
+      await db.runtimeState.delete({ where: { key } });
+    }
     const duplicate = await Promise.all([service.receive(line.id, input, actor), service.receive(line.id, input, actor)]);
     assert.equal(duplicate[0].receipts.length, 1); assert.equal(duplicate[1].receipts.length, 1);
     assert.equal(await db.procPurchaseReceipt.count(), 1); assert.equal(await db.auditLog.count(), 1);
