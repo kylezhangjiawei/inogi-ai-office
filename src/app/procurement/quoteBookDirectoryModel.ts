@@ -71,6 +71,7 @@ export function filterSupplierMaterials(entries: SupplierMaterialQuote[], query:
 }
 
 export function supplierSourceLabel(source?: string): string {
+  if (source === "tplus-order") return "ERP采购订单补录";
   if (source === "tplus") return "T+ 同步";
   if (source === "local") return "本地维护";
   if (source === "import") return "导入";

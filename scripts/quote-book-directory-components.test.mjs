@@ -11,7 +11,7 @@ const primitives = new Proxy({}, {get:(_,key)=>key});
 const material = (id,supplier='s1',patch={}) => ({id,name:`物料 ${id}`,spec:'M20',unit:'件',category:'阀类',tpInventoryCode:`T-${id}`,quotes:[{id:`q-${id}`,materialId:id,supplierId:supplier,supplierName:supplier,supplier:{id:supplier,name:`厂家 ${supplier}`,enabled:true,source:'local'},tiers:[{minQty:10,unitPrice:3}],leadTimeDays:5,currency:'CNY'}],...patch});
 async function fixture({rows=[material('m1')],suppliers=[],relations=[],tasks=[],canWrite=true,permissions=true,fail=false}={}){
  const slots=[];let cursor=0,dirty=true,effects=[],tree; const compared=[],edited=[];
- const props={rows,today:'2026-09-21',canWrite,onCompare:r=>compared.push(r),onEdit:(...args)=>edited.push(args),onCreate(){},onImport(){},onQualifications(){}};
+ const props={rows,today:'2026-09-21',canWrite,onCompare:r=>compared.push(r),onEdit:(...args)=>edited.push(args),onEditMany:(...args)=>edited.push(args),onCreate(){},onImport(){},onQualifications(){}};
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
  const hooks={
  useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return[slots[i],v=>{const next=typeof v==='function'?v(slots[i]):v;if(!Object.is(next,slots[i])){slots[i]=next;dirty=true;}}];},
@@ -43,6 +43,13 @@ test('只读用户没有维护入口；报价有效不等于供货合格',async(
  const page=await fixture({canWrite:false,permissions:false,relations:[{id:'r',materialId:'m1',supplierId:'s1',supplierName:'厂家 s1',effectiveStatus:'pending'}]});
  assert.equal(page.button('编辑'),undefined);assert.equal(page.button('新增供应商'),undefined);assert.equal(page.button('录入报价'),undefined);assert.match(page.text(),/暂无有效的合格供应商记录/);assert.match(page.text(),/待审核/);
 });
+
+test('历史订单参考价保留在全部物料中，但不属于有效报价筛选',async()=>{
+ const history=material('history');history.quotes[0].source='tplus-order';
+ const page=await fixture({rows:[history,material('manual')]});assert.equal(page.materialRows().length,2);
+ const filter=page.all().find(n=>n.type==='NativeSelect'&&n.props['aria-label']==='报价状态');
+ filter.props.onChange({target:{value:'valid'}});assert.equal(page.materialRows().length,1);assert.match(text(page.materialRows()[0]),/manual/);
+});
 test('合格供应商展示真实适用范围和主供角色',async()=>{
  const page=await fixture({suppliers:[{id:'s1',name:'厂家 s1',enabled:true,source:'local',materialRoles:{m1:'primary'}}],relations:[{id:'r',materialId:'m1',supplierId:'s1',supplierName:'厂家 s1',effectiveStatus:'approved',products:[{id:'p',name:'Q7'}],effectiveFrom:'2026-09-01',effectiveUntil:null}]});assert.match(page.text(),/主供/);assert.match(page.text(),/Q7/);assert.ok(page.button('查看供货资格'));
 });
@@ -54,4 +61,46 @@ test('关联单据按物料ID匹配、同订单行去重、查看使用只读原
 });
 test('加载失败保留错误和重试，不伪造供应商资料',async()=>{
  const page=await fixture({fail:true});assert.match(page.text(),/目录不可用/);assert.ok(page.button('重试'));assert.match(page.text(),/档案待关联/);assert.match(page.text(),/未填写/);
+});
+
+test('报价物料表格支持搜索、多选及跨筛选保留选择', async () => {
+ const page=await fixture({rows:[material('one'),material('two'),material('three')]});
+ page.click('录入报价');
+ assert.ok(page.table('选择报价物料'));
+ const pick=label=>page.all().find(n=>n.type==='Checkbox'&&n.props['aria-label']===label);
+ pick('选择物料 one').props.onCheckedChange(true);
+ page.input('筛选报价物料','T-two');
+ assert.equal(nodes(page.table('选择报价物料')).filter(n=>n.type==='tr').length,2);
+ pick('选择物料 two').props.onCheckedChange(true);
+ assert.match(page.text(),/已选 2/);
+ page.input('筛选报价物料','');
+ assert.equal(pick('选择物料 one').props.checked,true);
+ assert.equal(pick('选择物料 two').props.checked,true);
+ page.click('继续录入');
+ assert.deepEqual(page.edited[0][0].map(m=>m.id),['one','two']);
+ page.click('录入报价');
+ page.click('清空已选');
+ assert.equal(page.button('继续录入').props.disabled,true);
+});
+test('供应商多选按名称、ERP 编码和来源筛选，跨筛选保留身份，停用供应商不进入组合', async () => {
+ const page=await fixture({rows:[material('one'),material('two')],suppliers:[{id:'s1',name:'厂家甲',source:'local',enabled:true},{id:'erp',name:'厂家乙',source:'tplus-order',tpCode:'ERP-200',enabled:true},{id:'off',name:'已停用',source:'tplus',enabled:false}]});
+ page.click('录入报价');page.input('筛选报价供应商','ERP-200');
+ const pick=label=>page.all().find(n=>n.type==='Checkbox'&&n.props['aria-label']===label);
+ pick('选择供应商厂家乙（erp）').props.onCheckedChange(true);
+ page.input('筛选报价供应商','');assert.equal(pick('选择供应商厂家甲（s1）').props.checked,true);assert.equal(pick('选择供应商厂家乙（erp）').props.checked,true);
+ assert.doesNotMatch(text(page.table('选择报价供应商')),/已停用/);
+ const source=page.all().find(n=>n.type==='NativeSelect'&&n.props['aria-label']==='筛选报价供应商来源');source.props.onChange({target:{value:'tplus'}});
+ assert.equal(nodes(page.table('选择报价供应商')).filter(n=>n.type==='tr').length,2);
+ pick('选择本页物料').props.onCheckedChange(true);assert.match(page.text(),/共 4 项报价/);
+ page.click('继续录入');assert.deepEqual(page.edited[0][1],[{id:'s1',name:'厂家甲'},{id:'erp',name:'厂家乙'}]);
+});
+test('供应商跨页选择保留；未选供应商不能开始录入', async () => {
+ const suppliers=Array.from({length:15},(_,i)=>({id:`supplier-${i}`,name:`供应商${String(i).padStart(2,'0')}`,source:'local',enabled:true}));
+ const page=await fixture({rows:[material('m1')],suppliers});page.click('录入报价');page.click('清空已选供应商');
+ const pick=label=>page.all().find(n=>n.type==='Checkbox'&&n.props['aria-label']===label);
+ pick('选择本页物料').props.onCheckedChange(true);assert.equal(page.button('继续录入').props.disabled,true);
+ page.input('筛选报价供应商','供应商');pick('选择供应商供应商00（supplier-0）').props.onCheckedChange(true);
+ page.click('报价供应商选择下一页');pick('选择供应商供应商14（supplier-14）').props.onCheckedChange(true);
+ page.click('报价供应商选择上一页');assert.equal(pick('选择供应商供应商00（supplier-0）').props.checked,true);
+ page.click('继续录入');assert.deepEqual(page.edited[0][1].map(s=>s.id),['supplier-0','supplier-14']);
 });

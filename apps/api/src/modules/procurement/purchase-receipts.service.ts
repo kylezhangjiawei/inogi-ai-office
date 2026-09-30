@@ -6,6 +6,7 @@ import type { ProcActor } from './procurement.types';
 import type { CreatePurchaseInspectionDto, CreatePurchaseReceiptDto } from './dto/purchase-receipts.dto';
 import { readPurchaseFulfillment } from './purchase-fulfillment.service';
 import { calculatePurchaseFulfillment } from './purchase-fulfillment.model';
+import { lockOrderDependency } from './purchase-delivery-store';
 
 type Db = Prisma.TransactionClient;
 const lineSelect = {
@@ -308,6 +309,8 @@ export class PurchaseReceiptsService {
   }
 
   private async lock(db: Db, lineId: string) {
+    const source = await db.procPurchaseOrderMirror.findUnique({where:{id:lineId},select:{tpOrderNo:true}});
+    if (source) await lockOrderDependency(db, source.tpOrderNo);
     await db.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE id = ${lineId} FOR UPDATE`;
   }
 

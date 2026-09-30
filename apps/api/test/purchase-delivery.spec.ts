@@ -97,6 +97,16 @@ test('source conflicts preserve state and changed source identity flags old prom
 });
 test('audit failure rolls back promise/history/dedup atomically', async () => { const f=fixture(); f.failAudit(); await assert.rejects(f.service.record('mirror-1',input(),actor),/audit/); assert.equal(f.states().size,0); assert.equal(f.audits.length,0); });
 const syncData=(extra:Row={})=>{const data:Row={...line(),...extra}; delete data.id; delete data.tpOrderNo; delete data.tpLineNo;return data;};
+
+test('ERP write reconciliation rejects deleted and older order snapshots, including a removed line', async () => {
+  const f=fixture();
+  await persistMirrorDelivery(f.db as never,'PO-1','mirror-1',syncData({metadata:{erpTs:'00000020'}}) as never);
+  await assert.rejects(persistMirrorDelivery(f.db as never,'PO-1','new-line',syncData({metadata:{erpTs:'00000010'}}) as never), /旧快照/);
+  assert.equal(f.lines().length,1);
+  await f.db.runtimeState.upsert({where:{key:'erp-po-deleted:PO-1'},create:{key:'erp-po-deleted:PO-1',value:'erp-1'},update:{value:'erp-1'}});
+  await assert.rejects(persistMirrorDelivery(f.db as never,'PO-1','mirror-1',syncData({metadata:{erpTs:'00000030'}}) as never), /已确认删除/);
+  assert.equal(f.lines()[0].metadata.erpTs,'00000020');
+});
 test('ERP baseline, no-op sync and date clear retain only observed history', async () => {
   const f=fixture(); await persistMirrorDelivery(f.db as never,'PO-1','mirror-1',syncData() as never); let detail=await f.service.get('mirror-1',{orderNo:'PO-1'},actor); assert.equal(detail.erpHistory.items[0].kind,'baseline'); assert.equal(detail.erpHistory.items[0].before,null); const coverage=detail.erp?.coverageStartedAt;
   await persistMirrorDelivery(f.db as never,'PO-1','mirror-1',syncData({syncedAt:new Date()}) as never); assert.equal(f.audits.length,1);

@@ -78,7 +78,7 @@ function TierChips({ quote, bestPrice, today }: { quote: SupplierQuote; bestPric
   return (
     <div className="flex flex-wrap items-center gap-1">
       {quote.tiers.map((tier, index) => {
-        const isBest = !expired && bestPrice != null && tier.unitPrice === bestPrice;
+        const isBest = quote.source !== 'tplus-order' && !expired && bestPrice != null && tier.unitPrice === bestPrice;
         return (
           <span
             key={`${tier.minQty}:${index}`}
@@ -141,7 +141,9 @@ export function QuoteBookPage() {
   const [historyFor, setHistoryFor] = useState<Pick<QuoteBookRow, "id" | "name"> | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   // 抽屉：material 必有；quote 有则编辑、无则新增
-  const [drawer, setDrawer] = useState<{ material: QuoteBookRow; quote?: SupplierQuote; supplierName?: string } | null>(null);
+  const [drawer, setDrawer] = useState<{ material: Pick<QuoteBookRow,"id"|"name"|"unit">; quote?: SupplierQuote; supplierName?: string } | null>(null);
+  const [quoteBatch, setQuoteBatch] = useState<{ items: Array<{material: QuoteBookRow; supplierId?: string; supplierName: string; quote?: SupplierQuote}>; index: number } | null>(null);
+  const [createSupplier, setCreateSupplier] = useState<{ name?: string; id?: string; suppliers?: Array<{id: string; name: string}> }>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const can = useProcCan();
@@ -300,6 +302,7 @@ export function QuoteBookPage() {
     let expiringQuotes = 0;
     for (const row of rows) {
       for (const quote of row.quotes) {
+        if (quote.source === 'tplus-order' || quote.tiers.length === 0) continue;
         if (isExpired(quote, today)) expiredQuotes += 1;
         else {
           activeSuppliers += 1;
@@ -308,8 +311,8 @@ export function QuoteBookPage() {
       }
     }
     return {
-      quoted: rows.filter((row) => row.quotes.length > 0).length,
-      missing: rows.filter((row) => row.quotes.length === 0).length,
+      quoted: rows.filter((row) => row.quotes.some(quote => quote.source !== 'tplus-order' && quote.tiers.length > 0)).length,
+      missing: rows.filter((row) => !row.quotes.some(quote => quote.source !== 'tplus-order' && quote.tiers.length > 0)).length,
       activeSuppliers,
       expiredQuotes,
       expiringQuotes,
@@ -333,7 +336,7 @@ export function QuoteBookPage() {
         <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
             {can("proc-task:create") && (
-              <Button variant="unstyled" type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
+              <Button variant="unstyled" type="button" onClick={() => { setCreateSupplier({}); setCreateOpen(true); }} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
                 <Plus className="h-4 w-4" />{t("新增商品")}
               </Button>
             )}
@@ -544,7 +547,8 @@ export function QuoteBookPage() {
               params.delete("action");
               return params;
             })}
-            onCompare={compareMaterial} onEdit={(material, quote, supplierName) => setDrawer({ material, quote, supplierName })} onCreate={can("proc-task:create") ? () => setCreateOpen(true) : undefined} onImport={() => setImportOpen(true)} onReload={reload}
+            onEditMany={(materials, suppliers) => setQuoteBatch({ items: suppliers.flatMap(supplier => materials.map(material => ({material, supplierId: supplier.id, supplierName: supplier.name, quote: material.quotes.find(q => q.supplierId === supplier.id)}))), index: 0 })}
+            onCompare={compareMaterial} onEdit={(material, quote, supplierName) => setDrawer({ material, quote, supplierName })} onCreate={can("proc-task:create") || canWrite ? (name, id, suppliers) => { setCreateSupplier({name,id,suppliers}); setCreateOpen(true); } : undefined} onImport={() => setImportOpen(true)} onReload={reload}
             onShowMaterials={() => { clearFilters(); setShowAll(true); changeView("materials"); }} />
         </div>
       </section>
@@ -564,8 +568,15 @@ export function QuoteBookPage() {
           onSaved={reload}
         />
       )}
+      {quoteBatch && canWrite && <QuoteFormDrawer key={JSON.stringify([quoteBatch.index, quoteBatch.items[quoteBatch.index].material.id, quoteBatch.items[quoteBatch.index].supplierId])}
+        material={quoteBatch.items[quoteBatch.index].material}
+        quote={quoteBatch.items[quoteBatch.index].quote}
+        supplierName={quoteBatch.items[quoteBatch.index].supplierName} supplierId={quoteBatch.items[quoteBatch.index].supplierId}
+        lockSupplier={Boolean(quoteBatch.items[quoteBatch.index].supplierId)}
+        batchProgress={`${quoteBatch.index + 1} / ${quoteBatch.items.length}`} continueAfterSave
+        onClose={() => setQuoteBatch(null)} onSaved={() => { reload(); setQuoteBatch(current => current && current.index + 1 < current.items.length ? { ...current, index: current.index + 1 } : null); }} />}
       {/* 新增商品复用物料表单（商品即物料）；关闭后刷新树，把新商品带进报价库 */}
-      {createOpen && <MaterialFormModal onClose={() => { setCreateOpen(false); reload(); }} />}
+      {createOpen && <MaterialFormModal allowErp onCreated={material => { const suppliers = createSupplier.suppliers ?? (createSupplier.name ? [{id:createSupplier.id,name:createSupplier.name}] : []); if (suppliers.length) setQuoteBatch({items:suppliers.map(supplier=>({material:{...material,latestPrice:material.latestPrice ?? null,quotes:[]},supplierId:supplier.id,supplierName:supplier.name})),index:0}); }} onClose={() => { setCreateOpen(false); reload(); }} />}
       {importOpen && <QuoteImportModal rows={rows} onClose={() => setImportOpen(false)} onImported={reload} />}
       {previewImage && <ImageLightbox url={previewImage} onClose={() => setPreviewImage(null)} />}
       {confirmDialog}
@@ -591,9 +602,9 @@ function QuoteBookMaterialRows({
 }) {
   const { t } = useI18n();
   const Caret = open ? ChevronDown : ChevronRight;
-  const activeQuotes = row.quotes.filter((quote) => !isExpired(quote, today));
+  const activeQuotes = row.quotes.filter((quote) => quote.source !== 'tplus-order' && !isExpired(quote, today));
   const activeTierCount = activeQuotes.reduce((sum, quote) => sum + quote.tiers.length, 0);
-  const expiredCount = row.quotes.length - activeQuotes.length;
+  const expiredCount = row.quotes.filter((quote) => quote.source !== 'tplus-order' && isExpired(quote, today)).length;
   const expiringCount = activeQuotes.filter((quote) => isExpiringSoon(quote, today)).length;
   const cnyBest = bestByCurrency.find((best) => best.quote.currency === "CNY") ?? null;
   const recentDelta = cnyBest && row.latestPrice != null && row.latestPrice > 0
@@ -681,7 +692,7 @@ function QuoteBookMaterialRows({
           {row.quotes.length === 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-medium text-amber-700"><AlertTriangle className="size-3" />{t("缺报价")}</span>
           ) : activeQuotes.length === 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-1 font-medium text-rose-700"><AlertTriangle className="size-3" />{t("全部过期")}</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-1 font-medium text-rose-700"><AlertTriangle className="size-3" />{t(expiredCount === row.quotes.length ? "全部过期" : "暂无有效报价")}</span>
           ) : expiringCount > 0 || expiredCount > 0 ? (
             <div className="space-y-0.5 text-[11px] tabular-nums">
               {expiringCount > 0 && <span className="flex items-center gap-1 text-amber-700"><Clock className="size-3" />{t("{count} 条即将到期", { count: expiringCount })}</span>}
@@ -774,7 +785,9 @@ function QuoteBookMaterialRows({
             </td>
             <td className="px-3 py-2 text-xs tabular-nums">
               <div className="text-slate-500">{t("报价 {date}", { date: quote.quoteDate ?? "—" })}</div>
-              {expired ? (
+              {quote.source === 'tplus-order' ? (
+                <div className="mt-0.5 text-amber-700">{t('历史采购参考价，确认报价后方可使用')}</div>
+              ) : expired ? (
                 <div className="mt-0.5 flex items-center gap-1 font-medium text-rose-700"><AlertTriangle className="size-3" />{t("已过期 {date}", { date: quote.validUntil })}</div>
               ) : isExpiringSoon(quote, today) ? (
                 <div className="mt-0.5 flex items-center gap-1 font-medium text-amber-700"><Clock className="size-3" />{t("即将到期 {date}", { date: quote.validUntil })}</div>

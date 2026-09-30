@@ -1326,3 +1326,11 @@ export class UpsertSupplierQuoteDto {
   @MaxLength(500)
   imageKey?: string;
 }
+
+export class PublishTplusMaterialDto {
+  @Transform(({value}) => typeof value === 'string' ? value.trim() : value)
+  @IsString() @IsNotEmpty() @MaxLength(100) code!: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) categoryCode!: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) unitCode!: string;
+  @IsIn(['00','01','03','04']) valueType!: string;
+}

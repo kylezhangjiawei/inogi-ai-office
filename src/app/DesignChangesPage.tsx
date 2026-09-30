@@ -110,36 +110,9 @@ export function DesignChangesPage() {
     calendar: "安排评审会",
   };
 
-  const dialogDescription: Record<Exclude<DialogMode, null>, string> = {
-    filter: "按影响等级与所属阶段缩小变更清单范围。",
-    create: "创建一条待提交的 ECO 草稿，后续可继续补充影响项。",
-    review: "将所选变更同步给研发、质量和注册进行会签。",
-    impact: "基于当前变更生成影响范围与建议动作。",
-    dhf: "汇总影响项、版本、会签结果和归档要求。",
-    calendar: "为当前变更安排跨部门评审会议。",
-  };
-
-  const confirmLabel: Record<Exclude<DialogMode, null>, string> = {
-    filter: "应用筛选",
-    create: "创建草稿",
-    review: "确认发起",
-    impact: "确认生成",
-    dhf: "导出摘要",
-    calendar: "加入日历",
-  };
-
   const handleDialogConfirm = () => {
-    if (!dialogMode) return;
-    const message: Record<Exclude<DialogMode, null>, string> = {
-      filter: "筛选条件已应用",
-      create: "新的设计变更草稿已创建",
-      review: "评审任务已推送",
-      impact: "影响评估已生成",
-      dhf: "DHF 摘要已导出",
-      calendar: "评审会议已加入日历",
-    };
+    if (dialogMode === "filter") toast.success("筛选条件已应用");
     closeDialog();
-    toast.success(message[dialogMode]);
   };
 
   return (
@@ -148,8 +121,8 @@ export function DesignChangesPage() {
         Icon={GitBranch}
         eyebrow="DESIGN CONTROL · ECO"
         title="设计开发变更"
-        description="把 ECO 申请、影响评估、DHF 版本和流转动作集中在一个可追溯工作台。"
-        meta={<><span>{changes.length} 条变更</span><span aria-hidden="true">·</span><span>{changes.filter((item) => item.status === "评审中").length} 条正在评审</span></>}
+        description="流程示例：当前清单为示例数据，尚未开放正式变更办理。"
+        meta={<><span>{changes.length} 条示例</span><span aria-hidden="true">·</span><span>{changes.filter((item) => item.status === "评审中").length} 条示例处于评审中</span></>}
         actions={(
           <>
             <Button type="button" className="hz-primary-action" onClick={() => setDialogMode("create")}><Plus className="size-4" />新建变更</Button>
@@ -158,8 +131,10 @@ export function DesignChangesPage() {
         )}
       />
 
+      <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">本页仅供流程预览。创建、评审、影响评估、导出与会议安排尚未开放；请继续按现行流程办理正式变更。</p>
+
       <HorizonMetricGrid>
-        <HorizonMetric Icon={FileText} label="变更总数" value={changes.length} note="当前变更台账" />
+        <HorizonMetric Icon={FileText} label="示例总数" value={changes.length} note="流程预览示例" />
         <HorizonMetric Icon={Clock3} label="评审中" value={changes.filter((item) => item.status === "评审中").length} note="等待跨部门会签" tone="warning" />
         <HorizonMetric Icon={AlertTriangle} label="高影响" value={changes.filter((item) => item.impact === "高").length} note="需要优先完成评估" tone="danger" />
         <HorizonMetric Icon={Archive} label="已完成" value={changes.filter((item) => item.status === "已完成").length} note="DHF 记录可归档" tone="success" />
@@ -187,7 +162,7 @@ export function DesignChangesPage() {
           </div>
 
           <div className="p-4">
-            {selectedCount > 0 ? <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#dce4f8] bg-[#f4f7fe] px-4 py-3 text-sm text-slate-700"><span>已选 <strong className="tabular-nums">{selectedCount}</strong> 条，可批量发起评审或同步 DHF。</span><Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows({})}>清除选择</Button></div> : null}
+            {selectedCount > 0 ? <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#dce4f8] bg-[#f4f7fe] px-4 py-3 text-sm text-slate-700"><span>已选 <strong className="tabular-nums">{selectedCount}</strong> 条示例，正式评审尚未开放。</span><Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows({})}>清除选择</Button></div> : null}
 
             {pagedChanges.length > 0 ? (
               <div className="material-scrollbar min-h-0 max-h-[min(48rem,max(18rem,calc(100dvh-25rem)))] overflow-auto rounded-xl border border-[#e9edf7] [scrollbar-gutter:stable]">
@@ -256,28 +231,20 @@ export function DesignChangesPage() {
         <DialogContent className="horizon-portal gap-0 overflow-hidden p-0 sm:max-w-lg">
           {dialogMode ? (
             <>
-              <DialogHeader className="border-b border-[#e9edf7] px-5 py-4 text-left"><DialogTitle className="text-balance text-[#1b2559]">{dialogTitle[dialogMode]}</DialogTitle><DialogDescription className="text-pretty">{dialogDescription[dialogMode]}</DialogDescription></DialogHeader>
+              <DialogHeader className="border-b border-[#e9edf7] px-5 py-4 text-left"><DialogTitle className="text-balance text-[#1b2559]">{dialogTitle[dialogMode]}</DialogTitle><DialogDescription className="text-pretty">{dialogMode === "filter" ? "按影响等级与所属阶段缩小示例清单范围。" : "此功能尚未开放，不会保存变更、发送通知、生成文件或安排会议。"}</DialogDescription></DialogHeader>
               <div className="px-5 py-5">
                 {dialogMode === "filter" ? (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5"><Label htmlFor="design-impact-filter">影响等级</Label><NativeSelect id="design-impact-filter" className="material-input" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)}>{["全部", "高", "中", "低"].map((item) => <option key={item}>{item}</option>)}</NativeSelect></div>
                     <div className="space-y-1.5"><Label htmlFor="design-stage-filter">所属阶段</Label><NativeSelect id="design-stage-filter" className="material-input" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>{["全部", "研发", "验证", "结构", "软件", "注册"].map((item) => <option key={item}>{item}</option>)}</NativeSelect></div>
                   </div>
-                ) : dialogMode === "create" ? (
-                  <dl className="grid gap-3 rounded-xl bg-[#f4f7fe] p-4 text-sm"><div><dt className="text-xs text-slate-500">默认标题</dt><dd className="mt-1 font-medium text-slate-800">压缩机启动阈值优化</dd></div><div><dt className="text-xs text-slate-500">默认负责人</dt><dd className="mt-1 font-medium text-slate-800">王宁</dd></div><div><dt className="text-xs text-slate-500">初始状态</dt><dd className="mt-1 font-medium text-slate-800">待提交</dd></div></dl>
-                ) : dialogMode === "review" ? (
-                  <div className="space-y-3"><p className="text-pretty text-sm leading-6 text-slate-700">已选择 <strong className="tabular-nums">{selectedCount || 1}</strong> 条变更单，准备同步给研发、质量和注册进行会签。</p><div className="rounded-xl border border-[#dce4f8] bg-[#f4f7fe] p-3 text-sm text-slate-700">预计 2 个工作日内完成；完成后自动回写 DHF 版本记录。</div></div>
-                ) : dialogMode === "impact" ? (
-                  <dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">预计影响</dt><dd className="mt-1 text-slate-800">BOM、验证方案、IFU 说明书</dd></div><div><dt className="text-xs text-slate-500">风险等级</dt><dd className="mt-1 text-slate-800">{selected?.impact ?? "中"}</dd></div><div><dt className="text-xs text-slate-500">建议动作</dt><dd className="mt-1 text-slate-800">补充验证，并同步注册评估</dd></div></dl>
-                ) : dialogMode === "dhf" ? (
-                  <p className="text-pretty text-sm leading-7 text-slate-700">将导出当前变更对应的影响项、版本号、会签结果和归档要求，方便归档或注册审阅。</p>
                 ) : (
-                  <dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">会议主题</dt><dd className="mt-1 text-slate-800">{selected?.id ?? "ECO"} 设计变更评审</dd></div><div><dt className="text-xs text-slate-500">默认参会</dt><dd className="mt-1 text-slate-800">研发、质量、注册</dd></div><div><dt className="text-xs text-slate-500">建议时间</dt><dd className="mt-1 text-slate-800 tabular-nums">2026-04-18 14:00</dd></div></dl>
+                  <p className="text-pretty text-sm leading-7 text-slate-700">正式办理功能开放前，请继续使用现行流程；本页示例不作为业务记录或审批依据。</p>
                 )}
               </div>
               <DialogFooter className="border-t border-[#e9edf7] bg-slate-50 px-5 py-4">
                 {dialogMode === "filter" ? <Button type="button" variant="outline" onClick={() => { setImpactFilter("全部"); setStageFilter("全部"); }}>重置</Button> : <Button type="button" variant="outline" onClick={closeDialog}>取消</Button>}
-                <Button type="button" className="hz-primary-action" onClick={handleDialogConfirm}>{confirmLabel[dialogMode]}</Button>
+                <Button type="button" className="hz-primary-action" onClick={handleDialogConfirm}>{dialogMode === "filter" ? "应用筛选" : "我知道了"}</Button>
               </DialogFooter>
             </>
           ) : null}

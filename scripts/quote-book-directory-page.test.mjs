@@ -69,6 +69,21 @@ test('默认直接展示供应商目录，没有视图 Tab；旧物料入口只�
   assert.ok(nodes(fixture({query:'view=invalid'}).render()).filter(n=>n.type==='Sheet').every(n=>!n.props.open));
 });
 
+test('历史采购参考价不计入有效报价与已报价商品汇总',async()=>{
+ const history=material('history');history.quotes[0].source='tplus-order';
+ const page=fixture({rows:[history],query:'view=materials'});await page.settle();
+ for(const label of ['有效供应商报价','已报价商品']){
+  const card=nodes(page.render()).find(n=>n.type==='div'&&n.key===label);
+  assert.ok(card,label);assert.equal(text(nodes(card).find(n=>n.type==='strong')),'0');
+ }
+ const historyRow=nodes(page.render()).find(n=>typeof n.type==='function'&&n.type.name==='QuoteBookMaterialRows');
+ assert.match(text(historyRow.type(historyRow.props)),/暂无有效报价/);
+ const expired=material('expired');expired.quotes[0].validUntil='2020-01-01';
+ const expiredPage=fixture({rows:[expired],query:'view=materials'});await expiredPage.settle();
+ const expiredRow=nodes(expiredPage.render()).find(n=>typeof n.type==='function'&&n.type.name==='QuoteBookMaterialRows');
+ assert.match(text(expiredRow.type(expiredRow.props)),/全部过期/);
+});
+
 test('供货资格从对应物料打开抽屉，关闭回到原目录并保留无关 URL 参数', async () => {
   const page = fixture({query:'from=task'});await page.settle();
   page.directory().props.onQualifications('two','supplier-A');
@@ -152,4 +167,23 @@ test('读取失败隐藏旧供应商操作，可重试恢复；并行旧读取�
   page.setResponse(async () => [material('latest')]); page.directory().props.onReload(); await page.settle();
   finishOld([material('old')]); await page.settle();
   assert.deepEqual(page.directory().props.rows.map((r) => r.id), ['latest']);
+});
+
+test('多选物料逐项报价，保存推进下一项，取消结束未保存队列', async () => {
+ const page=fixture();await page.settle();const rows=page.directory().props.rows;
+ page.directory().props.onEditMany(rows,[{id:'supplier-A',name:'测试厂家'}]);
+ let drawer=page.byType('QuoteFormDrawer');assert.equal(drawer.props.material.id,rows[0].id);assert.equal(drawer.props.batchProgress,'1 / 2');assert.equal(drawer.props.continueAfterSave,true);
+ drawer.props.onSaved();drawer=page.byType('QuoteFormDrawer');assert.equal(drawer.props.material.id,rows[1].id);assert.equal(drawer.props.batchProgress,'2 / 2');
+ drawer.props.onClose();assert.equal(page.byType('QuoteFormDrawer'),undefined);
+ page.directory().props.onEditMany(rows,[{id:'supplier-A',name:'测试厂家'}]);page.byType('QuoteFormDrawer').props.onSaved();page.byType('QuoteFormDrawer').props.onSaved();assert.equal(page.byType('QuoteFormDrawer'),undefined);
+});
+test('两家供应商乘两种物料形成四项，各自预填报价、供应商身份及抽屉状态独立', async () => {
+ const rows=[material('one'),material('two')];
+ rows[0].quotes.push({...quote('B-one','one'),supplierId:'supplier-B',supplierName:'测试厂家',tiers:[{minQty:5,unitPrice:9}]});
+ const page=fixture({rows});await page.settle();
+ page.directory().props.onEditMany(rows,[{id:'supplier-A',name:'测试厂家'},{id:'supplier-B',name:'测试厂家'}]);
+ const seen=[];
+ for(let i=0;i<4;i++) {const drawer=page.byType('QuoteFormDrawer');seen.push([drawer.props.supplierId,drawer.props.material.id,drawer.props.quote?.id,drawer.key]);assert.equal(drawer.props.lockSupplier,true);assert.equal(drawer.props.batchProgress,`${i+1} / 4`);drawer.props.onSaved();}
+ assert.deepEqual(seen.map(r=>r.slice(0,3)),[['supplier-A','one','q-one'],['supplier-A','two','q-two'],['supplier-B','one','B-one'],['supplier-B','two',undefined]]);
+ assert.equal(new Set(seen.map(r=>r[3])).size,4);assert.equal(page.byType('QuoteFormDrawer'),undefined);
 });

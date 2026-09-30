@@ -11,7 +11,7 @@ const cockpitPermissions = evaluate(readCockpit('src/app/lib/permissions.ts'), {
 const cockpitModel = evaluate(cockpitSource, { react: {}, '../../lib/permissions': cockpitPermissions });
 const t = (value, args = {}) => value.replace(/\{(\w+)\}/g, (_, key) => args[key] ?? key);
 function load(name, deps = {}) {
-  let source = readFileSync(new URL(`../src/app/${['WarehouseCockpit', 'WarehouseWorkbench', 'InventoryCountPage', 'ShipmentRecordsPage'].includes(name) ? 'order-processing/pages' : name === 'WarehouseReturnWorkspace' ? 'procurement/warehouse-flow' : 'procurement'}/${name}.tsx`, import.meta.url), 'utf8');
+  let source = readFileSync(new URL(`../src/app/${['WarehouseCockpit', 'WarehouseWorkbench', 'InventoryCountPage', 'ShipmentRecordsPage'].includes(name) ? 'order-processing/pages' : ['WarehouseReturnWorkspace', 'ErpPurchaseReceiptPanel'].includes(name) ? 'procurement/warehouse-flow' : 'procurement'}/${name}.tsx`, import.meta.url), 'utf8');
   if (name === 'WarehouseFlowPage') source += '\nexport { WarehouseFlowWorkspace };';
   if (name === 'WarehouseWorkbench') source += '\nexport { WarehouseWorkbenchContent };';
   if (name === 'InventoryCountPage') source += '\nexport { InventoryCountContent };';
@@ -72,6 +72,16 @@ function fixture(name, initial, api = {}, permissions = ['*']) {
     deps['../../production/execution/LifecyclePanel'] = { LifecyclePanel: 'LifecyclePanel' };
   }
   deps['./warehouse-flow/WarehouseReturnWorkspace'] = { WarehouseReturnWorkspace: 'WarehouseReturnWorkspace' };
+  deps['./warehouse-flow/ErpPurchaseReceiptPanel'] = { ErpPurchaseReceiptPanel: 'ErpPurchaseReceiptPanel' };
+  if (name === 'ErpPurchaseReceiptPanel') {
+    deps['../../hooks/usePermission'] = deps['../hooks/usePermission'];
+    deps['../../production/execution/OperationalDialog'] = deps['../production/execution/OperationalDialog'];
+    deps['../../lib/warehouseRecordsApi'] = {
+      getWarehouseRecords: api.records,
+      getErpReceiptWarehouses: async () => [{ code: 'W1', name: '量产仓' }],
+      createErpReceipt: async input => { writes.push(input); throw Error('凭据刷新失败'); },
+    };
+  }
   if (name === 'WarehouseReturnWorkspace') {
     for (const key of ['lib/i18n', 'lib/routePaths']) deps[`../../${key}`] = deps[`../${key}`];
     deps['./warehouseViewState'] = model;
@@ -89,6 +99,21 @@ function fixture(name, initial, api = {}, permissions = ['*']) {
   }; return view;
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('ERP 入库失败按当前请求状态提示重新提交或核对原请求', async () => {
+  for (const [state, requestId, readFails, retryable] of [['rejected', 'request-current', false, true], ['uncertain', 'request-current', false, false], ['rejected', 'request-other', false, false], ['rejected', 'request-current', true, false]]) {
+    const view = fixture('ErpPurchaseReceiptPanel', '', { records: async () => {
+      if (readFails) throw Error('状态读取失败');
+      return { erpReceipts: [{ recordId: 'R1', requestId, state, quantity: 3 }] };
+    } });
+    Object.assign(view.props, { record: { ...record('R1'), kind: 'receipt', status: 'confirmed' }, receipts: [] });
+    view.render().click('创建 ERP 采购入库单'); await settle(); view.render();
+    const editor = view.find(node => node.type === 'OperationalDialog').props.editor;
+    await assert.rejects(editor.submit({ warehouseCode: 'W1', date: '2026-09-29', reason: '合格入库' }, 'request-current'), retryable ? /本次未创建入库单.*关闭此表单后重新点击/ : /保持填写内容不变并再次确认/);
+    assert.equal(view.writes.length, 1);
+    view.dispose();
+  }
+});
 
 test('仓库实际出货入口指向正式二级页，并遵循现有生产查看权限', async () => {
   for (const [permissions, visible] of [[['page:warehouse-flow'], false], [['page:production-execution'], true], [['page:warehouse-flow', 'production:ship'], false], [['*'], true]]) {

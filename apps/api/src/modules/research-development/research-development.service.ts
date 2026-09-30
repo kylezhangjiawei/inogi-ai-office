@@ -15,6 +15,7 @@ import {
   mergeProductionMirrorTasks,
   type ProductionMirrorPlacement,
 } from './production-task-sync';
+import { readProductionSyncRegistry, updateProductionTaskSync, type ProductionTaskSyncRecord } from './production-task-sync.store';
 import { RdAiService } from './rd-ai.service';
 import { buildRdTaskProgressRelationGroup } from './rd-task-progress-group';
 import { canReadRdTask, filterRdTaskCategories, isRdTaskOwner, isTaskParticipant, rdTaskReadViewer, type RdTaskAccessActor, type RdTaskReadViewer } from './rd-task-access';
@@ -367,18 +368,6 @@ type TaskSlot = {
   /** 根任务深度为 1，用于限制整棵来源树挂载后的最大层级。 */
   depth: number;
   task: JsonRecord;
-};
-
-type ProductionTaskSyncRecord = {
-  task_id: string;
-  active: boolean;
-  first_synced_at: string;
-  synced_at: string;
-  synced_by_id: string | null;
-  synced_by_name: string;
-  revoked_at: string | null;
-  revoked_by_id: string | null;
-  revoked_by_name: string | null;
 };
 
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
@@ -1843,48 +1832,14 @@ export class ResearchDevelopmentService {
     }
   }
 
-  private normalizeProductionSyncRegistry(value: unknown): Record<string, ProductionTaskSyncRecord> {
-    if (!isRecord(value)) return {};
-    const result: Record<string, ProductionTaskSyncRecord> = {};
-    for (const [taskId, raw] of Object.entries(value)) {
-      if (!isRecord(raw) || !cleanText(taskId)) continue;
-      const firstSyncedAt = cleanText(raw.first_synced_at) || cleanText(raw.synced_at);
-      const syncedAt = cleanText(raw.synced_at) || firstSyncedAt;
-      if (!firstSyncedAt || !syncedAt) continue;
-      result[taskId] = {
-        task_id: taskId,
-        active: raw.active === true,
-        first_synced_at: firstSyncedAt,
-        synced_at: syncedAt,
-        synced_by_id: cleanUserId(raw.synced_by_id) || null,
-        synced_by_name: cleanText(raw.synced_by_name) || '研发成员',
-        revoked_at: cleanText(raw.revoked_at) || null,
-        revoked_by_id: cleanUserId(raw.revoked_by_id) || null,
-        revoked_by_name: cleanText(raw.revoked_by_name) || null,
-      };
-    }
-    return result;
-  }
-
-  private async readProductionSyncRegistry(): Promise<Record<string, ProductionTaskSyncRecord>> {
-    return this.normalizeProductionSyncRegistry(await this.readValue('rd.productionTaskSyncs'));
+  private readProductionSyncRegistry(): Promise<Record<string, ProductionTaskSyncRecord>> {
+    return readProductionSyncRegistry(this.prisma);
   }
 
   async listProductionTaskSyncs(): Promise<ProductionTaskSyncRecord[]> {
     this.assertDefaultResearchWorkspace();
     const registry = await this.readProductionSyncRegistry();
     return Object.values(registry).sort((a, b) => b.synced_at.localeCompare(a.synced_at));
-  }
-
-  private async appendProductionSyncAudit(entry: JsonRecord): Promise<void> {
-    const current = await this.readArray('rd.productionTaskSyncAudit');
-    const next = {
-      id: `rd-production-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: new Date().toISOString(),
-      ...entry,
-    }
-    // 独立审计表不随撤销删除；保留足够长的操作历史，同时避免设置表无限膨胀。
-    await this.writeValue('rd.productionTaskSyncAudit', [next, ...current].slice(0, 5000));
   }
 
   async syncTaskToProduction(
@@ -1897,31 +1852,12 @@ export class ResearchDevelopmentService {
     const task = await this.findTaskAcrossStores(id);
     if (!task) throw new NotFoundException('任务不存在');
 
-    const registry = await this.readProductionSyncRegistry();
-    const previous = registry[id];
-    const now = new Date().toISOString();
-    const record: ProductionTaskSyncRecord = {
-      task_id: id,
-      active: true,
-      first_synced_at: previous?.first_synced_at ?? now,
-      synced_at: now,
-      synced_by_id: cleanUserId(actor?.userId) || null,
-      synced_by_name: cleanText(actor?.userName) || '研发成员',
-      revoked_at: null,
-      revoked_by_id: null,
-      revoked_by_name: null,
-    };
-    await this.writeValue('rd.productionTaskSyncs', { ...registry, [id]: record });
-    await this.appendProductionSyncAudit({
-      action: previous?.active ? 'task.production_sync_refreshed' : 'task.production_sync_enabled',
-      task_id: id,
-      actor: { id: record.synced_by_id, name: record.synced_by_name },
-    });
+    const { record, action } = await updateProductionTaskSync(this.prisma, id, true, actor);
     await this.createAuditLog({
       actor: { id: record.synced_by_id, name: record.synced_by_name },
-      action: previous?.active ? 'task.production_sync_refreshed' : 'task.production_sync_enabled',
+      action: action!,
       resource: { type: 'task', id, name: cleanText(task.title) || id },
-      comment: previous?.active ? '更新同步到生产驾驶舱的任务镜像' : '同步任务到生产驾驶舱',
+      comment: action === 'task.production_sync_refreshed' ? '更新同步到生产驾驶舱的任务镜像' : '同步任务到生产驾驶舱',
       source: 'api',
     });
     await this.refreshProductionMirrors(true);
@@ -1935,28 +1871,11 @@ export class ResearchDevelopmentService {
     this.assertDefaultResearchWorkspace();
     const id = cleanText(taskId);
     if (!id) throw new BadRequestException('taskId 不能为空');
-    const registry = await this.readProductionSyncRegistry();
-    const previous = registry[id];
-    if (!previous) throw new NotFoundException('该任务尚未同步到生产驾驶舱');
-    if (!previous.active) return previous;
-
-    const now = new Date().toISOString();
-    const record: ProductionTaskSyncRecord = {
-      ...previous,
-      active: false,
-      revoked_at: now,
-      revoked_by_id: cleanUserId(actor?.userId) || null,
-      revoked_by_name: cleanText(actor?.userName) || '研发成员',
-    };
-    await this.writeValue('rd.productionTaskSyncs', { ...registry, [id]: record });
-    await this.appendProductionSyncAudit({
-      action: 'task.production_sync_revoked',
-      task_id: id,
-      actor: { id: record.revoked_by_id, name: record.revoked_by_name },
-    });
+    const { record, action } = await updateProductionTaskSync(this.prisma, id, false, actor);
+    if (!action) return record;
     await this.createAuditLog({
       actor: { id: record.revoked_by_id, name: record.revoked_by_name },
-      action: 'task.production_sync_revoked',
+      action,
       resource: { type: 'task', id, name: id },
       comment: '撤销同步到生产驾驶舱',
       source: 'api',

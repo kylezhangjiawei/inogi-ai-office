@@ -366,6 +366,7 @@ export interface Quotation {
   taskId?: string;
   materialId?: string;
   materialName: string;
+  supplierId?: string;
   supplierName: string;
   unitPrice: number;
   quantity?: number;
@@ -1334,6 +1335,21 @@ export async function getTplusStatus(): Promise<{
   return request("/tplus/status");
 }
 
+export interface QuoteBookSyncResult {
+  upserted: number; orders: number; lines: number; failed: number; warnings: string[];
+  quoteBook: { suppliersCreated: number; materialsCreated: number; quotesCreated: number; quotesUpdated: number; conflicts: string[] };
+}
+export const syncTplusQuoteBook = () => request<{jobId:string}>("/tplus/sync/quote-book", {method:"POST"});
+export interface PublishMaterialInput { code: string; categoryCode: string; unitCode: string; valueType: string }
+export async function publishTplusMaterial(id: string, input: PublishMaterialInput):Promise<{id:string;tpInventoryCode:string}> {
+  const response=await authFetch(`/api/procurement/tplus/materials/${encodeURIComponent(id)}/publish`,{method:'POST',body:JSON.stringify(input)});
+  if(!response.ok){
+    const details=await response.clone().json().catch(()=>null);
+    throw Object.assign(new Error(await readErrorMessage(response,'ERP物料录入失败')),{erpPublishRetry:details?.erpPublishRetry,publishInput:details?.publishInput});
+  }
+  return response.json();
+}
+
 export async function triggerTplusSync(
   kind: "suppliers" | "inventory" | "purchase-orders",
 ): Promise<Record<string, number>> {
@@ -1631,6 +1647,8 @@ export interface SupplierQuote {
   /** 当前真实供应商关联；与报价上的厂家名称快照分开，停用关联也返回。 */
   supplier?: { id: string; name: string; source: string; enabled: boolean };
   supplierName: string;
+  source?: string;
+  sourceRef?: string;
   supplierModel: string;
   currency: string;
   taxIncluded: boolean;

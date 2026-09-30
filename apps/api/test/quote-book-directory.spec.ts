@@ -129,6 +129,52 @@ function writableDirectory(initial: (Pick<SupplierRow, 'id' | 'name'> & Partial<
   return { prisma, suppliers, service: new QuoteBookService(prisma, {} as never, {} as never, {} as never) };
 }
 
+function quoteDirectory() {
+  const fixture = writableDirectory([{id:'a',name:'同名厂',tpCode:'ERP-A'}, {id:'b',name:'同名厂',tpCode:'ERP-B'}]);
+  const quotes: Row[] = [], histories: Row[] = [];
+  const matches = (row: Row, where: Row) => Object.entries(where).every(([key,value]) => key === 'id' && typeof value === 'object' ? row.id !== value.not : row[key] === value);
+  Object.assign(fixture.prisma.procSupplier, {findUniqueOrThrow: async ({where}: any) => fixture.suppliers.find(s=>s.id===where.id)!});
+  Object.assign(fixture.prisma.procMaterial, {findMany: async () => [{id:'material-1',name:'轴承',spec:'M8'}]});
+  fixture.prisma.procSupplierQuote = {
+    findUnique: async ({where}: any) => { assert.equal(where.materialId_supplierName, undefined); return quotes.find(q=>matches(q,where)) || null; },
+    findFirst: async ({where}: any) => quotes.find(q=>matches(q,where)) || null,
+    create: async ({data}: any) => { assert.ok(!quotes.some(q=>q.materialId===data.materialId && q.supplierId===data.supplierId)); const row={id:`q-${quotes.length}`,updatedAt, ...data}; quotes.push(row); return row; },
+    update: async ({where,data}: any) => {const row=quotes.find(q=>q.id===where.id)!; Object.assign(row,data); return row;},
+    upsert: async ({where,create,update}: any) => {assert.ok(where.materialId_supplierId);const row=quotes.find(q=>matches(q,where.materialId_supplierId)); return row ? fixture.prisma.procSupplierQuote.update({where:{id:row.id},data:update}) : fixture.prisma.procSupplierQuote.create({data:create});},
+  };
+  fixture.prisma.procQuotation = {findFirst: async ({where}: any) => histories.find(q=>matches(q,where)) || null, create: async ({data}: any) => {histories.push(data);return data;}};
+  return {...fixture, quotes, histories};
+}
+
+test('同名不同ERP编码按供应商档案各自新增、编辑，历史同价不跨档案去重', async () => {
+  const f=quoteDirectory();
+  const dto={materialId:'material-1',supplierName:'同名厂',tiers:[{minQty:0,unitPrice:10}]};
+  const first=await f.service.createQuote({...dto,supplierId:'a'}, {id:'u'} as never);
+  const second=await f.service.createQuote({...dto,supplierId:'b'}, {id:'u'} as never);
+  assert.equal(f.quotes.length,2);assert.notEqual(first.id,second.id);
+  await assert.rejects(f.service.createQuote({...dto,supplierId:'a'}, {id:'u'} as never),/已存在/);
+  await assert.rejects(f.service.createQuote(dto, {id:'u'} as never),/同名供应商/);
+  for(const quote of f.quotes) await f.service.updateQuote(quote.id,{...dto,supplierId:quote.supplierId,tiers:[{minQty:0,unitPrice:quote.supplierId==='a'?11:22}]});
+  assert.deepEqual(f.quotes.map(q=>[q.supplierId,q.tiers[0].unitPrice]),[['a',11],['b',22]]);
+  assert.deepEqual(f.histories.map(q=>[q.supplierId,q.unitPrice]),[['a',10],['b',10]]);
+  await assert.rejects(f.service.updateQuote(second.id,{...dto,supplierId:'a'}),/已存在/);
+  assert.equal(f.quotes[1].supplierId,'b');
+});
+
+test('同名供应商表格导入拒绝歧义；未关联的旧报价不被自动挪给新档案', async () => {
+  const f=quoteDirectory();
+  f.quotes.push({id:'legacy',materialId:'material-1',supplierId:null,supplierName:'同名厂',currency:'CNY',tiers:[{minQty:0,unitPrice:99}],updatedAt});
+  const input={items:[{materialName:'轴承',spec:'M8',supplierName:'同名厂',tiers:[{minQty:0,unitPrice:10}]}]};
+  assert.match((await f.service.importQuotes(input,{id:'u'} as never)).errors[0].message,/同名供应商/);
+  await f.service.createQuote({materialId:'material-1',supplierId:'b',supplierName:'同名厂',tiers:[{minQty:0,unitPrice:20}]},{id:'u'} as never);
+  assert.equal(f.quotes[0].supplierId,null);assert.equal(f.quotes[0].tiers[0].unitPrice,99);
+  f.suppliers.splice(1,1);
+  const result=await f.service.importQuotes(input,{id:'u'} as never);
+  assert.deepEqual(result.errors,[]);assert.equal(result.created,1);
+  assert.equal(f.quotes[0].supplierId,null);assert.equal(f.quotes[0].tiers[0].unitPrice,99);
+  assert.equal(f.quotes[2].supplierId,'a');
+});
+
 test('手动新增对全半角、大小写、空格统一查重，并保留不同 ERP 编码的同名档案', async () => {
   const {service,suppliers} = writableDirectory([{id:'a',name:'Acme Tools',tpCode:'ERP-A',source:'tplus'}, {id:'b',name:'Acme Tools',tpCode:'ERP-B',source:'tplus'}]);
   await assert.rejects(service.saveSupplierProfile(undefined,{name:' ＡＣＭＥ   Tools '}),/已存在/);

@@ -533,7 +533,7 @@ export class ProcurementController {
   }
 
   @Post('materials')
-  @Permissions('proc-task:create')
+  @Permissions('proc-task:create', 'quote-book:manage', 'proc-task:inquiry')
   createMaterial(@Body() dto: UpsertMaterialDto, @Request() req: AuthedRequest) {
     return this.service.upsertMaterial(dto, this.actor(req));
   }

@@ -100,9 +100,29 @@ test('未绑定物料的采购任务仍可读取并搜索全库有效报价', as
   );
   const where = quoteQueries[0]?.where as Record<string, unknown>;
   assert.equal('materialId' in where, false);
+  assert.deepEqual(where.source, { not: 'tplus-order' });
   const validity = where.OR as Array<{ validUntil: null | { gte: Date } }>;
   assert.equal(validity[0]?.validUntil, null);
   assert.ok(validity[1]?.validUntil && 'gte' in validity[1].validUntil);
+});
+
+test('历史订单参考价不可直接带入采购任务',async()=>{
+  const service:any=new ProcurementService({procTask:{findUnique:async()=>({id:'t1',materialId:'m1',quantity:1})},
+    procSupplierQuote:{findMany:async()=>[{id:'history',source:'tplus-order',tiers:[{minQty:0,unitPrice:1}]}]}} as never,{} as never,{} as never,{} as never);
+  assert.deepEqual((await service.listTaskQuoteBookOptions('t1')).quotes,[]);
+});
+
+test('报价带入按供应商档案去重，同名不同档案分别保留',async()=>{
+  const rows:any[]=[{materialId:'m1',supplierId:'s1',supplierName:'同名厂商'}];
+  const db:any={procQuotation:{findMany:async()=>rows,createMany:async({data}:any)=>rows.push(...data)},procTaskLog:{create:async()=>({})}};
+  db.$transaction=async(fn:any)=>fn(db);
+  const service:any=new ProcurementService(db,{} as never,{} as never,{} as never);
+  service.requireTask=async()=>({id:'t1',status:'inquiring',materialId:'m1',materialName:'物料'});
+  service.listTaskQuoteBookOptions=async()=>({quotes:['s1','s2'].map(supplierId=>({id:supplierId,materialId:'m1',supplierId,supplierName:'同名厂商',matchedTier:{minQty:0,unitPrice:12},currency:'CNY',taxIncluded:true}))});
+  service.listQuotations=async()=>rows;
+  await service.addQuotationsFromQuoteBook('t1',{quoteIds:['s1','s2']},{id:'u1',name:'采购员',permissions:[]});
+  assert.deepEqual(rows.map(r=>r.supplierId),['s1','s2']);
+  await assert.rejects(service.addQuotationsFromQuoteBook('t1',{quoteIds:['s2']},{id:'u1',name:'采购员',permissions:[]}),/已带入/);
 });
 
 test('可按逐条数量计算多条报价，扣减折扣后一次确认并保存总价', async () => {

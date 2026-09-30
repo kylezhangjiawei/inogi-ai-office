@@ -51,7 +51,7 @@ function fixture() {
       create: async ({ data }: Row) => { const saved = { id: `inspection-${inspections.length + 1}`, createdAt: new Date(), ...data }; inspections.push(saved); return saved; },
     },
     auditLog: { create: async ({ data }: Row) => { if (failAudit) throw new Error('audit unavailable'); audits.push(data); return data; } },
-    $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => { locks.push(values); return []; },
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => { locks.push(values); return strings.join('').includes('"RuntimeState"') ? values.filter(key=>states.get(String(key))?.value).map(key=>({key})) : []; },
     $transaction: async (run: (db: unknown) => Promise<unknown>) => {
       const previous = tail; let release!: () => void; tail = new Promise<void>((resolve) => { release = resolve; }); await previous;
       const oldStates = new Map(states), oldQualities = qualities.map(row => ({ ...row }));
@@ -61,6 +61,12 @@ function fixture() {
   };
   return { line, service: new PurchaseReceiptsService(prisma as never), locks, qualities: () => qualities, states: () => states, receipts: () => receipts, inspections: () => inspections, audits: () => audits, failAudit: () => { failAudit = true; } };
 }
+
+test('ERP删除或修改待核对时不允许新增收货，解除阻断后才可登记',async()=>{
+  const f=fixture();f.states().set('erp-po-pending:PO-1',{value:'pending-request'});
+  await assert.rejects(f.service.receive('line-1',receiptInput,actor),/正在核对/);assert.equal(f.receipts().length,0);
+  f.states().delete('erp-po-pending:PO-1');await f.service.receive('line-1',receiptInput,actor);assert.equal(f.receipts().length,1);
+});
 
 test('receipt DTO requires request identity, date, positive three-decimal quantity and bounded text', async () => {
   assert.equal((await validate(Object.assign(new CreatePurchaseReceiptDto(), receiptInput))).length, 0);
@@ -120,7 +126,8 @@ test('receipt snapshots exact ERP identity and keeps ERP count untouched; local 
   assert.equal(f.receipts()[0].sourceUnit, '件'); assert.equal(f.receipts()[0].sourceUpdatedAt.toISOString(), sourceTime.toISOString());
   assert.equal(f.receipts()[0].sourceOrderedQty.toNumber(), 20);
   assert.equal(result.summaryUnit, '件'); assert.equal(result.receipts[0].source.orderedQty, 20);
-  assert.deepEqual(f.locks[0], ['line-1']); assert.equal(f.audits().length, 1);
+  assert.deepEqual(f.locks[0], ['erp-po-write:PO-1']);
+  assert.deepEqual(f.locks[2], ['line-1']); assert.equal(f.audits().length, 1);
   assert.equal(f.audits()[0].userId, actor.id);
 });
 

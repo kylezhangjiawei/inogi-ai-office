@@ -75,6 +75,15 @@ test('已读范围明确最多 200 条，币种切换继续隔离统计', async 
   assert.match(view.text(), /USD 1\.00/); assert.doesNotMatch(view.text(), /¥30\.00/);
 });
 
+test('历史报价按供应商档案分组，重名异码与未关联记录分别保留', async () => {
+  const view = fixture({rows:[quote('a','one',{supplierName:'同名厂',supplierId:'a'}),quote('b','one',{supplierName:'同名厂',supplierId:'b'}),quote('old','one',{supplierName:'同名厂'})]});
+  await view.settle();
+  const toggle=view.all().find(n=>n.type==='Toggle');assert.ok(toggle);toggle.props.onPressedChange(true);view.render();
+  const captions=view.all().filter(n=>n.type==='caption').map(text);
+  assert.equal(captions.length,3);assert.match(captions.join(' '),/档案 a.*档案 b.*未关联档案/);
+  assert.doesNotMatch(captions.join(' '),/\["id"/);
+});
+
 test('切换同名物料时新请求完成前隐去旧结果，旧请求晚到不能覆盖新物料', async () => {
   for (const fails of [false, true]) {
     const first = deferred(), second = deferred(); let calls = 0;

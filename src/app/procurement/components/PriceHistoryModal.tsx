@@ -12,6 +12,7 @@ import { i18nLocale, useI18n } from "../../lib/i18n";
 import { Button } from "../../components/ui/button";
 
 type SortKey = "date" | "price";
+const supplierKey = (row: Quotation) => JSON.stringify(row.supplierId ? ['id', row.supplierId] : ['name', row.supplierName]);
 
 function fmtQuotationPrice(price: number, currency: string): string {
   if (currency === "CNY") return fmtMoney(price);
@@ -108,18 +109,20 @@ export function PriceHistoryModal({ materialId, materialName, open, onClose }: {
   }, [comparableRows, sortKey, asc]);
   const grouped = useMemo(() => {
     const m = new Map<string, Quotation[]>();
-    for (const r of sorted) { if (!m.has(r.supplierName)) m.set(r.supplierName, []); m.get(r.supplierName)!.push(r); }
+    for (const r of sorted) { const key = supplierKey(r); if (!m.has(key)) m.set(key, []); m.get(key)!.push(r); }
     return Array.from(m.entries());
   }, [sorted]);
   const lowest = exactMaterialId && comparableRows.length ? comparableRows.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
   const latest = comparableRows.length ? comparableRows.reduce((a, b) => ((a.quoteDate ?? "") >= (b.quoteDate ?? "") ? a : b)) : null;
   const average = comparableRows.length ? comparableRows.reduce((sum, row) => sum + row.unitPrice, 0) / comparableRows.length : 0;
-  const supplierCount = new Set(comparableRows.map((row) => row.supplierName)).size;
+  const supplierCount = new Set(comparableRows.map(supplierKey)).size;
+  const supplierLabel = (row: Quotation) => new Set(rows.filter(r => r.supplierName === row.supplierName).map(supplierKey)).size > 1
+    ? `${row.supplierName}（${row.supplierId ? t('档案') + ' ' + row.supplierId : t('未关联档案')}）` : row.supplierName;
   if (!open) return null;
   const toggleSort = (k: SortKey) => { if (sortKey === k) setAsc((v) => !v); else { setSortKey(k); setAsc(true); } };
   const Row = ({ r }: { r: Quotation }) => (
     <tr className="border-b border-slate-100 last:border-0">
-      <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 text-slate-600"><span className="line-clamp-2 break-words" title={r.supplierName}>{r.supplierName}</span>{r.isSelected && <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('已选定')}</span>}</td>
+      <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 text-slate-600"><span className="line-clamp-2 break-words" title={supplierLabel(r)}>{supplierLabel(r)}</span>{r.isSelected && <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('已选定')}</span>}</td>
       <td className={cn("break-all px-3 py-2 font-semibold tabular-nums", lowest && r === lowest ? "text-emerald-700" : "text-slate-800")}>{fmtQuotationPrice(r.unitPrice, r.currency)}{lowest && r === lowest && <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('该币种已读最低')}</span>}</td>
       <td className="break-words px-3 py-2 tabular-nums text-slate-500">{t('{n} 天', { n: r.leadTimeDays })}</td>
       <td className="break-words px-3 py-2 tabular-nums text-slate-500">{r.quoteDate}</td>
@@ -191,11 +194,11 @@ export function PriceHistoryModal({ materialId, materialName, open, onClose }: {
                   grouped.map(([sup, list]) => (
                     <div key={sup} className="min-w-xl">
                       <div className="flex flex-wrap items-center gap-2 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-                        <span className="min-w-0 max-w-full break-words" title={sup}>{sup}</span>
+                        <span className="min-w-0 max-w-full break-words" title={supplierLabel(list[0])}>{supplierLabel(list[0])}</span>
                         <span className="shrink-0 tabular-nums">{t('{count} 条', { count: list.length })}</span>
                       </div>
                       <table className="w-full min-w-xl table-fixed text-sm">
-                        <caption className="sr-only">{t("{supplier}的{currency}历史报价", { supplier: sup, currency: activeCurrency })}</caption>
+                        <caption className="sr-only">{t("{supplier}的{currency}历史报价", { supplier: supplierLabel(list[0]), currency: activeCurrency })}</caption>
                         <colgroup><col className="w-48" /><col className="w-40" /><col className="w-24" /><col className="w-32" /></colgroup>
                         <thead className="sr-only"><tr><th scope="col">{t('供应商')}</th><th scope="col">{t('单价')}</th><th scope="col">{t('交期')}</th><th scope="col">{t('报价日期')}</th></tr></thead>
                         <tbody>{list.map((r) => <Row key={r.id} r={r} />)}</tbody>

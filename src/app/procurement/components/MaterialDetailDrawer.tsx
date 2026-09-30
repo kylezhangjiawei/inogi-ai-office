@@ -395,7 +395,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
         </ScrollArea>
 
         <PriceHistoryModal materialId={material.id} materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
-        {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
+        {editOpen && <MaterialFormModal allowErp material={material} onClose={() => setEditOpen(false)} />}
         {imageOpen && material.imageUrl && (
           <ImageLightbox
             url={material.imageUrl}

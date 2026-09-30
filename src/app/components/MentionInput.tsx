@@ -141,9 +141,8 @@ export function useMentions(opts: {
   return { open, filtered, highlightIndex, pick, handleKeyDown, syncActiveQuery, mentionsForSubmit, resetMentions };
 }
 
-/** 候选面板高度：上限 420px（约 13 人一屏），下限 160px（空间再窄也留 5 行），与视口边缘留 12px。 */
+/** 候选面板最多 420px；小视口以实际可用空间为准，与视口边缘留 12px。 */
 const PANEL_MAX_HEIGHT = 420;
-const PANEL_MIN_HEIGHT = 160;
 const PANEL_VIEWPORT_MARGIN = 12;
 
 /**
@@ -193,17 +192,28 @@ export function MentionSuggestionPanel({
     if (!open || variant !== "desktop") return;
     const anchor = panelRef.current?.offsetParent;
     if (!(anchor instanceof HTMLElement)) return;
-    const rect = anchor.getBoundingClientRect();
-    const bounds = clipBounds(anchor);
-    const spaceAbove = rect.top - bounds.top;
-    const spaceBelow = bounds.bottom - rect.bottom;
-    // 空间相当时保持向上（沿用原有观感），只有下方明显更宽裕才翻到下面
-    const up = spaceAbove >= spaceBelow;
-    const available = up ? spaceAbove : spaceBelow;
-    setLayout({
-      placement: up ? "up" : "down",
-      maxHeight: Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, available)),
-    });
+    const updateLayout = () => {
+      const rect = anchor.getBoundingClientRect();
+      const bounds = clipBounds(anchor);
+      const spaceAbove = rect.top - bounds.top;
+      const spaceBelow = bounds.bottom - rect.bottom;
+      const up = spaceAbove >= spaceBelow;
+      // 预留面板与输入框之间的 4px 间距，不能用最小高度突破裁剪边界。
+      const maxHeight = Math.max(0, Math.min(PANEL_MAX_HEIGHT, (up ? spaceAbove : spaceBelow) - 4));
+      const placement = up ? "up" : "down";
+      setLayout((current) => current.placement === placement && current.maxHeight === maxHeight
+        ? current : { placement, maxHeight });
+    };
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(anchor);
+    window.addEventListener("resize", updateLayout);
+    window.addEventListener("scroll", updateLayout, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateLayout);
+      window.removeEventListener("scroll", updateLayout, true);
+    };
   }, [open, variant, candidates.length]);
 
   // 候选不再截断，键盘上下移动时需把高亮项带进可视区，否则长名单下高亮会跑出滚动区。
@@ -246,7 +256,7 @@ export function MentionSuggestionPanel({
       ref={panelRef}
       style={{ maxHeight: layout.maxHeight }}
       className={cn(
-        "absolute left-0 z-30 flex w-64 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg",
+        "absolute left-0 z-30 flex w-64 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg",
         layout.placement === "up" ? "bottom-full mb-1" : "top-full mt-1",
         className,
       )}

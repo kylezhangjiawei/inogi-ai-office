@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
+import * as jsxRuntime from "react/jsx-runtime";
 
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -71,4 +73,33 @@ test("信息流转页面不包含禁用的视觉与手写弹层模式", () => {
     assert.doesNotMatch(page, /fixed inset-0/, `${name}不应手写全屏弹层`);
     assert.doesNotMatch(page, /\bh-screen\b/, `${name}不应使用固定屏幕高度`);
   }
+});
+
+test("设计变更未开放操作只显示说明，筛选仍可应用且不伪报业务成功", () => {
+  const slots = [], messages = [];
+  let cursor = 0;
+  const hooks = {
+    useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], value => { slots[i] = typeof value === 'function' ? value(slots[i]) : value; }]; },
+    useDeferredValue: value => value, useEffect() {}, useMemo: fn => fn(),
+  };
+  const code = ts.transpileModule(pages['设计开发变更'], { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const exports = {}, primitives = new Proxy({}, { get: (_, key) => key });
+  new Function('require', 'exports', code)(name => name === 'react' ? hooks : name === 'react/jsx-runtime' ? jsxRuntime : name === 'sonner' ? { toast: { success: message => messages.push(message) } } : name.endsWith('/utils') ? { cn: (...args) => args.filter(Boolean).join(' ') } : primitives, exports);
+  const nodes = value => Array.isArray(value) ? value.flatMap(nodes) : value && typeof value === 'object' ? [value, ...nodes(value.props?.children), ...nodes(value.props?.actions)] : [];
+  const text = value => Array.isArray(value) ? value.map(text).join('') : value && typeof value === 'object' ? text(value.props?.children) : value == null || typeof value === 'boolean' ? '' : String(value);
+  const render = () => { cursor = 0; return exports.DesignChangesPage(); };
+  const click = label => { const button = nodes(render()).find(node => node.type === 'Button' && text(node) === label); assert.ok(button, label); button.props.onClick(); };
+  assert.match(text(render()), /本页仅供流程预览/);
+  for (const label of ['新建变更', '发起评审', '生成影响评估', '导出 DHF 摘要', '安排评审会']) {
+    click(label);
+    assert.match(text(render()), /此功能尚未开放/);
+    click('我知道了');
+    assert.equal(nodes(render()).find(node => node.type === 'Dialog').props.open, false);
+    assert.deepEqual(messages, []);
+  }
+  click('筛选');
+  nodes(render()).find(node => node.props?.id === 'design-impact-filter').props.onChange({ target: { value: '高' } });
+  click('应用筛选');
+  assert.deepEqual(messages, ['筛选条件已应用']);
+  assert.equal(nodes(render()).filter(node => node.type === 'Button' && node.props['aria-label']?.startsWith('查看 ECO')).length, 2);
 });

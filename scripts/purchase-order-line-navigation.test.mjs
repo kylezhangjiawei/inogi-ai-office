@@ -86,6 +86,7 @@ function fixture(t, { target = '?lineId=mirror%2F2%3Fx%3D1', state = null, allow
     '../../procurement/delivery/PurchaseOrderDeliveryDrawer': { PurchaseOrderDeliveryDrawer: 'PurchaseOrderDeliveryDrawer' },
     '../../lib/purchaseDeliveryNavigation': { purchaseDeliveryReturnPath: () => null },
     '../components/PurchaseOrderHistoryDrawer': { PurchaseOrderHistoryDrawer: 'PurchaseOrderHistoryDrawer' },
+    '../components/ErpPurchaseOrderDialog': { ErpPurchaseOrderDialog: 'ErpPurchaseOrderDialog' },
     '../components/PurchaseOrderAvailabilityDialog': { PurchaseOrderAvailabilityDialog: 'PurchaseOrderAvailabilityDialog', availabilityConfirmedAt: (value) => value },
   };
   const { PurchaseOrderDetail } = load('src/app/order-processing/pages/PurchaseOrderDetail.tsx', dependencies, { document });

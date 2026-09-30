@@ -36,7 +36,7 @@ const AlertDialogOverlay = React.forwardRef<
     ref={ref}
     data-slot="alert-dialog-overlay"
     className={cn(
-      "motion-reduce:animate-none motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+      "motion-reduce:animate-none! motion-reduce:transition-none! data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
       className,
     )}
     {...props}
@@ -58,7 +58,7 @@ const AlertDialogContent = React.forwardRef<
       ref={ref}
       data-slot="alert-dialog-content"
       className={cn(
-        "bg-card motion-reduce:animate-none motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid min-w-0 grid-cols-1 w-[calc(100%-2rem-max(env(safe-area-inset-left),env(safe-area-inset-right))*2)] max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-max(env(safe-area-inset-top),env(safe-area-inset-bottom))*2)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto overscroll-contain rounded-[var(--m3-shape-dialog)] border p-6 shadow-[var(--shadow-focal)] duration-200 sm:max-w-lg",
+        "bg-card motion-reduce:animate-none! motion-reduce:transition-none! data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid min-w-0 grid-cols-1 w-[calc(100%-2rem-max(env(safe-area-inset-left),env(safe-area-inset-right))*2)] max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-max(env(safe-area-inset-top),env(safe-area-inset-bottom))*2)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto overscroll-contain rounded-[var(--m3-shape-dialog)] border p-6 shadow-[var(--shadow-focal)] duration-200 sm:max-w-lg",
         className,
       )}
       {...props}

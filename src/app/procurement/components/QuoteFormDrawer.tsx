@@ -38,12 +38,16 @@ function localToday(): string {
 }
 
 export function QuoteFormDrawer({
-  material, quote, supplierName, onClose, onSaved,
+  material, quote, supplierName, supplierId: initialSupplierId, lockSupplier = false, batchProgress, continueAfterSave, onClose, onSaved,
 }: {
   material: { id: string; name: string; unit: string };
   /** 传 quote 为编辑，不传为新增厂家报价 */
   quote?: SupplierQuote;
   supplierName?: string;
+  supplierId?: string;
+  lockSupplier?: boolean;
+  batchProgress?: string;
+  continueAfterSave?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -56,7 +60,7 @@ export function QuoteFormDrawer({
   const [formErrors, setFormErrors] = useState<QuoteFormErrors>({});
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [form, setForm] = useState(() => ({
-    supplierName: quote?.supplierName ?? supplierName ?? "",
+    supplierName: lockSupplier ? supplierName ?? quote?.supplierName ?? "" : quote?.supplierName ?? supplierName ?? "",
     supplierModel: quote?.supplierModel ?? "",
     currency: quote?.currency ?? "CNY",
     taxIncluded: quote?.taxIncluded ?? true,
@@ -116,12 +120,12 @@ export function QuoteFormDrawer({
     };
   }, []);
 
-  const [chosenSupplierId, setChosenSupplierId] = useState(quote?.supplierId ?? "");
+  const [chosenSupplierId, setChosenSupplierId] = useState(quote?.supplierId ?? initialSupplierId ?? "");
   const matchingSuppliers = useMemo(
     () => suppliers.filter((s) => s.name.normalize('NFKC').trim().toLocaleLowerCase() === form.supplierName.normalize('NFKC').trim().toLocaleLowerCase()),
     [suppliers, form.supplierName],
   );
-  const supplierId = matchingSuppliers.length === 1 ? matchingSuppliers[0].id : matchingSuppliers.find(s => s.id === chosenSupplierId)?.id;
+  const supplierId = lockSupplier ? initialSupplierId : matchingSuppliers.length === 1 ? matchingSuppliers[0].id : matchingSuppliers.find(s => s.id === chosenSupplierId)?.id;
   const supplierOptions = useMemo(() => [...new Set(suppliers.map((s) => s.name))], [suppliers]);
 
   const setTier = (index: number, key: keyof TierRow, value: string) =>
@@ -131,6 +135,7 @@ export function QuoteFormDrawer({
     if (submitBusyRef.current || imageBusy) return;
     setFormErrors({});
     const supplierName = form.supplierName.trim();
+    if (lockSupplier && !initialSupplierId) { setFormErrors({supplier: t('供应商档案缺失，请返回重新选择')}); return; }
     if (!supplierName) {
       const message = t("请填写厂家名称");
       setFormErrors({ supplier: message });
@@ -206,7 +211,7 @@ export function QuoteFormDrawer({
       else await createSupplierQuote(input);
       toast.success(t(quote ? "报价已更新" : "厂家报价已添加"));
       onSaved();
-      onClose();
+      if (!continueAfterSave) onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : t("保存失败");
       setFormErrors({ submit: message });
@@ -223,6 +228,7 @@ export function QuoteFormDrawer({
         if (openerRef.current?.isConnected) { event.preventDefault(); openerRef.current.focus({ preventScroll: true }); }
       }} className="proc-horizon-drawer proc-quote-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[560px] sm:max-w-[560px]">
         <SheetHeader className="shrink-0 border-b border-slate-100 px-6 py-4 pr-16">
+          {batchProgress && <p role="status" className="text-sm text-muted-foreground tabular-nums">{t("逐项录入报价")} {batchProgress}</p>}
           <SheetTitle className="text-balance text-base font-bold text-slate-900">{t(quote ? "编辑厂家报价" : "添加厂家报价")}</SheetTitle>
           <SheetDescription className="mt-0.5 line-clamp-2 break-words text-pretty text-sm text-slate-500" title={material.name}><AutoTranslatedText text={material.name} /></SheetDescription>
         </SheetHeader>
@@ -233,11 +239,12 @@ export function QuoteFormDrawer({
           <div className="proc-quote-fields grid min-w-0 grid-cols-1 gap-3">
             <label ref={supplierFieldRef} className="col-span-full block min-w-0">
               <span className={LABEL}>{t("厂家名称")}<span className="ml-0.5 text-rose-500">*</span></span>
-              <ComboInput disabled={busy || imageBusy} value={form.supplierName} onChange={(value) => { set("supplierName")(value); setFormErrors((current) => ({ ...current, supplier: undefined, submit: undefined })); }} options={supplierOptions} placeholder={t("输入或从已有供应商中选")} className={cn(FIELD, formErrors.supplier && "border-rose-300 focus:border-rose-400")} />
+              <ComboInput disabled={lockSupplier || busy || imageBusy} value={form.supplierName} onChange={(value) => { set("supplierName")(value); setFormErrors((current) => ({ ...current, supplier: undefined, submit: undefined })); }} options={supplierOptions} placeholder={t("输入或从已有供应商中选")} className={cn(FIELD, formErrors.supplier && "border-rose-300 focus:border-rose-400")} />
               {formErrors.supplier && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{formErrors.supplier}</span>}
-              {form.supplierName.trim() && matchingSuppliers.length === 0 && <span className="mt-1 block text-[11px] text-amber-600">{t("新厂家：保存时将自动创建本地供应商")}</span>}
+              {!lockSupplier && form.supplierName.trim() && matchingSuppliers.length === 0 && <span className="mt-1 block text-[11px] text-amber-600">{t("新厂家：保存时将自动创建本地供应商")}</span>}
             </label>
-            {matchingSuppliers.length > 1 && <div className="col-span-full"><span className={LABEL}>{t("同名供应商档案")}</span><Select value={supplierId ?? ""} onValueChange={setChosenSupplierId}><SelectTrigger aria-label={t("同名供应商档案")} className="mt-1 w-full"><SelectValue placeholder={t("请选择对应的 ERP 编码或档案")} /></SelectTrigger><SelectContent>{matchingSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} · {s.tpCode || s.shortName || s.id}</SelectItem>)}</SelectContent></Select></div>}
+            {lockSupplier && supplierId && <p className="col-span-full break-all text-xs text-muted-foreground">{t('供应商档案')}：{suppliers.find(s => s.id === supplierId)?.tpCode || supplierId}</p>}
+            {!lockSupplier && matchingSuppliers.length > 1 && <div className="col-span-full"><span className={LABEL}>{t("同名供应商档案")}</span><Select value={supplierId ?? ""} onValueChange={setChosenSupplierId}><SelectTrigger aria-label={t("同名供应商档案")} className="mt-1 w-full"><SelectValue placeholder={t("请选择对应的 ERP 编码或档案")} /></SelectTrigger><SelectContent>{matchingSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} · {s.tpCode || s.shortName || s.id}</SelectItem>)}</SelectContent></Select></div>}
             <label className="block"><span className={LABEL}>{t("厂家型号 / 品牌")}</span><Input value={form.supplierModel} onChange={(e) => set("supplierModel")(e.target.value)} className={FIELD} /></label>
             <div>
               <span className={LABEL}>{t("币种")}</span>

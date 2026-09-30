@@ -6,6 +6,7 @@ import { Input } from "../../components/ui/input";
 import { AlertTriangle, CheckCircle2, FileDown, ImagePlus, Loader2, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "../../components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "../../components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Textarea } from "../../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
@@ -38,6 +39,7 @@ import {
   updateProcTask,
   uploadProcurementAttachment,
   upsertProcMaterial,
+  publishTplusMaterial,
   type AiTaskDraft,
   type BusinessLine,
   type ClassifyPreview,
@@ -56,7 +58,7 @@ import {
   type TplusConfigState,
   type UpdateProcTaskInput,
 } from "../../lib/procurementApi";
-import { BuyerComboInput, ComboInput, DateInput, useBuyerDirectory, useConfirmDialog } from "./common";
+import { BuyerComboInput, ComboInput, DateInput, useBuyerDirectory, useConfirmDialog, useProcCan } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { retainAvailableProcurementSelection, setVisibleProcurementSelection, validateReplenishmentSelection } from "../procurementLogic";
@@ -1286,8 +1288,15 @@ const MATERIAL_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "
 const MATERIAL_IMAGE_MAX_SIZE = 10 * 1024 * 1024;
 
 /** 物料主数据表单：传 material 为编辑（后端 PUT 全量覆盖，务必带全字段），不传为新建。 */
-export function MaterialFormModal({ material, onClose }: { material?: Material; onClose: () => void }) {
+export function MaterialFormModal({ material, onClose, allowErp = false, onCreated }: { material?: Material; onClose: () => void; allowErp?: boolean; onCreated?: (material: Material) => void }) {
   const { t } = useI18n();
+  const can = useProcCan();
+  const [destination, setDestination] = useState('local');
+  const [erpFields, setErpFields] = useState({code:'',unitCode:'',categoryCode:'',valueType:'01'});
+  const [createdMaterial, setCreatedMaterial] = useState<Material | null>(null);
+  const [erpLocked, setErpLocked] = useState(false);
+  const savedRef = useRef<Material | null>(null);
+  const submittingRef = useRef(false);
   const { materials } = useProcurementData();
   const productLines = useProductLines();
   const [busy, setBusy] = useState(false);
@@ -1373,6 +1382,10 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
   };
 
   const submit = async () => {
+    if (submittingRef.current) return;
+    if (destination === 'erp' && (!erpFields.code.trim() || !erpFields.unitCode.trim() || !erpFields.categoryCode.trim() || !form.unit.trim() || !form.category.trim())) {
+      setFormError(t('录入ERP需要填写物料单位、分类及对应ERP编码')); return;
+    }
     if (!form.name.trim()) {
       const message = t('请填写物料名称');
       setFormError(message);
@@ -1382,18 +1395,19 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
     }
     setFormError("");
     const safeStock = Number(form.safeStock);
+    submittingRef.current = true;
     setBusy(true);
     try {
       // 后端更新为部分更新：编辑时空串照发（显式清空该字段），新建时空串省略走默认值
       const str = (v: string) => (material ? v.trim() : v.trim() || undefined);
-      await upsertProcMaterial({
+      const saved = savedRef.current || await upsertProcMaterial({
         name: form.name.trim(),
         spec: str(form.spec),
         unit: str(form.unit),
         category: str(form.category),
         productLine: str(form.productLine),
         erpCode: str(form.erpCode),
-        tpInventoryCode: str(form.tpInventoryCode),
+        tpInventoryCode: allowErp && !material ? undefined : str(form.tpInventoryCode),
         isSpecial: form.isSpecial,
         isConsumable: form.isConsumable,
         safeStock: Number.isFinite(safeStock) && safeStock >= 0 ? safeStock : undefined,
@@ -1401,14 +1415,28 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
         // undefined 表示编辑时保留原图，空串表示移除图片。
         imageKey: imageKeyPatch,
       }, material?.id);
+      savedRef.current = saved; setCreatedMaterial(saved);
+      if (destination === 'erp') {
+        setErpLocked(true);
+        const published = await publishTplusMaterial(saved.id, erpFields);
+        saved.tpInventoryCode = published.tpInventoryCode;
+      }
       await refreshProcurement();
-      toast.success(t(material ? '物料已更新' : '物料已创建，进入审核队列'));
+      toast.success(t(material ? '物料已更新' : destination === 'erp' ? '物料已保存，并已核对ERP档案' : '物料已保存到本系统，未录入ERP'));
+      if (!material) onCreated?.(saved);
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('保存失败');
+      if(destination==='erp' && savedRef.current){
+        const failure=err as {erpPublishRetry?:string;publishInput?:typeof erpFields};
+        setErpLocked(failure.erpPublishRetry!=='editable');
+        if(failure.publishInput)setErpFields(failure.publishInput);
+      }
+      const detail = err instanceof Error ? err.message : t('保存失败');
+      const message = savedRef.current ? `${t('本系统物料已保存，不会重复创建。')} ${detail}` : detail;
       setFormError(message);
       toast.error(message);
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   };
@@ -1421,11 +1449,25 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
       footer={<>
         <Button variant="unstyled" type="button" disabled={busy || imageBusy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('取消')}</Button>
         <Button variant="unstyled" type="button" disabled={busy || imageBusy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t('保存')}
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t(createdMaterial && destination === 'erp' ? '重试录入ERP' : destination === 'erp' ? '保存并录入ERP' : '保存')}
         </Button>
       </>}
     >
-      <fieldset disabled={busy} className="proc-material-form-fields grid min-w-0 grid-cols-1 gap-3 border-0 p-0">
+      {allowErp && !material?.tpInventoryCode && <div className="mb-4 grid gap-3 rounded-lg border border-border p-3">
+        <p className="text-sm font-medium">{t('物料保存位置')}</p>
+        <RadioGroup aria-label={t('物料保存位置')} name="material-destination" value={destination} disabled={busy||!!createdMaterial} onValueChange={value=>setDestination(value as 'local'|'erp')}>
+          <label className="flex items-center gap-2 text-sm"><RadioGroupItem value="local"/>{t('仅保存在本系统，不录入ERP')}</label>
+          <label className="flex items-center gap-2 text-sm"><RadioGroupItem value="erp" disabled={!can('proc:sync-erp')}/>{t('同时录入ERP')}</label>
+        </RadioGroup>
+        {!can('proc:sync-erp')&&<p className="text-xs text-muted-foreground">{t('录入ERP需要ERP同步权限')}</p>}
+        {destination==='erp'&&<fieldset disabled={busy||erpLocked} className="grid gap-3 sm:grid-cols-2">
+          {([['code','ERP存货编码'],['categoryCode','ERP分类编码'],['unitCode','ERP单位编码']] as const).map(([key,text])=><label key={key} className="grid gap-1 text-xs">{t(text)}<Input aria-label={t(text)} value={erpFields[key]} onChange={e=>setErpFields(current=>({...current,[key]:e.target.value}))}/></label>)}
+          <label className="grid gap-1 text-xs">{t('ERP计价方式')}<Select disabled={busy||erpLocked} value={erpFields.valueType} onValueChange={value=>setErpFields(current=>({...current,valueType:value}))}><SelectTrigger aria-label={t('ERP计价方式')}><SelectValue/></SelectTrigger><SelectContent>{[['00','全月平均'],['01','移动平均'],['03','先进先出'],['04','个别计价']].map(([value,text])=><SelectItem key={value} value={value}>{t(text)}</SelectItem>)}</SelectContent></Select></label>
+          <p className="text-xs text-muted-foreground sm:col-span-2">{t('按ERP已有分类和单位填写编码；单计量外购物料，审核规则由ERP决定。')}</p>
+        </fieldset>}
+        {createdMaterial&&<p role="status" className="text-xs text-muted-foreground">{t('本系统物料已保存；ERP失败时可在此重试，不会重复创建本地物料。')}</p>}
+      </div>}
+      <fieldset disabled={busy||!!createdMaterial} className="proc-material-form-fields grid min-w-0 grid-cols-1 gap-3 border-0 p-0">
         <label className="block min-w-0"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><Input ref={materialNameRef} aria-invalid={Boolean(formError && !form.name.trim())} value={form.name} onChange={(e) => set('name')(e.target.value)} className={cn(field, formError && !form.name.trim() && "border-rose-300")} /></label>
         <label className="block min-w-0"><span className={label}>{t('规格')}</span><Input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
         <div className="col-span-full">
@@ -1497,8 +1539,8 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
           <span className={label}>{t('产品线')}</span>
           <ComboInput value={form.productLine} onChange={set('productLine')} options={productLines} placeholder={t('如 R1 / R2 / 通用')} className={field} />
         </label>
-        <label className="block min-w-0"><span className={label}>{t('ERP 编码')}</span><Input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
-        <label className="block min-w-0"><span className={label}>{t('T+ 存货编码')}</span><Input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
+        {(!allowErp || material)&&<label className="block min-w-0"><span className={label}>{t('ERP 编码')}</span><Input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>}
+        {(!allowErp || material)&&<label className="block min-w-0"><span className={label}>{t('T+ 存货编码')}</span><Input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>}
         <label className="block min-w-0"><span className={label}>{t('安全库存')}</span><Input value={form.safeStock} onChange={(e) => set('safeStock')(e.target.value)} inputMode="decimal" placeholder="0" className={field} /></label>
         <label className="col-span-full block"><span className={label}>{t('备注')}</span><Input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
         <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isSpecial} onCheckedChange={(v) => set('isSpecial')(v === true)} />{t('特殊物料')}</label>

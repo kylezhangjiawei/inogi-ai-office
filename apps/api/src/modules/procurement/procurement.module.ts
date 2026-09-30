@@ -1,3 +1,6 @@
+import { ErpPurchaseOrderController } from './erp-purchase-order.controller';
+import { ErpPurchaseOrderService } from './erp-purchase-order.service';
+import { ErpPurchaseReceiptService } from './erp-purchase-receipt.service';
 import { RDRelatedRecordsService } from './rd-related-records.service';
 import { RDRelatedRecordsController } from './rd-related-records.controller';
 import { ProcurementDecisionService } from './procurement-decision.service';
@@ -60,8 +63,8 @@ import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
   imports: [InventoryStockModule, ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [BomRevisionsController, RDRelatedRecordsController, ProcurementDecisionController, ManagementRiskController, ProductionScenarioController, SupplierQualificationsController, ProductionLifecycleController, WarehouseRecordsController, ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController, KeyMaterialsController, ProductionExecutionController, WarehouseFlowController],
-  providers: [BomRevisionsService, RDRelatedRecordsService, ProcurementDecisionService, ManagementRiskService,
+  controllers: [ErpPurchaseOrderController, BomRevisionsController, RDRelatedRecordsController, ProcurementDecisionController, ManagementRiskController, ProductionScenarioController, SupplierQualificationsController, ProductionLifecycleController, WarehouseRecordsController, ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController, KeyMaterialsController, ProductionExecutionController, WarehouseFlowController],
+  providers: [ErpPurchaseReceiptService, ErpPurchaseOrderService, BomRevisionsService, RDRelatedRecordsService, ProcurementDecisionService, ManagementRiskService,
     ProductionScenarioService, SupplierQualificationsService,
     ProductionLifecycleService,
     ProductionReadinessService,

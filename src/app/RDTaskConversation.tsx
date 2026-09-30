@@ -1235,7 +1235,7 @@ function Composer({
   return (
     <div
       className={cn(
-        "rd-conversation-composer relative bg-white",
+        "rd-conversation-composer @container relative shrink-0 bg-white",
         presentation === "inline"
           ? "mt-2"
           : "border-t border-slate-200 px-3 py-2",
@@ -1380,7 +1380,7 @@ function Composer({
           {contextHint}
           {variant === "mobile" ? t(" · 可上传图片、视频或文件") : ""}
         </span>
-        <span className="hidden shrink-0 tabular-nums sm:inline">
+        <span className="hidden shrink-0 tabular-nums @[480px]:inline">
           {text.length >= 3600
             ? `${text.length}/4000`
             : t("图片、视频或文件 · 最多 10 个 · Ctrl / ⌘ + Enter 发送")}
@@ -1600,15 +1600,17 @@ export function RDTaskConversation({
     onActivityRef.current = onActivity;
   }, [onActivity]);
 
-  const [responsiveThreadOverlay, setResponsiveThreadOverlay] = useState(() => (
-    typeof window === "undefined" ? true : window.matchMedia("(max-width: 1279px)").matches
-  ));
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 1279px)");
-    const update = () => setResponsiveThreadOverlay(query.matches);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const [responsiveThreadOverlay, setResponsiveThreadOverlay] = useState(true);
+  React.useLayoutEffect(() => {
+    const element = conversationRef.current;
+    if (!element) return;
+    // 双栏至少各留 420px；工作台抽屉的宽度不能用浏览器断点推断。
+    const update = () => setResponsiveThreadOverlay(element.clientWidth < 840);
     update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
   const threadIsOverlay = variant === "mobile"
     || threadLayout === "replace"
@@ -2429,20 +2431,10 @@ export function RDTaskConversation({
 
   return (
     <TaskImageGalleryScope notes={notes}>
-      <div className={cn("relative flex min-h-0 flex-1 overflow-hidden bg-white", className)}>
+      <div ref={conversationRef} className={cn("relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-white", className)}>
       {mainContent}
       {activeAnchor && (
           <>
-            {variant === "desktop" && threadLayout === "responsive" && (
-              <Button variant="unstyled"
-                type="button"
-                tabIndex={-1}
-                onClick={closeThread}
-                className="absolute inset-0 z-10 cursor-default bg-slate-950/25 xl:hidden"
-                aria-label={t("关闭讨论线程")}
-                aria-hidden="true"
-              />
-            )}
             <aside
               ref={threadPanelRef}
               role={threadIsOverlay ? "dialog" : undefined}
@@ -2451,11 +2443,9 @@ export function RDTaskConversation({
               aria-label={activeAnchor.type === "progress_note" ? t("关于这条进度的讨论") : t("消息讨论")}
               className={cn(
                 "z-20 flex min-h-0 flex-col border-l border-slate-200 bg-white shadow-[-18px_0_50px_rgba(15,23,42,0.14)]",
-                variant === "mobile"
-                  ? "absolute inset-0"
-                  : threadLayout === "replace"
-                    ? "absolute inset-0 w-full border-l-0 shadow-none"
-                    : "absolute inset-y-0 right-0 w-full max-w-[440px] xl:static xl:w-[420px] xl:shrink-0 xl:shadow-none",
+                threadIsOverlay
+                  ? "absolute inset-0 w-full border-l-0 shadow-none"
+                  : "static w-[420px] shrink-0 shadow-none",
               )}
             >
               <header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5">

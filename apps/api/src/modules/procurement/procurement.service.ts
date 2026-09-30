@@ -1,4 +1,5 @@
 import { assertRdTransferRequirements } from './rd-transfer-requirements';
+import { lockOrderDependency } from './purchase-delivery-store';
 import { sampleValidationReferences, confirmSampleValidation } from './sample-validation';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -568,9 +569,14 @@ export class ProcurementService {
     current?: ProcStockPlanView['batches'][number],
   ) {
     const mirrorId = dto.purchaseOrderMirrorId === undefined ? current?.purchaseOrderMirrorId ?? null : dto.purchaseOrderMirrorId?.trim() || null;
-    const mirror = mirrorId ? await tx.procPurchaseOrderMirror.findUnique({ where: { id: mirrorId } }) : null;
+    let mirror = mirrorId ? await tx.procPurchaseOrderMirror.findUnique({ where: { id: mirrorId } }) : null;
     if (mirrorId && !mirror) throw new BadRequestException('采购订单行不存在');
     const purchaseOrderNo = mirror?.tpOrderNo ?? (dto.purchaseOrderNo === undefined ? current?.purchaseOrderNo ?? null : dto.purchaseOrderNo?.trim() || null);
+    if (purchaseOrderNo) await lockOrderDependency(tx, purchaseOrderNo);
+    if (mirrorId) {
+      mirror = await tx.procPurchaseOrderMirror.findUnique({where:{id:mirrorId}});
+      if (!mirror) throw new ConflictException('采购订单行已更新，请重新选择');
+    }
     if (!mirror && purchaseOrderNo) {
       const existingOrder = await tx.procPurchaseOrderMirror.findFirst({ where: { tpOrderNo: purchaseOrderNo }, select: { id: true } });
       if (existingOrder) throw new BadRequestException('该采购单号已同步到 ERP，请选择并关联实际采购订单行，不能再按手工批次重复登记');
@@ -2982,6 +2988,7 @@ export class ProcurementService {
     const rows = await this.prisma.procSupplierQuote.findMany({
       where: {
         ...(materialId ? { materialId } : {}),
+        source: { not: 'tplus-order' },
         OR: [{ validUntil: null }, { validUntil: { gte: today } }],
       },
       include: { material: { select: { name: true, spec: true } } },
@@ -2989,6 +2996,7 @@ export class ProcurementService {
     });
 
     const quotes: TaskQuoteBookOption[] = rows.flatMap((quote): TaskQuoteBookOption[] => {
+      if (quote.source === 'tplus-order') return [];
       const tiers = this.readQuoteBookTiers(quote.tiers);
       const matchedTier = this.matchQuoteBookTier(tiers, quantity);
       if (!matchedTier) return [];
@@ -3040,12 +3048,14 @@ export class ProcurementService {
 
     const existing = await this.prisma.procQuotation.findMany({
       where: { taskId, channel: 'quote-book' },
-      select: { materialId: true, supplierName: true },
+      select: { materialId: true, supplierId: true, supplierName: true },
     });
-    const existingKeys = new Set(existing.map((quote) => `${quote.materialId ?? ''}\u0000${quote.supplierName}`));
+    const identity = (quote: { materialId?: string | null; supplierId?: string | null; supplierName: string }) =>
+      JSON.stringify([quote.materialId ?? '', quote.supplierId ? ['id', quote.supplierId] : ['legacy-name', quote.supplierName]]);
+    const existingKeys = new Set(existing.map(identity));
     const additions = selected
       .filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
-      .filter((quote) => !existingKeys.has(`${quote.materialId}\u0000${quote.supplierName}`));
+      .filter((quote) => !existingKeys.has(identity(quote)));
     if (additions.length === 0) throw new BadRequestException('所选报价已带入当前任务');
 
     await this.prisma.$transaction(async (tx) => {
@@ -3500,6 +3510,9 @@ export class ProcurementService {
       syncQuantity ? `；任务采购数量由 ${num(task.quantity)} 更新为 ${orderedTotal}` : ''
     }${startsSampleWait ? '；进入「待到样」，等待实际到样后确认收样' : ''}`;
     await this.prisma.$transaction(async (tx) => {
+      for (const orderNo of [...new Set(normalized.filter(row=>!row.isFreeSample).map(row=>row.tpOrderNo))].sort()) {
+        await lockOrderDependency(tx, orderNo);
+      }
       // 所有关联入口复用这里；按任务行加锁，使历史查重与新增在并发请求中保持原子。
       await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
       const existingRefs = await tx.procPurchaseOrderRef.findMany({ where: { taskId } });
@@ -3768,7 +3781,19 @@ export class ProcurementService {
       if (dto.safeStock !== undefined) data.safeStock = new Prisma.Decimal(dto.safeStock);
       if (dto.remark !== undefined) data.remark = dto.remark || null;
       if (dto.imageKey !== undefined) data.imageKey = dto.imageKey.trim() || null;
-      const row = await this.prisma.procMaterial.update({ where: { id }, data });
+      const row = await this.prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'tplus-publish-material:'+id}))`;
+        const pending=await tx.runtimeState.findUnique({where:{key:'erp-material-publish:'+id}});
+        if(pending?.value){
+          const attempt=JSON.parse(pending.value) as {identity:string};
+          const current=await tx.procMaterial.findUniqueOrThrow({where:{id}});
+          const nextIdentity=JSON.stringify([dto.name??current.name,dto.spec??current.spec,dto.unit??current.unit,dto.category??current.category].map(value=>value.trim()));
+          if(nextIdentity!==attempt.identity || dto.tpInventoryCode && dto.tpInventoryCode!==current.tpInventoryCode || dto.erpCode!==undefined && dto.erpCode!==current.erpCode) {
+            throw new ConflictException('ERP录入结果待核对，暂不能修改物料名称、规格、单位、分类或编码');
+          }
+        }
+        return tx.procMaterial.update({where:{id},data});
+      });
       return this.serializeMaterial({ ...row, balances: [] });
     }
     const row = await this.prisma.procMaterial.create({

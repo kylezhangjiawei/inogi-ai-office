@@ -125,3 +125,7 @@
   .qb-material-filters { padding-inline: 16px; }
   .qb-top-actions > div { width: 100%; }
 }
+
+.qb-quote-picker .qb-table-scroll { max-height: min(45dvh, 480px); }
+.qb-quote-picker .qb-table-scroll table { min-width: 760px; }
+.qb-quote-picker section .qb-table-scroll table { min-width: 560px; }

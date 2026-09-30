@@ -19,6 +19,113 @@ import {
 } from '../src/modules/research-development/rd-workspace.context';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
 
+// Transaction double: independent service instances share only the database lock/store.
+function syncFixture() {
+  const values = new Map<string, any>();
+  let queue = Promise.resolve();
+  let failAudit = false;
+  const settings = (data: Map<string, any>) => ({
+    findUnique: async ({ where }: any) => data.has(where.key) ? { value: structuredClone(data.get(where.key)) } : null,
+    upsert: async ({ where, create, update }: any) => {
+      if (failAudit && where.key === 'rd.productionTaskSyncAudit') throw new Error('audit write failed');
+      const value = structuredClone(data.has(where.key) ? update.value : create.value);
+      data.set(where.key, value);
+      return { value };
+    },
+  });
+  const prisma = {
+    systemSetting: settings(values),
+    $transaction: async (run: (tx: any) => Promise<any>) => {
+      let release: (() => void) | undefined;
+      let draft: Map<string, any> | undefined;
+      const tx = {
+        $queryRaw: async () => {
+          const previous = queue;
+          queue = new Promise<void>((resolve) => { release = resolve; });
+          await previous;
+          draft = structuredClone(values);
+        },
+        systemSetting: {
+          findUnique: async (args: any) => { assert.ok(draft, 'lock before reading'); return settings(draft).findUnique(args); },
+          upsert: async (args: any) => { assert.ok(draft, 'lock before writing'); return settings(draft).upsert(args); },
+        },
+      };
+      try {
+        const result = await run(tx);
+        assert.ok(draft);
+        for (const [key, value] of draft) values.set(key, value);
+        return result;
+      } finally { release?.(); }
+    },
+  };
+  const service = () => {
+    const instance = Object.create(ResearchDevelopmentService.prototype) as any;
+    instance.prisma = prisma;
+    instance.findTaskAcrossStores = async (id: string) => ({ task_id: id, title: id });
+    instance.readValue = async (key: string) => structuredClone(values.get(key) ?? null);
+    instance.readArray = async (key: string) => structuredClone(values.get(key) ?? []);
+    instance.writeValue = async (key: string, value: unknown) => settings(values).upsert({ where: { key }, create: { value }, update: { value } });
+    instance.createAuditLog = async () => undefined;
+    instance.refreshProductionMirrors = async () => undefined;
+    instance.invalidateCachedStoreValues = () => undefined;
+    return instance as ResearchDevelopmentService;
+  };
+  return { service, values, failAudit: (fail = true) => { failAudit = fail; } };
+}
+
+test('concurrent production syncs preserve both task registrations and audit entries across instances', async () => {
+  const f = syncFixture();
+  await Promise.all([f.service().syncTaskToProduction('A'), f.service().syncTaskToProduction('B')]);
+  assert.deepEqual(Object.keys(f.values.get('rd.productionTaskSyncs')).sort(), ['A', 'B']);
+  assert.deepEqual(f.values.get('rd.productionTaskSyncAudit').map((entry: any) => entry.task_id).sort(), ['A', 'B']);
+});
+
+test('concurrent revoke and sync preserve both changes', async () => {
+  const f = syncFixture();
+  await f.service().syncTaskToProduction('A');
+  await Promise.all([f.service().revokeTaskProductionSync('A'), f.service().syncTaskToProduction('B')]);
+  const records = f.values.get('rd.productionTaskSyncs');
+  assert.equal(records.A.active, false);
+  assert.equal(records.B.active, true);
+  assert.equal(f.values.get('rd.productionTaskSyncAudit').length, 3);
+});
+
+test('repeated concurrent revoke is idempotent and resync retains the first sync timestamp', async () => {
+  const f = syncFixture();
+  const first = await f.service().syncTaskToProduction('A');
+  await Promise.all([f.service().revokeTaskProductionSync('A'), f.service().revokeTaskProductionSync('A')]);
+  assert.equal(f.values.get('rd.productionTaskSyncAudit').length, 2);
+  const again = await f.service().syncTaskToProduction('A', { userId: 'member', userName: '成员' });
+  assert.equal(again.first_synced_at, first.first_synced_at);
+  assert.equal(again.revoked_at, null);
+  assert.equal(again.synced_by_id, 'member');
+});
+
+test('failed sync audit rolls back registration and releases the transaction lock', async () => {
+  const f = syncFixture();
+  f.failAudit();
+  await assert.rejects(f.service().syncTaskToProduction('A'), /audit write failed/);
+  assert.equal(f.values.has('rd.productionTaskSyncs'), false);
+  await assert.rejects(f.service().revokeTaskProductionSync('missing'), /尚未同步/);
+  f.failAudit(false);
+  await f.service().syncTaskToProduction('B');
+  assert.deepEqual(Object.keys(f.values.get('rd.productionTaskSyncs')), ['B']);
+});
+
+test('sync reads ignore stale process cache and workspace guards remain enforced', async () => {
+  const f = syncFixture();
+  const service = f.service();
+  (service as any).readValue = async () => ({});
+  await f.service().syncTaskToProduction('A');
+  await service.syncTaskToProduction('B');
+  assert.deepEqual((await service.listProductionTaskSyncs()).map((record) => record.task_id).sort(), ['A', 'B']);
+  await runInRdWorkspace('us-collab', async () => {
+    await assert.rejects(service.syncTaskToProduction('C'), ForbiddenException);
+    await assert.rejects(service.revokeTaskProductionSync('A'), ForbiddenException);
+  });
+  assert.deepEqual(Object.keys(f.values.get('rd.productionTaskSyncs')), ['A', 'B']);
+});
+
 test('production discussion proxy declares a stable object return type for watch compilation', () => {
   const serviceSource = readFileSync(
     resolve(__dirname, '../src/modules/research-development/research-development.service.ts'),

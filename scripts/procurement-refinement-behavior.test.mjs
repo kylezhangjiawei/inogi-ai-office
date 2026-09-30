@@ -178,6 +178,7 @@ test("缺料统计明确物料 ID 时不串入同名物料，旧任务保留姓�
 
 test("多币种最低价独立计算并排除过期报价", () => {
   const quotes = [
+    { id: "historical-order", source: "tplus-order", currency: "CNY", validUntil: null, tiers: [{ minQty: 0, unitPrice: 0.1 }] },
     { id: "cny-a", currency: "CNY", validUntil: "2026-12-31", tiers: [{ minQty: 0, unitPrice: 12 }, { minQty: 100, unitPrice: 9 }] },
     { id: "cny-expired", currency: "CNY", validUntil: "2026-01-01", tiers: [{ minQty: 0, unitPrice: 1 }] },
     { id: "usd-a", currency: "USD", validUntil: null, tiers: [{ minQty: 0, unitPrice: 2.5 }] },

@@ -876,12 +876,14 @@ function DrawerShell({
   icon: Icon,
   onClose,
   children,
+  bodyClassName,
 }: {
   title: string;
   subtitle: string;
   icon: React.ComponentType<{ className?: string }>;
   onClose: () => void;
   children: React.ReactNode;
+  bodyClassName?: string;
 }) {
   const surfaceRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -898,7 +900,7 @@ function DrawerShell({
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <header className="rd-horizon-workspace-drawer-header flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
+        <header className="rd-horizon-workspace-drawer-header flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-primary">
               <Icon className="h-4 w-4" />
@@ -918,7 +920,7 @@ function DrawerShell({
             <X className="h-4 w-4" />
           </Button>
         </header>
-        <div className="rd-horizon-workspace-drawer-body flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className={cn("rd-horizon-workspace-drawer-body min-h-0 flex-1 overflow-y-auto px-6 py-5", bodyClassName)}>{children}</div>
       </aside>
     </div>
   );
@@ -1785,8 +1787,9 @@ function TaskOperationDrawer({
       subtitle={isUsCollabWorkspace() ? task.task_id : `${task.task_id} / ${task.category_path}`}
       icon={ClipboardCheck}
       onClose={onClose}
+      bodyClassName={tab === "discussion" ? "flex flex-col overflow-hidden" : undefined}
     >
-      <div className="space-y-5">
+      <div className={tab === "discussion" ? "flex min-h-0 flex-1 flex-col gap-5" : "space-y-5"}>
         {isTaskCompleted ? (
           <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -1794,7 +1797,7 @@ function TaskOperationDrawer({
           </div>
         ) : !directChangePending && (
           <>
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
+            <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
               {tabConfig.map((item) => (
                 <Button variant="unstyled"
                   key={item.key}
@@ -2354,7 +2357,7 @@ function TaskOperationDrawer({
         )}
 
         {tab === "discussion" && (
-          <div className="h-[min(680px,calc(100dvh-220px))] min-h-[420px] overflow-hidden rounded-xl border border-slate-200">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200">
             <RDTaskConversation
               key={`workspace-conversation:${task.task_id}`}
               taskId={task.task_id}

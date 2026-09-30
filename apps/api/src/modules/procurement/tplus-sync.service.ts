@@ -1,4 +1,6 @@
-import { BadRequestException, ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { matchSupplier, syncOrderQuote } from './quote-book-order-sync';
+import { PublishTplusMaterialDto } from './dto/procurement.dto';
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma, type IntegrationConfig } from '@prisma/client';
 import { createDecipheriv } from 'node:crypto';
@@ -120,6 +122,7 @@ const MATERIAL_MASTER_SELECT_FIELDS = [
   'InventoryClass.Name',
   'Unit.Code',
   'Unit.Name',
+  'ValueType.Code',
   'Disabled',
   'LatestCost',
   'Ts',
@@ -164,6 +167,9 @@ export interface TplusMaterialMaster {
   enabled?: boolean;
   sourceId?: string;
   latestCost?: number;
+  unitCode?: string;
+  categoryCode?: string;
+  valueType?: string;
 }
 export interface TplusMaterialMasterSyncResult extends Record<string, number> {
   received: number;
@@ -181,6 +187,11 @@ export interface TplusPurchaseOrderLine {
   orderId?: string;
   lineNo?: string;
   supplierName?: string;
+  supplierCode?: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  currency?: string;
+  taxIncluded?: boolean;
   /** T+ 存货编码/名称：物料匹配锚点（编码 ↔ ProcMaterial.tpInventoryCode）。 */
   inventoryCode?: string;
   inventoryName?: string;
@@ -827,50 +838,54 @@ export class TplusSyncService {
     );
   }
 
-  async syncSuppliers() {
+  async syncSuppliers(onConflict?: (message: string) => void) {
     // 往来单位分页查询：T+ 的供应商在往来单位档案里
     const rows = this.mapSuppliers(
       await this.fetchAllPages('/tplus/api/v2/partner/QueryPage', {}, 1),
     );
     let upserted = 0;
     for (const s of rows) {
-      await this.prisma.$transaction(async tx => {
-      const identity = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`quote-supplier:${identity(s.name)}`}))`;
-      const existing = await tx.procSupplier.findUnique({ where: { tpCode: s.code } });
-      if (!existing) {
-        const candidates = (await tx.procSupplier.findMany({ where: { tpCode: null } })).filter(row => identity(row.name) === identity(s.name));
-        if (candidates.length > 1) throw new BadRequestException(`供应商 ${s.name} 存在多个本地档案，请核对后重新同步`);
-        if (candidates[0]) await tx.procSupplier.update({ where: { id: candidates[0].id }, data: { tpCode: s.code } });
+      try {
+        await this.prisma.$transaction(async tx => {
+          const identity = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, '').toLocaleLowerCase();
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`quote-supplier:${identity(s.name)}`}))`;
+          const existing = await tx.procSupplier.findUnique({ where: { tpCode: s.code } });
+          if (!existing) {
+            const matched = matchSupplier(await tx.procSupplier.findMany({ where: { tpCode: null } }), s);
+            if (matched) await tx.procSupplier.update({ where: { id: matched.id }, data: { tpCode: s.code } });
+          }
+          await tx.procSupplier.upsert({
+            where: { tpCode: s.code },
+            create: {
+              tpCode: s.code,
+              name: s.name,
+              shortName: s.shortName ?? null,
+              contact: s.contact ?? null,
+              phone: s.phone ?? null,
+              email: s.email ?? null,
+              address: s.address ?? null,
+              enabled: s.enabled ?? true,
+              source: 'tplus',
+              syncedAt: new Date(),
+            },
+            update: {
+              name: s.name,
+              shortName: s.shortName || undefined,
+              contact: s.contact || undefined,
+              phone: s.phone || undefined,
+              email: s.email || undefined,
+              address: s.address || undefined,
+              enabled: s.enabled ?? true,
+              source: 'tplus',
+              syncedAt: new Date(),
+            },
+          });
+        });
+        upserted += 1;
+      } catch (error) {
+        if (!onConflict) throw error;
+        onConflict(`${s.code} / ${s.name}：${(error as Error).message}`);
       }
-      await tx.procSupplier.upsert({
-        where: { tpCode: s.code },
-        create: {
-          tpCode: s.code,
-          name: s.name,
-          shortName: s.shortName ?? null,
-          contact: s.contact ?? null,
-          phone: s.phone ?? null,
-          email: s.email ?? null,
-          address: s.address ?? null,
-          enabled: s.enabled ?? true,
-          source: 'tplus',
-          syncedAt: new Date(),
-        },
-        update: {
-          name: s.name,
-          shortName: s.shortName ?? null,
-          contact: s.contact ?? null,
-          phone: s.phone ?? null,
-          email: s.email ?? null,
-          address: s.address ?? null,
-          enabled: s.enabled ?? true,
-          source: 'tplus',
-          syncedAt: new Date(),
-        },
-      });
-      });
-      upserted += 1;
     }
     return { upserted };
   }
@@ -1214,14 +1229,16 @@ export class TplusSyncService {
   }
 
   /** 底层 POST：FindVoucherList 系列的请求体不包 param，与常规接口共用凭据/错误处理。 */
-  private async postTplus(path: string, payload: Record<string, unknown>): Promise<unknown> {
-    const cred = await this.loadCredentials();
-    if (!cred) {
-      throw new ServiceUnavailableException(
-        '畅捷通 T+ 未配置：请先在物料库「T+ 集成」里录入 appKey / appSecret',
-      );
+  private async postTplus(path: string, payload: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
+    let cred:TplusCredentials,openToken:string,requestBody:string;
+    try {
+      const loaded = await this.loadCredentials();
+      if (!loaded) throw new ServiceUnavailableException('畅捷通 T+ 未配置：请先在物料库「T+ 集成」里录入 appKey / appSecret');
+      cred=loaded;openToken=await this.ensureOpenToken();requestBody=JSON.stringify(payload);
+    } catch(error) {
+      // Token/auth failures happen before the business write is sent; retrying corrected input is safe.
+      throw Object.assign(error instanceof Error?error:new Error(String(error)),{erpNotSent:true});
     }
-    const openToken = await this.ensureOpenToken();
     const url = `${cred.baseUrl.replace(/\/+$/, '')}${path}`;
     const startedAt = Date.now();
     const res = await fetch(url, {
@@ -1233,7 +1250,8 @@ export class TplusSyncService {
         appSecret: cred.appSecret,
         openToken,
       },
-      body: JSON.stringify(payload),
+      body: requestBody,
+      ...(timeoutMs ? {signal: AbortSignal.timeout(timeoutMs)} : {}),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -1249,13 +1267,13 @@ export class TplusSyncService {
     if (body && !Array.isArray(body) && body.code !== undefined) {
       const code = String(body.code);
       if (code !== '0' && code !== '200') {
-        const message = String(body.message ?? body.msg ?? '未知错误');
+        const message = String(this.jsonObject(body.exception).exceptionMessage ?? body.message ?? body.msg ?? '未知错误');
         this.logger.error(`T+ 业务失败 ${path}: ${code} ${message}`);
         await this.recordTplusCall({
           kind: 'failure', target: path, ok: false, durationMs: Date.now() - startedAt,
           reason: `业务码 ${code}：${message}`,
         });
-        throw new ServiceUnavailableException(`畅捷通 T+：${message}`);
+        throw Object.assign(new ServiceUnavailableException(`畅捷通 T+：${message}`), {erpRejected:true});
       }
     }
     return body;
@@ -1396,6 +1414,9 @@ export class TplusSyncService {
           name: textOf(r.InventoryName ?? r.inventoryName ?? r.Name ?? r.name ?? inventory.Name ?? inventory.name) ?? '',
           spec: textOf(r.Specification ?? r.specification ?? r.Spec ?? r.spec ?? inventory.Specification),
           unit: textOf(r.UnitName ?? r.unitName ?? r.BaseUnit ?? r.Unit ?? r.unit ?? r.StockUnit),
+          unitCode: textOf(r.UnitCode ?? r['Unit.Code'] ?? this.jsonObject(r.BaseUnit ?? r.Unit ?? r.unit ?? r.StockUnit).Code),
+          categoryCode: textOf(r.InventoryClassCode ?? r['InventoryClass.Code'] ?? this.jsonObject(r.InventoryClass ?? r.Category).Code),
+          valueType: textOf(r['ValueType.Code'] ?? this.jsonObject(r.ValueType).Code ?? r.ValueType),
           category: textOf(
             r.InventoryClassName ?? r.inventoryClassName ?? r.InventoryClass ?? r.CategoryName ?? r.Category,
           ),
@@ -1462,6 +1483,11 @@ export class TplusSyncService {
       orderId: dto.ID !== undefined ? String(dto.ID) : undefined,
       lineNo: detail.RowNo !== undefined ? String(detail.RowNo) : String(index + 1),
       supplierName: nameOf(dto.Partner),
+      supplierCode: String(this.jsonObject(dto.Partner).Code ?? dto.PartnerCode ?? '').trim() || undefined,
+      supplierPhone: String(this.jsonObject(dto.Partner).Phone ?? '').trim() || undefined,
+      supplierAddress: String(this.jsonObject(dto.Partner).Address ?? '').trim() || undefined,
+      currency: this.orderCurrency(dto.Currency),
+      taxIncluded: detail.OrigTaxPrice != null ? true : detail.OrigPrice != null ? false : undefined,
       inventoryCode: inventory?.Code ? String(inventory.Code) : undefined,
       inventoryName: inventory?.Name ? String(inventory.Name) : undefined,
       spec: inventory?.Specification ? String(inventory.Specification) : undefined,
@@ -1469,8 +1495,9 @@ export class TplusSyncService {
       orderedQty: Number(detail.Quantity ?? 0),
       receivedQty: Number(detail.CountQuantity ?? 0),
       unitPrice:
-        detail.OrigTaxPrice !== undefined
+        detail.OrigTaxPrice != null
           ? Number(detail.OrigTaxPrice)
+          : detail.OrigPrice != null ? Number(detail.OrigPrice)
           : detail.Price !== undefined
             ? Number(detail.Price)
             : undefined,
@@ -1499,16 +1526,19 @@ export class TplusSyncService {
     let failed = 0;
     let matchedMaterials = 0;
     let done = 0;
+    const quoteBook = { suppliersCreated: 0, materialsCreated: 0, quotesCreated: 0, quotesUpdated: 0, conflicts: [] as string[] };
     for (const orderNo of codes) {
       done += 1;
       if (done % 20 === 0) onProgress?.(`采购单明细 ${done}/${codes.length}`);
       let lines: TplusPurchaseOrderLine[] = [];
+      let voucher: Record<string, unknown> | null = null;
       try {
         const raw = await this.fetchFromTplus(
           '/tplus/api/v2/PurchaseOrderOpenApi/GetVoucherDTO',
           { voucherCode: orderNo },
         );
-        lines = this.mapVoucherLines(this.unwrapVoucher(raw));
+        voucher = this.unwrapVoucher(raw);
+        lines = this.mapVoucherLines(voucher);
       } catch (error) {
         failed += 1;
         this.logger.warn(`采购单 ${orderNo} 明细查询失败：${(error as Error).message}`);
@@ -1524,6 +1554,16 @@ export class TplusSyncService {
           });
           materialId = material?.id ?? null;
           if (materialId) matchedMaterials += 1;
+        }
+        try {
+          const result = await this.syncOrderQuoteLine(line);
+          materialId = result.materialId;
+          quoteBook.suppliersCreated += Number(result.supplierCreated);
+          quoteBook.materialsCreated += Number(result.materialCreated);
+          quoteBook.quotesCreated += Number(result.quoteCreated);
+          quoteBook.quotesUpdated += Number(result.quoteUpdated);
+        } catch (error) {
+          quoteBook.conflicts.push(`${orderNo}/${line.lineNo || ''}：${(error as Error).message}`);
         }
         const lineNo = line.lineNo ?? '';
         const data = {
@@ -1542,6 +1582,7 @@ export class TplusSyncService {
           status: line.status ?? null,
           materialId,
           syncedAt: new Date(),
+          metadata: {erpTs: String(voucher?.Ts ?? ''), contractNo: String(voucher?.ContractId ?? '')},
         };
         await persistMirrorDelivery(this.prisma, orderNo, lineNo, data);
         upserted += 1;
@@ -1549,11 +1590,156 @@ export class TplusSyncService {
     }
     // 顺带刷新任务已关联单据的到货量（同一套单号来源，避免用户再点一次）
     const refSync = await this.syncPurchaseOrders().catch(() => null);
-    return { orders: codes.length, lines: upserted, failed, matchedMaterials, refSync };
+    return { orders: codes.length, lines: upserted, failed, matchedMaterials, refSync, quoteBook };
+  }
+
+  /** Scoped gateway for purchase-order CRUD; callers cannot choose arbitrary ERP paths. */
+  async readErpPurchaseOrder(param: {voucherCode?: string; voucherID?: string; externalCode?: string}) {
+    const raw = await this.postTplus('/tplus/api/v2/PurchaseOrderOpenApi/GetVoucherDTO', {param}, 30_000);
+    const voucher = this.unwrapVoucher(raw);
+    if (!voucher?.Code || !voucher.ID || !voucher.Ts || !Array.isArray(voucher.PurchaseOrderDetails)) throw new ServiceUnavailableException('ERP未返回完整订单身份、版本或明细，不能继续操作');
+    return voucher;
+  }
+
+  async readErpWarehouses(): Promise<Array<{code: string; name: string}>> {
+    const raw = await this.postTplus('/tplus/api/v2/warehouse/Query', {param: {}}, 30_000);
+    return this.toRows(raw).map(row => this.jsonObject(row)).filter(row => row.Code && row.Name).map(row => ({code: String(row.Code), name: String(row.Name)}));
+  }
+  async readErpPurchaseReceipt(param: {externalCode: string}) {
+    const raw = await this.postTplus('/tplus/api/v2/PurchaseReceiveOpenApi/GetVoucherDTO', {param}, 30_000);
+    const voucher = this.unwrapVoucher(raw);
+    if (!voucher?.Code || !voucher.ID || !Array.isArray(voucher.RDRecordDetails)) throw new ServiceUnavailableException('ERP 入库单查询未返回可核对的单据');
+    return voucher;
+  }
+  /** Creation only. ERP approval remains entirely in its existing workflow. */
+  createErpPurchaseReceipt(payload: Record<string, unknown>) {
+    return this.postTplus('/tplus/api/v2/PurchaseReceiveOpenApi/Create', payload, 30_000);
+  }
+  writeErpPurchaseOrder(action: 'create' | 'update' | 'delete', payload: Record<string, unknown>) {
+    const paths = {create:'/tplus/api/v2/purchaseOrder/Create',update:'/tplus/api/v2/PurchaseOrderOpenApi/Update',delete:'/tplus/api/v2/PurchaseOrderOpenApi/Delete'};
+    return this.postTplus(paths[action], payload, 30_000);
+  }
+
+  async erpPurchaseOrderExists(orderNo: string) { return (await this.fetchCodesPaged({})).includes(orderNo); }
+
+  async cacheErpPurchaseOrder(voucher: Record<string, unknown>) {
+    const lines = this.mapVoucherLines(voucher);
+    if (!lines.length) throw new ServiceUnavailableException('ERP订单没有有效明细，未刷新本地镜像');
+    const retained: string[] = [];
+    const warnings: string[] = [];
+    for (const line of lines) {
+      const existing = line.inventoryCode ? await this.prisma.procMaterial.findUnique({where:{tpInventoryCode:line.inventoryCode},select:{id:true}}) : null;
+      let materialId = existing?.id ?? null;
+      try { materialId = (await this.syncOrderQuoteLine(line)).materialId; }
+      catch (error) { warnings.push(`第${line.lineNo}行报价补录：${(error as Error).message}`); }
+      const mirror = await persistMirrorDelivery(this.prisma,line.orderNo,line.lineNo ?? '', {
+        tpOrderId:line.orderId ?? null,supplierName:line.supplierName ?? '',inventoryCode:line.inventoryCode ?? '',inventoryName:line.inventoryName ?? '',spec:line.spec ?? '',unit:line.unit ?? '',
+        orderedQty:new Prisma.Decimal(line.orderedQty),receivedQty:new Prisma.Decimal(line.receivedQty),unitPrice:line.unitPrice == null ? null : new Prisma.Decimal(line.unitPrice),
+        orderDate:line.orderDate ? new Date(line.orderDate) : null,etaDate:line.etaDate ? new Date(line.etaDate) : null,approvalStatus:line.approvalStatus ?? null,status:line.status ?? null,materialId,syncedAt:new Date(),
+        metadata:{erpTs:String(voucher.Ts ?? ''),contractNo:String(voucher.ContractId ?? '')},
+      });
+      retained.push(mirror.id);
+    }
+    // Foreign keys intentionally prevent removal of lines referenced by local receipt/stock-plan records.
+    await this.prisma.$transaction(async tx => {
+      const orderNo = String(voucher.Code);
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))`;
+      const savedVersion = await tx.runtimeState.findUnique({where:{key:'erp-po-version:' + orderNo}});
+      const latest = savedVersion ? JSON.parse(savedVersion.value) : null;
+      if (latest && (latest.id !== String(voucher.ID) || latest.ts !== String(voucher.Ts))) throw new ConflictException('本地订单已同步更新版本，请重新读取ERP');
+      const deleted = await tx.runtimeState.findUnique({where:{key:'erp-po-deleted:' + orderNo}});
+      if (deleted?.value === String(voucher.ID)) throw new ConflictException('ERP订单已删除，不能重新回填');
+      await tx.procPurchaseOrderMirror.deleteMany({where:{tpOrderNo:orderNo,id:{notIn:retained}}});
+    });
+    try { await this.syncPurchaseOrders(); } catch { warnings.push('关联任务刷新失败，请稍后重新同步'); }
+    return warnings;
+  }
+
+  private orderCurrency(value: unknown): string | undefined {
+    const raw = typeof value === 'string' ? value : String(this.jsonObject(value).Name ?? this.jsonObject(value).Code ?? '');
+    const name = raw.trim().toUpperCase();
+    const known: Record<string,string> = {人民币:'CNY',美元:'USD',欧元:'EUR',港币:'HKD',日元:'JPY',英镑:'GBP',RMB:'CNY'};
+    return known[name] || (/^[A-Z]{3}$/.test(name) ? name : undefined);
+  }
+
+  async publishMaterial(id: string, dto: PublishTplusMaterialDto, actorId: string) {
+    const code = dto.code?.trim();
+    if (!code || !dto.categoryCode?.trim() || !dto.unitCode?.trim() || !['00','01','03','04'].includes(dto.valueType)) throw new BadRequestException('请填写ERP存货编码、分类编码、单位编码和计价方式');
+    const input={code,unitCode:dto.unitCode.trim(),categoryCode:dto.categoryCode.trim(),valueType:dto.valueType};
+    const key='erp-material-publish:'+id;
+    let pending:{input:typeof input;identity:string}|null=null;
+    // Persist the external-write intent independently; transaction rollback cannot erase an uncertain ERP result.
+    const result=await this.prisma.$transaction(async db => {
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'tplus-publish-material:' + id}))`;
+      const stored=await this.prisma.runtimeState.findUnique({where:{key}});
+      pending=stored?.value?JSON.parse(stored.value):null;
+      try {
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'tplus-publish-code:' + code}))`;
+      const material = await db.procMaterial.findUnique({where:{id}});
+      if (!material) throw new BadRequestException('物料不存在');
+      if (!material.name.trim() || !material.unit.trim() || !material.category.trim()) throw new BadRequestException('请填写物料名称、单位和分类名称后再录入ERP');
+      if (material.tpInventoryCode && material.tpInventoryCode !== code) throw new ConflictException('该物料已关联其他ERP编码');
+      const linked = await db.procMaterial.findUnique({where:{tpInventoryCode:code}});
+      if (linked && linked.id !== id) throw new ConflictException('该ERP编码已关联其他本地物料，请使用已有物料');
+      const identity=JSON.stringify([material.name.trim(),material.spec.trim(),material.unit.trim(),material.category.trim()]);
+      if(pending && (JSON.stringify(pending.input)!==JSON.stringify(input)||pending.identity!==identity)) throw new ConflictException('上次ERP录入结果待核对，请恢复原物料信息并使用原编码、单位、分类及计价方式核对');
+      const findRemote = async () => this.mapMaterialMaster(await this.fetchMaterialMasterRows(this.materialMasterPath())).find(row=>row.inventoryCode===code);
+      const same = (remote: TplusMaterialMaster) => remote.name.trim()===material.name.trim() && (remote.spec||'').trim()===material.spec.trim() && (remote.unit||'').trim()===material.unit.trim() && (remote.category||'').trim()===material.category.trim()
+        && remote.unitCode===input.unitCode && remote.categoryCode===input.categoryCode && remote.valueType===input.valueType;
+      let remote = await findRemote();
+      if (remote && !same(remote)) throw new ConflictException('ERP中已存在该编码，但名称、规格、单位、分类编码或计价方式不同或未完整返回，请核对');
+      if (!remote) {
+        if(pending)throw new ConflictException('ERP录入结果尚未查到，请稍后使用原内容核对；不会重复创建');
+        pending={input,identity};
+        await this.prisma.runtimeState.upsert({where:{key},create:{key,value:JSON.stringify(pending)},update:{value:JSON.stringify(pending)}});
+        try {
+        const response=this.jsonObject(await this.postTplus('/tplus/api/v2/inventory/Create', {dto:{
+          Code:code,Name:material.name,Specification:material.spec,
+          InventoryClass:{Code:dto.categoryCode.trim(),Name:material.category},Unit:{Code:dto.unitCode.trim(),Name:material.unit},
+          IsSingleUnit:true,UnitType:{Code:'00'},ValueType:{Code:dto.valueType},IsPurchase:true,IsSale:false,IsMaterial:true,
+          DynamicPropertyKeys:['ismodifiedcode'],DynamicPropertyValues:['true'],
+        }},30_000));
+        if(response.Result===false||this.jsonObject(response.data).Result===false)throw Object.assign(new Error('ERP返回物料创建失败'),{erpRejected:true});
+        } catch(error) {
+          const failure=error as {erpRejected?:boolean;erpNotSent?:boolean};
+          if(failure.erpRejected||failure.erpNotSent){
+            await this.prisma.runtimeState.update({where:{key},data:{value:''}});pending=null;
+          }
+          throw error;
+        }
+        remote = await findRemote();
+        if (!remote || !same(remote)) throw new ServiceUnavailableException('ERP请求已提交，但尚未查到一致的存货档案；本地物料已保留，请使用相同编码重试核对');
+      }
+      await db.procMaterial.update({where:{id},data:{tpInventoryCode:code,erpCode:code,
+        metadata:{...this.jsonObject(material.metadata),tplusPublish:{code,actorId,verifiedAt:new Date().toISOString()}} as Prisma.InputJsonValue}});
+      return {id,tpInventoryCode:code};
+      } catch(error) {
+        throw new HttpException({message:error instanceof Error?error.message:'ERP物料录入失败',
+          erpPublishRetry:pending?'same-input':'editable',...(pending?{publishInput:pending.input}:{})},error instanceof HttpException?error.getStatus():503);
+      }
+    }, {timeout:120_000,maxWait:10_000});
+    if(pending)await this.prisma.runtimeState.update({where:{key},data:{value:''}});
+    return result;
+  }
+
+  async syncOrderQuoteLine(line: TplusPurchaseOrderLine) {
+    return this.prisma.$transaction(db => syncOrderQuote(db, line));
+  }
+
+  async syncQuoteBook(onProgress?: (progress: string) => void) {
+    const warnings: string[] = [];
+    let upserted = 0;
+    onProgress?.('正在同步ERP供应商档案…');
+    try { upserted = (await this.syncSuppliers(message => warnings.push(message))).upserted; }
+    catch (error) { warnings.push(`供应商档案：${(error as Error).message}`); }
+    onProgress?.('正在从全部采购订单补齐供应商与报价物料…');
+    const orders = await this.syncPurchaseOrderMirror(0, onProgress);
+    return {upserted, ...orders, warnings};
   }
 
   /** FindVoucherList 分页拉单号：先带日期区间过滤，失败降级为无过滤。 */
   private async fetchOrderCodes(days: number): Promise<string[]> {
+    if (days === 0) return this.fetchCodesPaged({});
     const end = new Date();
     const start = new Date(end.getTime() - days * 24 * 3600 * 1000);
     const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -1749,6 +1935,7 @@ export class TplusSyncService {
         paramDic,
       })) as Record<string, unknown> | null;
       const data = (raw?.data ?? {}) as Record<string, unknown>;
+      if (!Array.isArray(data.Rows) || !Array.isArray(data.Columns)) throw new ServiceUnavailableException('ERP采购订单列表响应不完整，不能确认订单不存在');
       const columns = Array.isArray(data.Columns) ? data.Columns.map((c) => String(c).toLowerCase()) : [];
       const codeIdx = Math.max(0, columns.indexOf('code'));
       const rows = Array.isArray(data.Rows) ? (data.Rows as unknown[][]) : [];
@@ -1757,8 +1944,8 @@ export class TplusSyncService {
         if (value) codes.add(String(value));
       }
       const totalPages = Number(data.TotalPageNum ?? 0);
-      if (rows.length === 0 || (totalPages > 0 && page + 1 >= totalPages)) break;
+      if (rows.length === 0 || (totalPages > 0 && page + 1 >= totalPages)) return [...codes];
     }
-    return [...codes];
+    throw new ServiceUnavailableException('采购订单超过分页上限，已中止同步以避免遗漏；请缩小ERP查询范围后重试');
   }
 }

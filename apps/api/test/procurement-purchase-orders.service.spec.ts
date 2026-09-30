@@ -8,7 +8,7 @@ import { PROC_PO_LINKABLE_STATUSES, PROC_STATUS_TRANSITIONS } from '../src/modul
 function withOrderTransactionReads<T extends { procTask: object; procPurchaseOrderRef: object }>(tx: T, task: Record<string, unknown>) {
   return {
     ...tx,
-    $queryRaw: async () => [{ id: task.id }],
+    $queryRaw: async (strings:TemplateStringsArray) => strings.join('').includes('"RuntimeState"')?[]:[{ id: task.id }],
     procTask: { findUnique: async () => task, ...tx.procTask },
     procPurchaseOrderRef: { findMany: async () => [], ...tx.procPurchaseOrderRef },
   };
@@ -25,7 +25,7 @@ function orderLinkHarness(initialRefs: Array<Record<string, unknown>> = []) {
   const locks: unknown[][] = [];
   let tail = Promise.resolve();
   const tx = {
-    $queryRaw: async (...args: unknown[]) => { locks.push(args); return [{ id: task.id }]; },
+    $queryRaw: async (strings:TemplateStringsArray,...values:unknown[]) => { locks.push([strings,...values]); return strings.join('').includes('"RuntimeState"')?[]:[{ id: task.id }]; },
     procTask: {
       findUnique: async () => ({ ...task }),
       update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(task, data),
@@ -59,7 +59,8 @@ test('连续或并发关联同一采购单行只允许一次，行号空白与�
   assert.equal(h.refs.length, 1);
   assert.equal(h.refs[0].tpLineNo, '1');
   await assert.rejects(link(), /已关联|重复关联/);
-  assert.ok(h.locks.every((args) => args[1] === 'task-safe'));
+  assert.ok(h.locks.some((args) => args[1] === 'task-safe'));
+  assert.equal(h.locks[0][1],'erp-po-write:PO-001');
   const legacy = orderLinkHarness([{ tpOrderNo: 'PO-002', tpLineNo: '' }]);
   await assert.rejects(legacy.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: 'PO-002' }], actor), /已关联|重复关联/);
 });

@@ -1808,6 +1808,9 @@ model ProcSupplierQuote {
   supplier      ProcSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   /// 厂家名快照：供应商删除后报价仍可读
   supplierName  String
+  /// manual | tplus-order；人工编辑后不再被订单同步覆盖
+  source        String        @default("manual")
+  sourceRef     String?
   /// 厂家侧型号/品牌（同一商品各厂家命名可能不同）
   supplierModel String        @default("")
   currency      String        @default("CNY")
@@ -1824,7 +1827,8 @@ model ProcSupplierQuote {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  @@unique([materialId, supplierName])
+  @@unique([materialId, supplierId])
+  @@index([materialId, supplierName])
   @@index([supplierId])
 }
 

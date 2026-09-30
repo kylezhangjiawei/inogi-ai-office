@@ -96,7 +96,8 @@ test('first confirmation exposes stable line identity, preserves ERP values, and
   assert.equal(saved.availability.version, 1);
   assert.equal(saved.availability.needsReconfirmation, false);
   assert.deepEqual(f.line, source);
-  assert.deepEqual(f.locks[0], ['mirror-1', 'PO-1']);
+  assert.deepEqual(f.locks[0], ['erp-po-write:PO-1']);
+  assert.deepEqual(f.locks[2], ['mirror-1', 'PO-1']);
   assert.equal(f.audits.length, 1);
   assert.equal(f.audits[0].userId, actor.id);
   assert.equal(f.audits[0].actorName, actor.name);

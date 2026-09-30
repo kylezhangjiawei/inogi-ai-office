@@ -1,3 +1,4 @@
+import { ErpPurchaseOrderDialog } from '../components/ErpPurchaseOrderDialog';
 import { DatePicker } from '../../components/ui/date-picker';
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -102,6 +103,8 @@ export function PurchaseOrders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
   const canSync = usePermission('proc:sync-erp');
+  const canWriteErp = usePermission('proc-purchase-order:write-erp');
+  const [createErp,setCreateErp] = useState(false);
   const canViewDetail = usePermission('page:purchase-order-detail');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [stats, setStats] = useState<PurchaseOrderStats>(EMPTY_STATS);
@@ -267,7 +270,7 @@ export function PurchaseOrders() {
         title={t('采购订单')}
         meta={(
           <>
-            <span>{t('数据来源：畅捷通 T+（只读）')} · </span>
+            <span>{t('数据来源：畅捷通 T+')} · </span>
             <span>{t('最后同步')}：{syncedAt ? new Date(syncedAt).toLocaleString(i18nLocale()) : '-'}</span>
             {syncProgress ? <span role="status" aria-live="polite" className="text-blue-700">· {syncProgress}</span> : null}
             {syncError ? <span role="alert" className="text-rose-700">· {syncError}</span> : null}
@@ -282,6 +285,7 @@ export function PurchaseOrders() {
               : 'rounded-full border border-amber-100 bg-amber-50 text-amber-700'}>
             {integration?.authorized ? t('T+ 已授权') : t('T+ 未授权')}
           </Badge>
+          {canWriteErp&&<Button type="button" size="sm" onClick={()=>setCreateErp(true)} disabled={syncing}>{t('新增ERP采购订单')}</Button>}
           {canSync ? (
             <Button
               type="button"
@@ -548,6 +552,7 @@ export function PurchaseOrders() {
           }}
         />
       </div>
+      {createErp&&<ErpPurchaseOrderDialog mode="create" onClose={()=>setCreateErp(false)} onSaved={()=>{setCreateErp(false);void loadOrders();}}/>}
     </div>
   );
 }

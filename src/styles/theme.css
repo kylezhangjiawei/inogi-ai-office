@@ -10,6 +10,9 @@
   --radius-control: 0.625rem;
   --radius-panel: 1rem;
   --control-height: 2.25rem;
+  /* Business dialogs occupy layers 50–100; portalled controls sit above them. */
+  --z-floating: 110;
+  --z-tooltip: 120;
   --font-size-caption: 0.75rem;
   --font-size-body: 0.875rem;
   --card-radius: var(--radius-panel);

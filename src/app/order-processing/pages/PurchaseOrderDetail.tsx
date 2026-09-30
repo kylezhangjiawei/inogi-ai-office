@@ -1,3 +1,4 @@
+import { ErpPurchaseOrderDialog } from '../components/ErpPurchaseOrderDialog';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -98,6 +99,10 @@ export function PurchaseOrderDetail() {
   const procurementCockpitPath = routePath('page:proc-cockpit', '/proc-cockpit');
   const canOpenProcurementCockpit = usePermission('page:proc-cockpit');
   const canViewOrder = usePermission('page:purchase-order-detail');
+  const canWriteErp = usePermission('proc-purchase-order:write-erp');
+  const canReadErp = usePermission('proc:sync-erp') || canWriteErp;
+  const [erpAction,setErpAction] = useState<'update'|'delete'|'read'|null>(null);
+  useEffect(() => { setErpAction(null); }, [decodedId, canWriteErp, canReadErp, canViewOrder]);
   const canConfirmAvailability = usePermission('proc-purchase-order:confirm-availability') && canViewOrder;
   const canOpenInventoryReadiness = usePermission('page:proc-inventory-readiness');
   const readinessReturn = canOpenInventoryReadiness ? inventoryReadinessReturnPath(location.state) : null;
@@ -346,6 +351,9 @@ export function PurchaseOrderDetail() {
         )}
         actions={(
           <>
+          {canReadErp&&<Button variant="outline" onClick={()=>setErpAction('read')}>{t('实时查询ERP')}</Button>}
+          {canWriteErp&&<><Button variant="outline" onClick={()=>setErpAction('update')}>{t('修改ERP订单')}</Button><Button variant="outline" className="text-destructive" onClick={()=>setErpAction('delete')}>{t('删除ERP订单')}</Button></>}
+
           {deliveryReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToDelivery}><ArrowLeft className="size-4" />{t('返回到货排期')}</Button> : null}
           {workspaceReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToWorkspace}
             className="order-horizon-secondary-action h-10 border-slate-200 bg-white px-3 text-slate-600 hover:bg-slate-50">
@@ -695,6 +703,7 @@ export function PurchaseOrderDetail() {
           toast.success(t('预计检验后可用日期已保存'));
           void loadOrder();
         }} /> : null}
+      {erpAction&&<ErpPurchaseOrderDialog key={decodedId+erpAction} mode={erpAction} orderNo={decodedId} onClose={()=>{const refresh=erpAction==='read';setErpAction(null);if(refresh)void loadOrder();}} onSaved={result=>{setErpAction(null);if(result.deleted)navigate(purchaseOrdersPath);else void loadOrder();}}/>}
     </div>
   );
 }

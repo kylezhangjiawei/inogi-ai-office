@@ -15,7 +15,7 @@ import {
 import type { ProcActor } from './procurement.types';
 import type { SupplierProfileDto } from './quote-book.controller';
 
-const supplierIdentity = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+const supplierIdentity = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, '').toLocaleLowerCase();
 
 function num(value: Prisma.Decimal | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -288,11 +288,8 @@ export class QuoteBookService {
     if (!supplierName) throw new BadRequestException('厂家名称不能为空');
     const supplierId = await this.resolveSupplierId(dto.supplierId, supplierName);
     supplierName = (await this.prisma.procSupplier.findUniqueOrThrow({ where: { id: supplierId } })).name;
-    const exists = await this.prisma.procSupplierQuote.findUnique({
-      where: { materialId_supplierName: { materialId: dto.materialId, supplierName } },
-    });
     const linked = await this.prisma.procSupplierQuote.findFirst({ where: { materialId: dto.materialId, supplierId } });
-    if (exists || linked) throw new BadRequestException('该商品下已存在此厂家的报价，请直接编辑');
+    if (linked) throw new BadRequestException('该商品下已存在此供应商档案的报价，请直接编辑');
     const quote = await this.prisma.procSupplierQuote.create({
       data: {
         materialId: dto.materialId,
@@ -312,12 +309,6 @@ export class QuoteBookService {
     if (!supplierName) throw new BadRequestException('厂家名称不能为空');
     const supplierId = await this.resolveSupplierId(dto.supplierId, supplierName);
     supplierName = (await this.prisma.procSupplier.findUniqueOrThrow({ where: { id: supplierId } })).name;
-    if (supplierName !== exists.supplierName) {
-      const dup = await this.prisma.procSupplierQuote.findUnique({
-        where: { materialId_supplierName: { materialId: exists.materialId, supplierName } },
-      });
-      if (dup) throw new BadRequestException('该商品下已存在此厂家的报价');
-    }
     const linked = await this.prisma.procSupplierQuote.findFirst({ where: { materialId: exists.materialId, supplierId, id: { not: id } } });
     if (linked) throw new BadRequestException('该商品下已存在此厂家的报价，请编辑已有报价');
     // 价格或币种发生变化时把旧现行版本留痕（首档单价快照）
@@ -445,6 +436,7 @@ export class QuoteBookService {
           return created;
         });
         const data = {
+          source: 'manual', sourceRef: null,
           supplierId,
           supplierName,
           supplierModel: item.supplierModel?.trim() ?? '',
@@ -457,9 +449,7 @@ export class QuoteBookService {
           note: item.note?.trim() || null,
           ...(item.imageKey ? { imageKey: item.imageKey } : {}),
         };
-        const exists = await this.prisma.procSupplierQuote.findFirst({ where: { materialId: material.id, supplierId } }) || await this.prisma.procSupplierQuote.findUnique({
-          where: { materialId_supplierName: { materialId: material.id, supplierName } },
-        });
+        const exists = await this.prisma.procSupplierQuote.findFirst({ where: { materialId: material.id, supplierId } });
         if (exists) {
           // 价格或币种变化才把旧现行版本留痕；同表重复导入（值未变）不刷历史
           const oldTier = this.firstTier(exists.tiers);
@@ -480,7 +470,7 @@ export class QuoteBookService {
           result.updated += 1;
         } else {
           await this.prisma.procSupplierQuote.upsert({
-            where: { materialId_supplierName: { materialId: material.id, supplierName } },
+            where: { materialId_supplierId: { materialId: material.id, supplierId } },
             create: { materialId: material.id, ...data, createdBy: actor.id },
             update: data,
           });
@@ -531,6 +521,7 @@ export class QuoteBookService {
       const dup = await this.prisma.procQuotation.findFirst({
         where: {
           materialId: input.materialId,
+          supplierId: input.supplierId ?? null,
           supplierName: input.supplierName,
           currency: input.currency,
           unitPrice: input.unitPrice,
@@ -576,6 +567,7 @@ export class QuoteBookService {
 
   private commonData(dto: UpsertSupplierQuoteDto) {
     return {
+      source: 'manual', sourceRef: null,
       supplierModel: dto.supplierModel?.trim() ?? '',
       currency: dto.currency ?? 'CNY',
       taxIncluded: dto.taxIncluded ?? true,
@@ -620,6 +612,7 @@ export class QuoteBookService {
       supplierId: q.supplierId ?? undefined,
       supplierName: q.supplierName,
       supplierModel: q.supplierModel,
+      source: q.source ?? 'manual', sourceRef: q.sourceRef ?? undefined,
       currency: q.currency,
       taxIncluded: q.taxIncluded,
       leadTimeDays: q.leadTimeDays,

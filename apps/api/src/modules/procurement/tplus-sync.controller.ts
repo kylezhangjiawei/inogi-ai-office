@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { getApplyJob, startApplyJob } from './apply-job.store';
-import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
+import { PublishTplusMaterialDto, TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { TplusPoMatchService } from './tplus-po-match.service';
 import { TplusOperationsService } from './tplus-operations.service';
 import { TplusSyncService } from './tplus-sync.service';
@@ -12,7 +12,7 @@ import { SavePurchaseOrderAvailabilityDto } from './dto/purchase-order-availabil
 
 type AuthedRequest = { user: { id: string; name?: string; username?: string; permissions: string[] } };
 
-/** 畅捷通 T+ 集成配置 + 只读同步的手动触发入口（后续可挂定时任务）。 */
+/** 畅捷通 T+ 集成配置、同步与物料发布入口。 */
 @Controller('procurement/tplus')
 export class TplusSyncController {
   constructor(
@@ -75,6 +75,19 @@ export class TplusSyncController {
       const message = encodeURIComponent((error as Error).message ?? '授权失败');
       res.redirect(`/proc-materials?tplus=auth-failed&reason=${message}`);
     }
+  }
+
+  @Post('materials/:id/publish')
+  @Permissions('proc:sync-erp')
+  publishMaterial(@Param('id') id: string, @Body() dto: PublishTplusMaterialDto, @Request() req: AuthedRequest) {
+    return this.sync.publishMaterial(id, dto, req.user.id);
+  }
+
+  @Post('sync/quote-book')
+  @Permissions('proc:sync-erp')
+  syncQuoteBook() {
+    const job = startApplyJob('tplus-quote-book', update => this.sync.syncQuoteBook(update));
+    return {jobId:job.id};
   }
 
   @Post('sync/suppliers')

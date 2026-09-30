@@ -3,6 +3,7 @@ import { Prisma, type ProcPurchaseOrderAvailability } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ProcActor } from './procurement.types';
+import { lockOrderDependency } from './purchase-delivery-store';
 import type { SavePurchaseOrderAvailabilityDto } from './dto/purchase-order-availability.dto';
 import { purchaseOrderAvailabilityView, purchaseOrderSourceFingerprint, validatePurchaseOrderAvailability, type PurchaseOrderAvailabilityView } from './purchase-order-availability';
 
@@ -462,6 +463,7 @@ export class TplusOperationsService {
     const { availableDate, note } = validatePurchaseOrderAvailability(input);
     const conflict = () => new ConflictException('订单来源或确认记录已更新，请重新载入订单后确认');
     return this.prisma.$transaction(async (tx) => {
+      await lockOrderDependency(tx, orderNo);
       // Lock the existing parent even before the first annotation exists. This also serializes
       // concurrent ERP updates, and scopes the lookup so a line on another order stays private.
       await tx.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE id = ${lineId} AND "tpOrderNo" = ${orderNo} FOR UPDATE`;

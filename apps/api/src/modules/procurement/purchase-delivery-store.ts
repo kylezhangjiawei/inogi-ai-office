@@ -1,4 +1,4 @@
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -11,6 +11,14 @@ export const deliveryHash = (value: unknown) => createHash('sha256').update(JSON
 export const deliveryDay = (value: Date | null | undefined) => value ? value.toISOString().slice(0, 10) : null;
 export const DELIVERY_READ_PERMISSIONS = ['page:purchase-orders', 'page:purchase-order-detail'];
 export const DELIVERY_WRITE_PERMISSION = 'proc-purchase-order:record-commitment';
+
+/** Local dependencies must finish before ERP order writes, or wait for their verified result. */
+export async function lockOrderDependency(tx: Prisma.TransactionClient, orderNo: string) {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-write:' + orderNo}))`;
+  const blocked = await tx.$queryRaw<Array<{ key: string }>>`SELECT "key" FROM "RuntimeState"
+    WHERE "key" IN (${'erp-po-pending:' + orderNo}, ${'erp-po-deleted:' + orderNo}) AND "value" <> ''`;
+  if (blocked.length) throw new ConflictException('该ERP订单正在核对操作结果或已删除，暂不能新增收货、关联或备料记录');
+}
 
 export interface SupplierDeliveryEntry {
   version: number; kind: 'original' | 'revision' | 'withdrawal'; before: string | null; after: string | null;
@@ -79,10 +87,25 @@ export async function persistMirrorDelivery(
   data: Omit<Prisma.ProcPurchaseOrderMirrorUncheckedCreateInput, 'id' | 'tpOrderNo' | 'tpLineNo'>,
 ) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'erp-po-mirror:' + orderNo}))`;
+    const deleted = await tx.runtimeState.findUnique({where:{key:'erp-po-deleted:' + orderNo}});
+    if (deleted && deleted.value === data.tpOrderId) throw new ConflictException('该ERP订单已确认删除，拒绝回填旧快照');
     const scope = `procurement:delivery:erp:${JSON.stringify([orderNo, lineNo])}`;
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope}, 0))`;
     await tx.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE "tpOrderNo" = ${orderNo} AND "tpLineNo" = ${lineNo} FOR UPDATE`;
     const previous = await tx.procPurchaseOrderMirror.findUnique({ where: { tpOrderNo_tpLineNo: { tpOrderNo: orderNo, tpLineNo: lineNo } } });
+    const priorMetadata = previous?.metadata && typeof previous.metadata === 'object' && !Array.isArray(previous.metadata) ? previous.metadata as Record<string, unknown> : {};
+    const incomingMetadata = data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata) ? data.metadata as Record<string, unknown> : {};
+    const versionKey = 'erp-po-version:' + orderNo;
+    const versionRow = await tx.runtimeState.findUnique({where:{key:versionKey}});
+    const orderVersion = versionRow ? JSON.parse(versionRow.value) : null;
+    const oldTs = String(orderVersion?.ts ?? priorMetadata.erpTs ?? ''), newTs = String(incomingMetadata.erpTs ?? '');
+    if ((orderVersion?.id ?? previous?.tpOrderId) === data.tpOrderId && /^[0-9a-f]+$/i.test(oldTs) && /^[0-9a-f]+$/i.test(newTs) && BigInt('0x'+oldTs) > BigInt('0x'+newTs)) throw new ConflictException('ERP订单镜像已有更新版本，拒绝旧快照');
+    if (/^[0-9a-f]+$/i.test(newTs)) {
+      const value = JSON.stringify({id:data.tpOrderId,ts:newTs});
+      await tx.runtimeState.upsert({where:{key:versionKey},create:{key:versionKey,value},update:{value}});
+    }
+    data = {...data,metadata:{...priorMetadata,...incomingMetadata} as Prisma.InputJsonValue};
     const line = await tx.procPurchaseOrderMirror.upsert({
       where: { tpOrderNo_tpLineNo: { tpOrderNo: orderNo, tpLineNo: lineNo } },
       create: { tpOrderNo: orderNo, tpLineNo: lineNo, ...data }, update: data,

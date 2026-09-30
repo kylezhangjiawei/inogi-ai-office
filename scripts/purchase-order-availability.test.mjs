@@ -280,6 +280,7 @@ function detailFixture(allowed = permissions) {
     '../../procurement/delivery/PurchaseOrderDeliveryDrawer': { PurchaseOrderDeliveryDrawer: 'PurchaseOrderDeliveryDrawer' },
     '../../lib/purchaseDeliveryNavigation': { purchaseDeliveryReturnPath: () => null },
     '../components/PurchaseOrderHistoryDrawer': { PurchaseOrderHistoryDrawer: 'PurchaseOrderHistoryDrawer' },
+    '../components/ErpPurchaseOrderDialog': { ErpPurchaseOrderDialog: 'ErpPurchaseOrderDialog' },
     '../components/PurchaseOrderAvailabilityDialog': { PurchaseOrderAvailabilityDialog: 'PurchaseOrderAvailabilityDialog', availabilityConfirmedAt: (value) => value },
   });
   return {

@@ -44,6 +44,7 @@ export function createLatestRequestGate(): LatestRequestGate {
 }
 
 export interface ComparableSupplierQuote {
+  source?: string;
   currency: string;
   validUntil?: string | null;
   tiers: ReadonlyArray<{ minQty: number; unitPrice: number }>;
@@ -62,6 +63,7 @@ export function lowestActiveTierByCurrency<TQuote extends ComparableSupplierQuot
 ): Array<CurrencyBest<TQuote>> {
   const bestByCurrency = new Map<string, CurrencyBest<TQuote>>();
   for (const quote of quotes) {
+    if (quote.source === 'tplus-order') continue;
     if (quote.validUntil && quote.validUntil < today) continue;
     for (const tier of quote.tiers) {
       const current = bestByCurrency.get(quote.currency);
