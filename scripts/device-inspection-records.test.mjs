@@ -65,7 +65,7 @@ test("production route does not import synthetic adapters or replace authenticat
 const pageSource = fs.readFileSync(new URL("../src/app/DeviceInspectionRecordsPage.tsx", import.meta.url), "utf8");
 const pageModule = { exports: {} };
 const require = createRequire(import.meta.url);
-const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false } });
+const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false, watch: null } });
 let uiModules;
 try {
   uiModules = Object.fromEntries(await Promise.all(["tooltip", "button", "input", "date-picker", "checkbox", "select", "tabs"].map(async name => ["./components/ui/" + name, await uiServer.ssrLoadModule(`/src/app/components/ui/${name}.tsx`)])));

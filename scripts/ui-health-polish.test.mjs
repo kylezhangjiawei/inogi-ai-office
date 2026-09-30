@@ -10,7 +10,7 @@ before(async () => {
   server = await createServer({
     configFile: false, envFile: false,
     optimizeDeps: { noDiscovery: true, include: [] },
-    appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false },
+    appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false, watch: null },
   });
   fields = await server.ssrLoadModule('/src/app/components/MaterialFields.tsx');
 });

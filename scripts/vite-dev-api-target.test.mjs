@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
@@ -6,6 +7,33 @@ import { fileURLToPath } from "node:url";
 import { resolveConfig } from "vite";
 
 const source = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
+
+test("SSR module tests run even when the system has no file watchers available", () => {
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const noWatchers = `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    fs.watch = () => { throw Object.assign(new Error('System limit for number of file watchers reached'), { code: 'ENOSPC' }); };
+    syncBuiltinESMExports();
+  `;
+  const result = spawnSync(process.execPath, [
+    '--import', `data:text/javascript,${encodeURIComponent(noWatchers)}`,
+    '--test', '--test-reporter=tap', '--test-concurrency=2',
+    'scripts/device-inspection-records.test.mjs',
+    'scripts/rd-category-task-tables.test.mjs',
+    'scripts/rd-shared-task-model.test.mjs',
+    'scripts/site-record-footer.test.mjs',
+    'scripts/ui-health-polish.test.mjs',
+  ], {
+    cwd: fileURLToPath(new URL('../', import.meta.url)),
+    env: environment, encoding: 'utf8', windowsHide: true, timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`.slice(-6000));
+  assert.match(result.stdout, /# pass [1-9]\d*/);
+  assert.match(result.stdout, /# fail 0\b/);
+});
 
 test("application and preview servers cannot replace each other's optimized dependencies", async () => {
   const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));

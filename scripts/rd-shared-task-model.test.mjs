@@ -6,7 +6,7 @@ const server = await createServer({
   configFile: false,
   envFile: false,
   optimizeDeps: { noDiscovery: true, include: [] },
-  server: { middlewareMode: true, hmr: false },
+  server: { middlewareMode: true, hmr: false, watch: null },
   appType: 'custom',
 });
 after(() => server.close());

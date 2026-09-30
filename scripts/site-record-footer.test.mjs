@@ -23,7 +23,7 @@ function loadSource(path, replacements = {}) {
 const utils = loadSource('src/app/components/ui/utils.ts');
 const footerModule = loadSource('src/app/components/SiteRecordFooter.tsx', { './ui/utils': utils });
 const renderAt = (path, element) => renderToStaticMarkup(React.createElement(router.StaticRouter, { location: path }, element));
-const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false } });
+const uiServer = await createServer({ configFile: false, envFile: false, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'silent', server: { middlewareMode: true, hmr: false, watch: null } });
 let inputModule;
 try { inputModule = await uiServer.ssrLoadModule('/src/app/components/ui/input.tsx'); }
 finally { await uiServer.close(); }

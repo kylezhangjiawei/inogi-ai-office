@@ -83,7 +83,7 @@ async function loadExportModule(context) {
     optimizeDeps: { noDiscovery: true, include: [] },
     appType: "custom",
     logLevel: "silent",
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, hmr: false, watch: null },
   });
   context.after(() => server.close());
   assert.equal(server.config.configFile, undefined, "export tests must not load the running application's Vite config/cache");
