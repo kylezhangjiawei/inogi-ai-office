@@ -402,10 +402,10 @@ const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'a
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
 }
-/** 研发只保留放弃（删除）审核；其他工作区沿用原流程。 */
+/** 研发保留成果结项和放弃（删除）审核；其他工作区沿用原流程。 */
 function isDirectRdTaskChange(value: string): boolean {
   return currentRdWorkspace() === 'rd'
-    && ['proposal', 'result', 'collaboration', 'due_date', 'merge'].includes(value);
+    && ['proposal', 'collaboration', 'due_date', 'merge'].includes(value);
 }
 type ExpectedTaskReview = { reviewType: string; version: string };
 function taskReviewVersion(task: JsonRecord): string {
@@ -4155,6 +4155,7 @@ export class ResearchDevelopmentService {
       if (task.status !== 'pending_review') return '任务已不处于待处理状态';
       if (task.archived || isProductionMirrorTask(task)) return '归档或生产映射任务不自动转换';
       if (type === 'abandon') return '保留删除审核';
+      if (type === 'result') return '保留结项审核';
       if (type === 'procurement_transfer') return '请通过继续转采购处理原采购单';
       if (!isDirectRdTaskChange(type)) return '审核类型缺失或未知，需人工核实';
       return undefined;
@@ -4371,24 +4372,25 @@ export class ResearchDevelopmentService {
           const existingReviewType = cleanText(t.pending_review_type);
           const requestedStatus = cleanText(persistPatch.status);
           const hasSubmittedReviewType = Object.prototype.hasOwnProperty.call(persistPatch, 'pending_review_type');
-          // 兼容旧详情页的完成提交；研发直接完成，其他池仍保存成果审核。
+          // 兼容旧详情页省略审核类型的成果提交，统一进入结项审核。
           if (!_review_action && requestedStatus === 'pending_review' && !hasSubmittedReviewType && !existingReviewType) {
             persistPatch.pending_review_type = 'result';
           }
           const submittedType = cleanText(persistPatch.pending_review_type) || existingReviewType;
           const directSubmission = !_review_action && cleanText(persistPatch.status) === 'pending_review'
             && isDirectRdTaskChange(submittedType);
-          const directCompletion = !_review_action && currentRdWorkspace() === 'rd' && requestedStatus === 'completed';
+          const directCompletion = !_review_action && currentRdWorkspace() === 'rd'
+            && options?.canEditAny && requestedStatus === 'completed';
           appliedDirectReview = Boolean(_review_action && isDirectRdTaskChange(existingReviewType));
           if (directSubmission && t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)) {
-            throw new ConflictException('该任务仍有删除或未知审核待处理，请先完成审核');
+            throw new ConflictException('该任务仍有结项、删除或未知审核待处理，请先完成审核');
           }
-          // 删除及未知历史申请不能被管理员的普通 PATCH 或完成操作清除。
+          // 结项、删除及未知历史申请不能被管理员的普通 PATCH 或完成操作清除。
           if (!_review_action && currentRdWorkspace() === 'rd' && t.status === 'pending_review'
             && !isDirectRdTaskChange(existingReviewType)
             && ((Object.prototype.hasOwnProperty.call(persistPatch, 'status') && requestedStatus !== 'pending_review')
               || (hasSubmittedReviewType && cleanText(persistPatch.pending_review_type) !== existingReviewType))) {
-            throw new ForbiddenException('不能清除或更改待删除或未知审核申请，请先处理审核');
+            throw new ForbiddenException('不能清除或更改待结项、删除或未知审核申请，请先处理审核');
           }
 
           // 越权防护（与 moveTasks 同口径）：仅持页面权限 page:rd-my-workspace 的普通成员
@@ -4410,7 +4412,7 @@ export class ResearchDevelopmentService {
               if (((requestedStatus === 'completed' && !directCompletion) || requestedStatus === 'archived') && requestedStatus !== t.status) {
                 throw new ForbiddenException('无审核权限：请提交成果或放弃申请，等待审核');
               }
-              // 放弃、未知类型及其他工作区的待审申请不能换类型走免审分支。
+              // 结项、放弃、未知类型及其他工作区的待审申请不能换类型走免审分支。
               if (t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)
                 && ((Object.prototype.hasOwnProperty.call(persistPatch, 'status') && requestedStatus !== 'pending_review')
                   || (hasSubmittedReviewType && cleanText(persistPatch.pending_review_type) !== existingReviewType))) {

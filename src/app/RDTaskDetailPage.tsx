@@ -99,7 +99,7 @@ import { TechnicalDocumentsPanel } from "./rd/TechnicalDocumentsPanel";
 import "./rd/rdTaskDetail.css";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
-import { isTaskOverdue } from "./lib/taskDue";
+import { isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 import {
@@ -1059,7 +1059,7 @@ export default function RDTaskDetailPage() {
 
   // ── 研发侧特有动作（与驾驶舱抽屉同口径） ────────────────────────────────────
 
-  /** 主责人可提交完成；研发直接生效，其他工作区保留审核。管理员使用单独完成入口。 */
+  /** 主责人提交成果后等待管理员审核。管理员使用单独完成入口。 */
   const isCurrentOwner = Boolean(
     task && user && (
       (task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
@@ -1087,12 +1087,10 @@ export default function RDTaskDetailPage() {
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(expectedTaskId, researchWorkspace
-        ? { status: "completed", pending_review_type: null, progress: 100 }
-        : { status: "pending_review", progress: 100 });
+      await updateRdTask(expectedTaskId, { status: "pending_review", pending_review_type: "result", progress: 100 });
       if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.success(t(researchWorkspace ? "任务已标记完成" : "任务已提交审核，等待确认"));
-      if (!researchWorkspace) window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      toast.success(t("任务已提交审核，等待确认"));
+      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
@@ -1534,7 +1532,7 @@ export default function RDTaskDetailPage() {
       {canSubmitForReview && (
         <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
           <Send className="size-3.5" aria-hidden="true" />
-          {t(researchWorkspace ? "标记完成" : "提交审核")}
+          {t("提交审核")}
         </Button>
       )}
       {canManage && task.status === "pending_review" && reviewMeta ? (
@@ -2589,7 +2587,6 @@ export default function RDTaskDetailPage() {
       )}
       {showComplete && (
         <CompleteConfirmDialog
-          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleDirectComplete()}
@@ -2598,7 +2595,6 @@ export default function RDTaskDetailPage() {
       )}
       {showSubmitConfirm && (
         <SubmitConfirmDialog
-          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleSubmitForReview()}
@@ -2842,7 +2838,7 @@ function CreateSubtaskDialog({
   useI18n();
   const [title, setTitle] = useState("");
   const [ownerName, setOwnerName] = useState(parentTask.primary_owner ?? "");
-  const [dueDate, setDueDate] = useState(parentTask.due_date ?? "");
+  const [dueDate, setDueDate] = useState(todayLocalDateStr);
   const [priority, setPriority] = useState<RdPriority>(parentTask.final_priority ?? "medium");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
