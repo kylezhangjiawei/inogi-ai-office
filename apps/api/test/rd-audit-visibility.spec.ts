@@ -74,7 +74,10 @@ test('non-admin audit reads only return the current actor while administrators r
   assert.deepEqual(anonymousLogs, []);
 
   // 只读当前工作区，且排除拦截器写的 HTTP 原始留痕——否则研发快照会混进一堆裸 POST 记录
-  assert.deepEqual(queries[0].where, { module: 'rd', source: { not: 'api' } });
+  assert.deepEqual(queries[0].where, {
+    module: 'rd', source: { not: 'api' },
+    NOT: { resource: { in: ['meeting-todo', 'meeting-week'] } },
+  });
 
   const adminLogs = await service.getAuditLogs({ canReadAll: true }) as RecordValue[];
   assert.deepEqual(adminLogs.map((log) => log.id), [

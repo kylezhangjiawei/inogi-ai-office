@@ -203,11 +203,28 @@ function appFunctions(view) {
     useIsMobileViewport: () => true,
     routePath: view.routes.routePath, subRoutePath: view.routes.subRoutePath,
     rdWorkspaceForPath: (path) => view.load('src/app/lib/rdWorkspace.ts').rdWorkspaceForPath(path),
-    matchPath: () => null,
+    matchPath,
     procurementWorkspaceReturnPath: () => null,
   };
   return new Function(...Object.keys(dependencies), code)(...Object.values(dependencies));
 }
+
+test('会议待办和操作记录在窄屏保留原业务页面，不丢失所选周', () => {
+  for (const auditPath of ['/audit-log', '/operations/history']) {
+    const view = fixture({ 'page:audit-log': auditPath });
+    const app = appFunctions(view);
+    for (const base of ['/rd-meeting-todos', auditPath]) {
+      for (const path of [base, `${base}/`, base.toUpperCase(), `${base.toUpperCase()}/`]) {
+        view.window.location.pathname = path;
+        assert.equal(app.ProtectedLayout().type, 'Root', path);
+      }
+      for (const path of [`${base}-other`, `${base}/other`]) {
+        view.window.location.pathname = path;
+        assert.equal(app.ProtectedLayout().props.to, '/m?tab=mine#task', path);
+      }
+    }
+  }
+});
 
 test('真实移动守卫把自定义协同页转到协同移动页，恢复宽屏仍回配置后的驾驶舱', () => {
   const view = fixture({ 'page:us-collab-cockpit': '/team-board', 'page:us-collab-approval-flow': '/collaboration-flow' }, '/collaboration-flow');

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./auth";
 import { hasAnyPermission, hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { rdWorkspaceForPath } from "./lib/rdWorkspace";
+import { MEETING_ADMIN_PERMISSIONS } from "./lib/rdMeetingTodosApi";
 import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
 // 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值
@@ -44,6 +45,7 @@ const DeviceInspectionRecordsPage = lazyNamed(() => import("./DeviceInspectionRe
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");
+const RDMeetingTodosPage = lazyNamed(() => import("./RDMeetingTodosPage"), "RDMeetingTodosPage");
 const MobileProcSampleTestPage = lazyNamed(() => import("./MobileProcSampleTestPage"), "MobileProcSampleTestPage");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
@@ -392,7 +394,9 @@ function ProtectedLayout() {
 
   // 已有窄屏布局的独立工具保留业务入口，权限仍由子路由校验。
   if (location.pathname === routePath("page:email-ai", "/email-ai")
-    || location.pathname === routePath("page:proc-quote-book", "/proc-quote-book")) return <Root />;
+    || location.pathname === routePath("page:proc-quote-book", "/proc-quote-book")
+    || matchPath({ path: "/rd-meeting-todos", end: true }, location.pathname)
+    || matchPath({ path: routePath("page:audit-log", "/audit-log"), end: true }, location.pathname)) return <Root />;
 
   // 采购工作台及关联页自身支持窄屏，保留工作上下文和原路由权限检查。
   if (location.pathname === routePath("page:proc-my-workspace", "/proc-my-workspace")
@@ -541,6 +545,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:issue-ai", "/issue-ai")), element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
       // 由动作码 rd-people:manage 守卫（目录中为 action 类型、无 routePath），故路径保持硬编码
       { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" visualVariant="rd-horizon" onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "rd-meeting-todos", element: makeLazyProtected(<RDMeetingTodosPage />, MEETING_ADMIN_PERMISSIONS) },
       { path: asChildPath(routePath("page:rd-my-workspace", "/rd-my-workspace")), element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
       { path: "rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:rd-sheet", "/rd-sheet")), element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },

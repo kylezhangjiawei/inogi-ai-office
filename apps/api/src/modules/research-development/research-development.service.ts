@@ -11371,6 +11371,8 @@ export class ResearchDevelopmentService {
       where: {
         module: currentRdWorkspace(),
         source: { not: 'api' },
+        // Meeting records are private; their dedicated page uses the unified audit endpoint.
+        NOT: { resource: { in: ['meeting-todo', 'meeting-week'] } },
         ...(resourceType ? { resource: resourceType } : {}),
         ...(resourceId ? { resourceId } : {}),
         ...(allowedTaskIds ? { OR: [

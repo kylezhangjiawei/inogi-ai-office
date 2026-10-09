@@ -28,6 +28,12 @@ export type AuditCategory =
   | "system";
 
 export type AuditAction =
+  | "meeting_week.created"
+  | "meeting_todo.created"
+  | "meeting_todo.updated"
+  | "meeting_todo.completed"
+  | "meeting_todo.reopened"
+  | "meeting_todo.deleted"
   // Task lifecycle
   | "task.created"
   | "task.updated"
@@ -132,6 +138,8 @@ export type AuditActor = {
 
 export type AuditResource = {
   type:
+    | "meeting-week"
+    | "meeting-todo"
     | "task"
     | "proposal"
     | "project"
@@ -245,6 +253,12 @@ const UNKNOWN_AUDIT_ACTION_META: AuditActionMeta = {
 };
 
 export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
+  "meeting_week.created": { category: "task", label: "新建会议周清单", verb: "创建了会议周清单", tone: "blue" },
+  "meeting_todo.created": { category: "task", label: "添加会议待办", verb: "添加了会议待办", tone: "blue" },
+  "meeting_todo.updated": { category: "task", label: "编辑会议待办", verb: "编辑了会议待办", tone: "blue" },
+  "meeting_todo.completed": { category: "task", label: "完成会议待办", verb: "完成了会议待办", tone: "emerald" },
+  "meeting_todo.reopened": { category: "task", label: "重新打开会议待办", verb: "重新打开了会议待办", tone: "amber" },
+  "meeting_todo.deleted": { category: "task", label: "删除会议待办", verb: "删除了会议待办", tone: "red" },
   // Task
   "task.created": { category: "task", label: "新建任务", verb: "创建了任务", tone: "blue" },
   "task.updated": { category: "task", label: "更新任务", verb: "更新了任务", tone: "blue" },

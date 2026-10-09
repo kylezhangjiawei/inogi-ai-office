@@ -28,10 +28,14 @@ const FIXTURES = [
   { id: `${PREFIX}proc-alice`, module: 'procurement', source: 'api', action: 'POST', resource: 'procurement', resourceId: 'tasks', resourceName: null, actorName: '张三', userId: null, summary: null },
   { id: `${PREFIX}auth-none`, module: 'auth', source: 'api', action: 'POST', resource: 'auth', resourceId: 'login', resourceName: null, actorName: null, userId: null, summary: null },
   { id: `${PREFIX}uscollab-bob`, module: 'us-collab', source: 'ai', action: 'ai.parse_triggered', resource: 'proposal', resourceId: 'P-1', resourceName: 'AI 立项', actorName: '李四', userId: null, summary: 'AI 解析' },
+  { id: `${PREFIX}meeting-item`, module: 'rd', source: 'web', action: 'meeting_todo.created', resource: 'meeting-todo', resourceId: 'M-1', resourceName: '会议私密待办', actorName: '张三', userId: null, summary: '新增会议待办' },
+  { id: `${PREFIX}meeting-week`, module: 'rd', source: 'web', action: 'meeting_week.created', resource: 'meeting-week', resourceId: '2026-10-05', resourceName: '周清单', actorName: '张三', userId: null, summary: '创建会议周清单' },
+  { id: `${PREFIX}meeting-api`, module: 'rd', source: 'api', action: 'POST', resource: 'research-development', resourceId: 'meeting-todos', resourceName: null, actorName: '张三', userId: null, summary: null },
+  { id: `${PREFIX}rd-null-resource-id`, module: 'rd', source: 'api', action: 'POST', resource: 'research-development', resourceId: null, resourceName: null, actorName: '张三', userId: null, summary: null },
 ];
 
 /** 覆盖每一个筛选维度，以及三类可见范围（超管 / 分模块管理者 / 只看自己）。 */
-const CASES: Array<{ name: string; query: Partial<AuditLogQueryDto>; viewer: AuditViewer }> = [
+const CASES: Array<{ name: string; query: Partial<AuditLogQueryDto>; viewer: AuditViewer; meetings?: boolean }> = [
   { name: '超管无筛选', query: {}, viewer: { permissions: ['*'] } },
   { name: '超管筛模块', query: { module: 'rd' }, viewer: { permissions: ['*'] } },
   { name: '超管筛来源', query: { source: 'api' }, viewer: { permissions: ['*'] } },
@@ -61,6 +65,11 @@ const CASES: Array<{ name: string; query: Partial<AuditLogQueryDto>; viewer: Aud
   { name: '时间窗', query: { dateFrom: new Date(Date.now() - 86400_000).toISOString(), dateTo: new Date(Date.now() + 86400_000).toISOString() }, viewer: { permissions: ['*'] } },
   { name: '指定操作人', query: { actorUserId: 'nobody' }, viewer: { permissions: ['*'] } },
   { name: '普通成员叠加关键字', query: { keyword: '任务' }, viewer: { userId: 'x', userName: '张三', permissions: ['page:audit-log'] } },
+  { name: '研发管理员查看会议留痕', query: {}, viewer: { userId: 'x', permissions: ['page:rd-task-management', 'rd-task:reassign'] }, meetings: true },
+  { name: '超管查看会议留痕', query: {}, viewer: { userId: 'x', permissions: ['*'] }, meetings: true },
+  { name: '协同管理员不能查看研发会议留痕', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['page:us-collab-cockpit', 'rd-people:manage'] }, meetings: false },
+  { name: '生产管理员不能查看研发会议留痕', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['page:rd-director-dashboard', 'rd-people:manage'] }, meetings: false },
+  { name: '普通只读成员不能通过旧操作人匹配查看会议留痕', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['page:rd-task-management', 'rd-task:view-all'] }, meetings: false },
 ];
 
 test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', { skip: !databaseUrl, timeout: 30_000 }, async () => {
@@ -94,6 +103,13 @@ test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', { skip
           viaPrisma.map((r) => r.id).sort(),
           `「${item.name}」两份 where 结果不一致`,
         );
+        if (item.meetings !== undefined) {
+          assert.equal(viaPrisma.filter(row => row.id.startsWith(`${PREFIX}meeting-`)).length, item.meetings ? 3 : 0, item.name);
+          assert.ok(viaPrisma.some(row => row.id === `${PREFIX}rd-null-resource-id`), '排除私有会议日志不能吞掉 resourceId 为空的普通日志');
+          const facets = await service.listFacets(item.viewer, 'rd');
+          assert.equal(facets.resources.some((row: { value: string }) => row.value === 'meeting-todo'), item.meetings, `${item.name}：筛选项也须遵循相同权限`);
+          assert.equal(facets.actions.some((row: { value: string }) => row.value === 'meeting_week.created'), item.meetings, `${item.name}：动作计数不得暴露会议记录`);
+        }
       }
       throw ROLLBACK;
     });

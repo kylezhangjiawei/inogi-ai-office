@@ -31,6 +31,7 @@ import {
   ArrowRight,
   CalendarClock,
   CalendarDays,
+  ClipboardList,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -79,6 +80,7 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
+import { MEETING_ADMIN_PERMISSIONS } from "./lib/rdMeetingTodosApi";
 import { taskOverdueDays, isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 import {
   AlertDialog,
@@ -5281,6 +5283,7 @@ function ExecutiveOverview({
   onReassign,
   onClearData,
   onAiProject,
+  onOpenMeetingTodos,
   canCreateTask,
   canReassign,
   canClearData,
@@ -5323,6 +5326,7 @@ function ExecutiveOverview({
   onReassign?: () => void;
   onClearData?: () => void;
   onAiProject?: () => void;
+  onOpenMeetingTodos?: () => void;
   canCreateTask?: boolean;
   canReassign?: boolean;
   canClearData?: boolean;
@@ -5586,6 +5590,11 @@ function ExecutiveOverview({
                 <Button type="button" onClick={onAiProject} className="rd-horizon-primary-action inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-primary-foreground">
                   <Sparkles className="size-4" aria-hidden="true" />
                   {t("AI 立项")}
+                </Button>
+              )}
+              {onOpenMeetingTodos && (
+                <Button variant="unstyled" type="button" onClick={onOpenMeetingTodos} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold">
+                  <ClipboardList className="size-4" aria-hidden="true" />会议待办
                 </Button>
               )}
               {onCreateTask && (
@@ -6128,6 +6137,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [productionActualsOpen, setProductionActualsOpen] = useState(false);
   const [productionActualsProductId, setProductionActualsProductId] = useState<string | null>(null);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canManageMeetingTodos = useAnyPermission(...MEETING_ADMIN_PERMISSIONS);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR) && !nativeRdCockpit;
   const canDeleteTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
@@ -6827,6 +6837,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onReassign={canReassignTasks ? () => { setReassignTaskId(null); setShowReassign(true); } : undefined}
           onClearData={canClearData ? () => setShowClearData(true) : undefined}
           onAiProject={canDirectProject ? () => setShowProposalDialog(true) : undefined}
+          onOpenMeetingTodos={nativeRdCockpit && canManageMeetingTodos ? () => navigate('/rd-meeting-todos') : undefined}
           canCreateTask={canCreateTask}
           canReassign={canReassignTasks}
           canClearData={canClearData}
