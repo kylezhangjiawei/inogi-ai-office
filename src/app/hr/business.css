@@ -1,0 +1,95 @@
+.hr-business-block{display:flex;flex-direction:column;gap:14px;border-top:1px solid var(--hr-line);padding-top:16px}
+.hr-business-block h3{font-size:13px;font-weight:650;display:flex;align-items:center;gap:10px}
+.hr-business-block p{font-size:12px;line-height:1.8}
+.hr-business-label{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.hr-business-edit{border:1px solid var(--hr-line);border-radius:9px;padding:12px;font-size:12px}
+.hr-business-edit summary{cursor:pointer;color:var(--primary);font-weight:600}
+.hr-business-edit[open]>summary{margin-bottom:14px}
+.hr-business-edit>.hr-stack{gap:12px}
+.hr-business-edit>button{margin-top:12px}
+.hr-department-tree,.hr-department-tree ul{list-style:none;padding:0;margin:0}
+.hr-department-tree{display:flex;align-items:start;flex-wrap:wrap;gap:14px;padding:0 20px 20px}
+.hr-department-tree>li{flex:1;min-width:175px}
+.hr-department-tree ul{margin:12px 0 0 12px;padding-left:14px;border-left:1px solid var(--hr-line)}
+.hr-department-tree ul>li{margin-top:10px}
+.hr-department-node{padding:14px;border:1px solid var(--hr-line);border-radius:10px;display:flex;flex-direction:column;gap:7px;background:var(--card)}
+.hr-department-node strong{font-size:13px}
+.hr-department-node small,.hr-department-node span{font-size:11px;color:var(--hr-muted)}
+.hr-position-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:20px;gap:16px}
+.hr-position-groups>section{border:1px solid var(--hr-line);border-radius:10px;overflow:hidden}
+.hr-position-groups h3{font-size:12px;font-weight:650;padding:12px;background:var(--muted)}
+.hr-position-groups section>div{padding:12px;display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--hr-line)}
+.hr-position-groups strong{font-size:12px}
+.hr-position-groups small{font-size:11px;color:var(--hr-muted)}
+.hr-position-focus{padding:16px;border-radius:10px;background:color-mix(in srgb,var(--primary) 6%,white);display:flex;flex-direction:column;gap:8px;align-items:start}
+.hr-position-focus small{font-size:11px;color:var(--hr-muted)}
+.hr-career-steps{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.hr-career-steps>li{border-left:2px solid var(--hr-line);padding:8px 10px;display:flex;flex-direction:column;gap:5px;font-size:12px;min-width:0;overflow-wrap:anywhere}
+.hr-career-steps>li[data-current=true]{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 5%,white)}
+.hr-career-steps small{color:var(--primary);font-size:10px}
+.hr-career-steps .hr-badge{align-self:start}
+.hr-competency,.hr-meeting-action{border:1px solid var(--hr-line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.hr-competency-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:12px}
+.hr-competency-heading>strong{min-width:0;overflow-wrap:anywhere}
+.hr-competency-heading>.hr-badge{flex-shrink:0}
+.hr-competency>p{margin:0;color:var(--hr-muted);font-size:12px;line-height:1.8}
+.hr-behavior-levels{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.hr-behavior-levels>li{display:grid;grid-template-columns:35px minmax(0,1fr);gap:10px;font-size:11px;line-height:1.8;border-top:1px solid var(--hr-line);padding-top:10px}
+.hr-behavior-levels strong{color:var(--primary);font-weight:500}
+.hr-transfer-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.hr-transfer-list li{padding:12px;background:var(--background);border:1px solid var(--hr-line);border-radius:9px;font-size:12px}
+.hr-transfer-list li p{margin:5px 0}
+.hr-transfer-list small{color:var(--hr-muted);line-height:1.8}
+.hr-business-full-detail .hr-workspace{grid-template-columns:minmax(0,1fr)}
+.hr-business-full-detail .hr-records{min-height:0}
+.hr-expense-documents{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.hr-expense-document{border:1px solid var(--hr-line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:13px}
+.hr-expense-document h3{font-size:13px;font-weight:650}
+.hr-expense-difference{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px;background:var(--muted);border-radius:10px;font-size:12px}
+.hr-expense-difference strong{font-size:22px;color:var(--primary)}
+.hr-room-overview{padding-bottom:16px}
+.hr-room-overview>.hr-toolbar{padding:0 20px}
+.hr-room-overview>.hr-subtle{display:block;padding:12px 20px 0}
+.hr-room-cards{padding:0 20px 20px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.hr-room-cards article{border:1px solid var(--hr-line);border-radius:10px;padding:14px;min-width:0}
+.hr-room-cards article>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
+.hr-room-cards h3{font-size:13px;font-weight:600}
+.hr-room-cards p{font-size:12px;margin:14px 0 5px;overflow-wrap:anywhere}
+.hr-room-cards small{font-size:10px;color:var(--hr-muted)}
+.hr-room-timetable{min-width:1100px;table-layout:fixed}
+.hr-room-timetable th:first-child{width:160px}
+.hr-room-timetable th,.hr-room-timetable td{padding:10px 6px;font-size:10px;border-right:1px solid var(--hr-line)}
+.hr-room-booked{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px;background:color-mix(in srgb,var(--primary) 12%,white);color:var(--primary);border-radius:4px}
+.hr-meeting-action progress{width:100%;height:7px;accent-color:var(--primary)}
+.hr-average-cell{display:flex;align-items:center;gap:10px}
+.hr-average-cell meter{width:80px;accent-color:var(--primary)}
+.hr-average-cell small{margin:0!important}
+.hr-metric-table td:nth-child(3),.hr-metric-table td:nth-child(4){white-space:normal;line-height:1.8;min-width:200px}
+.hr-metric-table td:nth-child(2){font-size:18px;font-weight:600}
+.hr-metric-table td:nth-child(1){min-width:180px}
+.hr-metric-table td:nth-child(3){width:38%}
+@media(max-width:1200px){.hr-room-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hr-career-steps{grid-template-columns:repeat(4,minmax(0,1fr))}
+.hr-business-full-detail .hr-facts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:650px){.hr-position-groups,.hr-room-cards,.hr-expense-documents{grid-template-columns:1fr}
+.hr-position-groups,.hr-department-tree{padding:16px}
+.hr-department-tree{display:block}
+.hr-department-tree>li{margin-top:12px}
+.hr-career-steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hr-business-full-detail .hr-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hr-room-cards{padding:0 16px 16px}
+.hr-expense-document{padding:12px}
+.hr-average-cell meter{width:50px}
+.hr-business-block .hr-form-grid{grid-template-columns:1fr}
+.hr-competency,.hr-meeting-action{padding:12px}
+.hr-business-block input,.hr-business-block textarea,.hr-expense-document input{min-width:0;max-width:100%}}
+.hr-business-fieldset{display:flex;flex-direction:column;gap:16px;min-width:0;margin:0;padding:0;border:0}
+.hr-business-fieldset[disabled] button{opacity:.45;cursor:not-allowed}
+.hr-competency-view .hr-business-block:has(>.hr-competency){display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
+.hr-competency-view .hr-business-block:has(>.hr-competency)>h3{grid-column:1/-1}
+.hr-competency-view .hr-competency .hr-form-grid{grid-template-columns:minmax(0,1fr) 90px}
+@container(min-width:600px){.hr-competency-view .hr-business-block:has(>.hr-competency){grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container(min-width:960px){.hr-competency-view .hr-business-block:has(>.hr-competency){grid-template-columns:repeat(3,minmax(0,1fr))}}
+.hr-competency-document.is-editing .hr-competency-document-long{grid-column:1/-1}
+.hr-competency-document.is-editing textarea{width:100%}
+@media(max-width:650px){.hr-detail .hr-competency-document.is-editing{grid-template-columns:minmax(0,1fr)}}

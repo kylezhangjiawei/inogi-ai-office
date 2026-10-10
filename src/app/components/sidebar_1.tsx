@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { Link, useLocation } from "react-router";
 import { ChevronDown, ChevronLeft } from "lucide-react";
 import { useAuth } from "../auth";
-import { isNavItemActive, navGroups } from "../routesConfig";
+import { isNavItemActive, navGroups, withHrPreviewNavigation } from "../routesConfig";
 import { t, useI18n } from "../lib/i18n";
 import { useLayoutChromeActions, useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
@@ -16,8 +16,9 @@ import { initialCollapsedGroups } from "../lib/navigationGroupState";
 const NAV_GROUP_COLLAPSED_KEY = "inogi-nav-collapsed-groups";
 
 function readCollapsedGroups(pathname: string): Set<string> {
-  const labels = navGroups.map(group => group.label);
-  const owner = navGroups.find(group => group.items.some(item => isNavItemActive(item, pathname)));
+  const groups = import.meta.env.DEV ? withHrPreviewNavigation(navGroups) : navGroups;
+  const labels = groups.map(group => group.label);
+  const owner = groups.find(group => group.items.some(item => isNavItemActive(item, pathname)));
   try {
     return initialCollapsedGroups(labels, owner?.label, typeof window === 'undefined' ? null : window.localStorage.getItem(NAV_GROUP_COLLAPSED_KEY));
   } catch {
@@ -40,7 +41,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
   const { immersive, sidebarCollapsed } = useLayoutChromeState();
   const collapsed = !mobile && sidebarCollapsed;
   const { toggleSidebar } = useLayoutChromeActions();
-  const visibleGroups = useVisibleNavigation();
+  const visibleGroups = useVisibleNavigation(import.meta.env.DEV);
   const sidebarRef = useRef<HTMLElement>(null);
   const navScrollRef = useRef<HTMLElement>(null);
 
@@ -191,11 +192,12 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                   )}
                   <CollapsibleContent>
                     <div className="space-y-1">
-                      {group.items.map((item) => {
+                      {group.items.map((item, itemIndex) => {
                         const isActive = isNavItemActive(item, pathname);
                         return (
+                          <React.Fragment key={item.path}>
+                          {!collapsed && item.section && item.section !== group.items[itemIndex - 1]?.section && <div className="px-3 pb-1 pt-3 text-[11px] font-medium text-muted-foreground">{t(item.section)}</div>}
                           <Link
-                            key={item.path}
                             to={item.path}
                             title={t(item.label)}
                             onClick={onNavigate}
@@ -212,6 +214,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
                             </span>
                             {!collapsed && <span className="min-w-0 truncate">{t(item.label)}</span>}
                           </Link>
+                          </React.Fragment>
                         );
                       })}
                     </div>

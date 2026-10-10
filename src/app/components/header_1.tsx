@@ -112,7 +112,7 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearchText, setPageSearchText] = useState("");
-  const visibleGroups = useVisibleNavigation();
+  const visibleGroups = useVisibleNavigation(import.meta.env.DEV);
   const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,8 +226,9 @@ export function Header() {
         : departmentKb.label;
       return `${departmentName}知识库`;
     }
-    return resolveRouteTitle(location.pathname);
-  }, [location.pathname, nameByCode]);
+    const navigationTitle = visibleGroups.flatMap(group => group.items).find(item => normalizePath(item.path) === normalizePath(location.pathname))?.label;
+    return navigationTitle || resolveRouteTitle(location.pathname);
+  }, [location.pathname, nameByCode, visibleGroups]);
   const breadcrumb = useMemo(
     () => (location.pathname === "/" ? ["首页", "系统总览"] : ["首页", title]),
     [location.pathname, title],

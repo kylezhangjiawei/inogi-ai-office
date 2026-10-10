@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useAuth } from "../auth";
-import { navGroups, type NavGroup, type NavItem } from "../routesConfig";
+import { navGroups, withHrPreviewNavigation, type NavGroup, type NavItem } from "../routesConfig";
 import { hasPermission } from "./permissions";
 import { useNavMeta, type NavMetaItem } from "./permissionCatalogApi";
 
@@ -53,9 +53,9 @@ export function buildVisibleNavigation(groups: NavGroup[], permissions: string[]
 }
 
 /** Keep page search and both navigation surfaces on the same order and permission rules. */
-export function useVisibleNavigation() {
+export function useVisibleNavigation(includeHrPreview = false) {
   const { user } = useAuth();
   const permissions = user?.permissions ?? EMPTY_PERMISSIONS;
   const metadata = useNavMeta(user?.id);
-  return useMemo(() => buildVisibleNavigation(navGroups, permissions, metadata), [permissions, metadata]);
+  return useMemo(() => buildVisibleNavigation(includeHrPreview ? withHrPreviewNavigation(navGroups) : navGroups, permissions, metadata), [includeHrPreview, permissions, metadata]);
 }

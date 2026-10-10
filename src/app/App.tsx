@@ -9,7 +9,7 @@ import { hasAnyPermission, hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { rdWorkspaceForPath } from "./lib/rdWorkspace";
 import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
-import { DEPT_KBS, routePermissionMap } from "./routesConfig";
+import { DEPT_KBS, HR_PREVIEW_PERMISSIONS, routePermissionMap } from "./routesConfig";
 // 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值
 import { asChildPath, routePath, subRoutePath } from "./lib/routePaths";
 
@@ -117,6 +117,9 @@ const InspectionPreviewPage = import.meta.env.DEV
   : null;
 const FieldPreviewPage = import.meta.env.DEV
   ? lazyNamed(() => import("./production/field-tasks/FieldPreviewPage"), "FieldPreviewPage")
+  : null;
+const HrPreview = import.meta.env.DEV
+  ? lazyNamed(() => import("./hr/HrPreview"), "HrPreview")
   : null;
 const PreviewIndexPage = import.meta.env.DEV
   ? lazyNamed(() => import("./preview/PreviewIndexPage"), "PreviewIndexPage")
@@ -387,6 +390,9 @@ function ProtectedLayout() {
   // 系统首页自身支持窄屏；保留 Dashboard 身份及 home 查询视图。
   if (location.pathname === "/") return <Root />;
 
+  // HR prototype pages share the responsive application shell on every screen size.
+  if (import.meta.env.DEV && (location.pathname === "/__preview/hr" || location.pathname.startsWith("/__preview/hr/"))) return <Root />;
+
   // 行政登记页自身适配窄屏；不转到无关的研发移动驾驶舱。
   if (location.pathname === routePath("page:applicant-forms", "/applicant-forms")) return <Root />;
 
@@ -528,6 +534,7 @@ const router = createBrowserRouter([
     path: "/",
     Component: ProtectedLayout,
     children: [
+      ...(HrPreview ? [{ path: "__preview/hr/:module?", element: makeLazyProtected(<HrPreview />, HR_PREVIEW_PERMISSIONS) }] : []),
       { index: true, element: makeLazyProtected(<Dashboard />, routePermissionMap["/"] ?? "page:dashboard") },
       { path: "profile", element: lazyWrap(<PersonalCenterPage />) },
       { path: "message-center", element: lazyWrap(<MessageCenterPage />) },

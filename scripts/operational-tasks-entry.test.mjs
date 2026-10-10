@@ -62,7 +62,7 @@ test('岗位页面与专用面板已删除，人员管理仍保留', () => {
 
 test('电脑和手机打开已删除页面均回首页，未登录仍进登录页', () => {
   const app = read('src/app/App.tsx'); const start = app.indexOf('function ProtectedLayout()'); const end = app.indexOf('/** Guards a route', start);
-  const exported = compile('export ' + app.slice(start, end));
+  const exported = compile('export ' + app.slice(start, end).replaceAll('import.meta.env.DEV', 'false'));
   for (const isMobile of [false, true]) for (const user of [warehouse, quality, manager, role('*'), null]) {
     const out = {}; new Function('exports', 'require', 'useAuth', 'useLocation', 'useIsMobileViewport', 'routePath', 'subRoutePath', 'matchPath', 'Root', 'Navigate', exported)(out, () => jsxRuntime,
       () => ({ user, hydrated: true }), () => ({ pathname: path, search: '', hash: '', state: null }), () => isMobile, (_, fallback) => fallback,

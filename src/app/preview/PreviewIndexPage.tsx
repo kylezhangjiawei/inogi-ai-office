@@ -5,6 +5,9 @@ import '../order-processing/horizon.css';
 import './preview-index.css';
 
 const groups: { title: string; items: [string, string, string, string][] }[] = [
+  { title: '人事与行政', items: [
+    ['HR', '人事与行政', 'hr', '主系统统一导航 · 25 条需求对照、招聘、员工关系、培训绩效与行政协作'],
+  ] },
   { title: '管理与供应链', items: [
     ['G00', '公司管理总览', 'company-overview', '部门风险、原单依据与跟进草稿'],
     ['S15', '月度齐套与历史预测', 'monthly-readiness', '整月剩余需求、日期预测与历史快照'],

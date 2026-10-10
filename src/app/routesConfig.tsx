@@ -65,12 +65,60 @@ export type NavItem = {
    * 可能落在 /rd-knowledge-base），只按 path 判定的话侧栏高亮、分组展开、滚动定位会集体失灵。
    */
   matchPaths?: string[];
+  /** 聚合首页只匹配自身，避免与详情页同时高亮。 */
+  exact?: boolean;
+  /** 同一业务分组内的轻量分类标题。 */
+  section?: string;
 };
 
 export type NavGroup = {
   label: string;
   items: NavItem[];
 };
+
+export const HR_PREVIEW_PERMISSIONS = [
+  "page:resume-screening", "page:applicant-forms", "page:employee-archive", "page:quick-capture", "page:expense-center",
+];
+
+// Local interactive HR pages share the main navigation and its existing visibility rules.
+const HR_PREVIEW_MODULES: [string, string, string, NavItem['icon']][] = [
+  ['dashboard', 'HR 数据分析', '工作台', BarChart3],
+  ['tasks', '项目管理', '工作台', FolderKanban],
+  ['org', '组织管理', '组织发展', Building2],
+  ['position', '岗位管理', '组织发展', Users],
+  ['req01', '需求与 JD', '招聘', FileText],
+  ['spec', '岗位胜任力', '招聘', BadgeCheck],
+  ['resume', '简历筛选与校准', '招聘', FileSearch],
+  ['apply', '应聘登记表', '招聘', ClipboardList],
+  ['interview', '面试评价', '招聘', NotebookPen],
+  ['assess', '测评统计', '招聘', BarChart3],
+  ['collect', '员工信息采集', '招聘', UserSquare2],
+  ['offer', '录用审批与 OFFER', '招聘', Mail],
+  ['archive', '员工档案', '员工关系', Users],
+  ['assistant', 'HR 客服', '员工关系', Bot],
+  ['attendance', '考勤核算', '员工关系', CalendarCheck2],
+  ['account', '账号权限', '员工关系', ShieldCheck],
+  ['approval', '审批归集', '员工关系', ClipboardList],
+  ['learning', '学习地图', '培训与绩效', GraduationCap],
+  ['probation', '试用期考核', '培训与绩效', CalendarDays],
+  ['performance', '绩效考核', '培训与绩效', BarChart3],
+  ['coach', '面谈陪练', '培训与绩效', Bot],
+  ['asset', '固定资产', '行政会务', PackageCheck],
+  ['expense', '费用报销', '行政会务', Receipt],
+  ['room', '会议室预约', '行政会务', CalendarDays],
+  ['meeting', '会议纪要归集', '行政会务', NotebookPen],
+];
+
+export function withHrPreviewNavigation(groups: NavGroup[]): NavGroup[] {
+  const items: NavItem[] = [
+    { label: '人事工作台', path: '/__preview/hr', icon: LayoutDashboard, exact: true, section: '工作台', requiredPermissionAny: HR_PREVIEW_PERMISSIONS },
+    ...HR_PREVIEW_MODULES.map(([id, label, section, icon]) => ({ label, path: `/__preview/hr/${id}`, icon, section, requiredPermissionAny: HR_PREVIEW_PERMISSIONS })),
+  ];
+  return groups.map(group => group.label === '人事与行政' ? {
+    ...group,
+    items: [...items.slice(0, 3), ...group.items.map(item => ({ ...item, section: '现有业务' })), ...items.slice(3)],
+  } : group);
+}
 
 /**
  * 部门知识库清单。
@@ -296,9 +344,12 @@ export const navGroups: NavGroup[] = BASE_NAV_GROUPS.map((group) => ({
  * 首页与运维中心走精确匹配（否则所有子路径都会把它们点亮），其余按前缀匹配子路由。
  */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
-  const exactOnly = item.path === "/" || item.path === "/ops-center";
-  const matches = (target: string) =>
-    pathname === target || (!exactOnly && target !== "/" && pathname.startsWith(`${target}/`));
+  const currentPath = pathname.replace(/\/+$/, "") || "/";
+  const exactOnly = item.exact || item.path === "/" || item.path === "/ops-center";
+  const matches = (target: string) => {
+    const targetPath = target.replace(/\/+$/, "") || "/";
+    return currentPath === targetPath || (!exactOnly && targetPath !== "/" && currentPath.startsWith(`${targetPath}/`));
+  };
   return matches(item.path) || (item.matchPaths?.some(matches) ?? false);
 }
 
