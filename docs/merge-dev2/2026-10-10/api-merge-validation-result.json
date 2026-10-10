@@ -1,0 +1,95 @@
+{
+  "startedAt": "2026-10-10T02:10:13.675Z",
+  "databaseIntegrationEnabled": false,
+  "environmentScope": "validation subprocesses only; original process environment unchanged",
+  "steps": [
+    {
+      "command": "npm --prefix apps/api run test",
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 179889,
+      "logPath": "E:\\workCoding\\inogi-ai-office\\.codex-tmp\\merge-dev2-20261010\\api-merge-test.log",
+      "summaries": [
+        {
+          "tests": 1791,
+          "suites": 0,
+          "pass": 1774,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 17,
+          "todo": 0,
+          "duration_ms": 173875.9852
+        },
+        {
+          "tests": 11,
+          "suites": 0,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0,
+          "duration_ms": 941.8966
+        }
+      ],
+      "totals": {
+        "tests": 1802,
+        "pass": 1785,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 17,
+        "todo": 0
+      }
+    },
+    {
+      "command": "npm --prefix apps/api run build",
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 6788,
+      "logPath": "E:\\workCoding\\inogi-ai-office\\.codex-tmp\\merge-dev2-20261010\\api-merge-build.log"
+    }
+  ],
+  "status": "passed",
+  "durationMs": 186693,
+  "finishedAt": "2026-10-10T02:13:20.369Z",
+  "skippedTests": [
+    "隔离 PostgreSQL：应聘模板发布、版本绑定、提交幂等与附件边界 # SKIP",
+    "buildWhere 与 buildSqlWhere 命中的记录集必须完全一致 # SKIP",
+    "第一阶段 PostgreSQL：发布幂等/唯一约束、删除保护、订单核对并发与 SetNull 失效 # SKIP",
+    "隔离 PostgreSQL：历史筛选版本完整统计及有界元数据读取 # SKIP",
+    "隔离 PostgreSQL：二次筛选持久队列、多实例并发、租约隔离与原子发布 # SKIP",
+    "隔离 PostgreSQL：迁移、跨实例幂等、队列抢占、租约恢复、旧执行者隔离 # SKIP",
+    "隔离 PostgreSQL：页面关联和交付清单的迁移、持久化与并发 # SKIP",
+    "隔离 PostgreSQL：回退清理、免费样品保留、事务原子性与并发冲突 # SKIP",
+    "真实 PostgreSQL：资料→派工→领料→报工→检验→放行→发货；并发、幂等、入库异常同事务 # SKIP",
+    "PostgreSQL: incremental migration, row locking, version conflicts, and atomic audit rollback # SKIP",
+    "PostgreSQL: receipt migration, decimal totals, identity, idempotency, concurrent QC and atomic audit # SKIP",
+    "PostgreSQL: concurrent writes keep one winner; audit failure rolls back both week and changes # SKIP",
+    "隔离 PostgreSQL：研发资料历史、并发、采购版本快照与权限 # SKIP",
+    "真实PG：101人已存8人旧检查点，后续批次格式错误自动纠正并完整发布 # SKIP",
+    "真实PG：500人多个批次偶发结构错误，纠正后只发布一个完整版本 # SKIP",
+    "真实PG：持续格式错误最多3次后只保留成功批，人工跨实例恢复不重算已存评分 # SKIP",
+    "真实 PostgreSQL worker：500人超时、跨实例续跑、发布回滚后零AI调用重试 # SKIP"
+  ],
+  "fixtureFix": {
+    "file": "apps/api/test/purchase-fulfillment.spec.ts",
+    "linesAdded": 4,
+    "semantics": "runtimeState.create rejects duplicate keys with Prisma P2002 and stores key/value in the transactional memory map"
+  },
+  "focusedVerification": {
+    "resultPath": ".codex-tmp/merge-dev2-20261010/api-merge-focused-validation-result.json",
+    "totals": {
+      "tests": 18,
+      "pass": 18,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "durationMs": 4954
+  },
+  "previousFailure": {
+    "resultPath": ".codex-tmp/merge-dev2-20261010/api-merge-before-fix-result.json",
+    "logPath": ".codex-tmp/merge-dev2-20261010/api-merge-before-fix-test.log",
+    "classification": "pre-existing in main 3407f8f; missing runtimeState.create in memory fixture"
+  }
+}

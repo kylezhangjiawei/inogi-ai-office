@@ -14,12 +14,15 @@ import { ResearchDevelopmentController } from './research-development.controller
 import { ResearchDevelopmentService } from './research-development.service';
 import { RdTechnicalDocumentsService } from './rd-technical-documents.service';
 import { RdTechnicalDocumentsController, RdTechnicalDocumentFilesController } from './rd-technical-documents.controller';
+import { RdMeetingTodosController } from './rd-meeting-todos.controller';
+import { RdMeetingTodosService } from './rd-meeting-todos.service';
 
 @Module({
   imports: [AiGatewayModule, OcrModule, RagModule],
-  controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController, RdTechnicalDocumentsController, RdTechnicalDocumentFilesController],
+  controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController, RdTechnicalDocumentsController, RdTechnicalDocumentFilesController, RdMeetingTodosController],
   providers: [
     ResearchDevelopmentService,
+    RdMeetingTodosService,
     RdTechnicalDocumentsService,
     RdAiService,
     RdDailyReportCron,

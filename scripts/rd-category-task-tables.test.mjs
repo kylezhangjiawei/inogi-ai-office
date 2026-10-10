@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { createServer } from "vite";
+import ts from "typescript";
 
 const workspacePage = await readFile(new URL("../src/app/RDMyWorkspacePage.tsx", import.meta.url), "utf8");
 const cockpitPage = (await Promise.all(["RDTaskManagementPage.tsx", "rd/PersonTaskCockpit.tsx"]
@@ -16,15 +17,62 @@ const service = await readFile(
   "utf8",
 );
 
-test("personal workspace renders flat task cards with primary and assist tabs", () => {
-  assert.match(workspacePage, /useState<WorkspaceRoleTab>\("primary"\)/);
-  assert.match(workspacePage, /<ToggleGroup/);
-  assert.match(workspacePage, /value="primary"/);
-  assert.match(workspacePage, /value="collaborator"/);
-  assert.match(workspacePage, /taskRoleTab === "primary" \? filteredMyTasks : filteredCollabTasks/);
-  assert.match(workspacePage, /const activeRoleTasks = useMemo/);
-  assert.match(workspacePage, /<WorkspaceTaskCard/);
-  assert.doesNotMatch(workspacePage, /taskViewRaw/);
+test("personal workspace derives primary/assist filters from URL and renders each task as a flat card", () => {
+  const ast = ts.createSourceFile("workspace.tsx", workspacePage, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const page = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "RDMyWorkspacePage");
+  const reader = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "readWorkspaceTaskFilters");
+  assert.ok(page?.body && reader);
+  const find = (predicate) => {
+    const nodes = [];
+    const visit = node => { if (predicate(node)) nodes.push(node); ts.forEachChild(node, visit); };
+    visit(page.body);
+    assert.equal(nodes.length, 1, "Select one real component expression");
+    return nodes[0];
+  };
+  const evaluate = (expression, scope) => {
+    const code = ts.transpileModule(`return (${expression.getText(ast)});`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+    }).outputText;
+    return new Function(...Object.keys(scope), code)(...Object.values(scope));
+  };
+  const binding = (name, scope) => evaluate(find(node => ts.isVariableDeclaration(node) && node.name.getText(ast) === name).initializer, scope);
+  const roleControl = find(node => ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "ToggleGroup");
+  const cardList = find(node => ts.isCallExpression(node) && node.expression.getText(ast) === "shownTasks.map");
+  const primary = [{ task_id: "primary-parent" }, { task_id: "primary-child", parent_task_id: "primary-parent" }];
+  const assisting = [{ task_id: "assisting-task" }];
+  const jsx = (type, props, ...children) => ({ type, props: { ...props, children } });
+  const readWorkspaceTaskFilters = evaluate(reader, {});
+  for (const [query, role, expected] of [["", "primary", primary], ["role=collaborator", "collaborator", assisting], ["role=unknown", "primary", primary], ["role=collab", "primary", primary]]) {
+    const selectedRoles = [];
+    const scope = {
+      nativeResearchWorkspace: true, searchParams: new URLSearchParams(query), readWorkspaceTaskFilters,
+      localTaskFilters: { role: "collaborator" }, useMemo: compute => compute(),
+      myTasks: primary, collabTasks: assisting, filteredMyTasks: primary, filteredCollabTasks: assisting,
+      compareWorkspaceTasks: () => 0, taskVisibleCount: 20,
+      React: { createElement: jsx }, ToggleGroup: "ToggleGroup", ToggleGroupItem: "ToggleGroupItem",
+      WorkspaceTaskCard: "WorkspaceTaskCard", User: "User", Users: "Users", t: value => value,
+      cn: (...classes) => classes.filter(Boolean).join(" "), setTaskRoleTab: value => selectedRoles.push(value),
+      workspaceTaskIdentity: task => task.task_id, procurementLinks: { links: {} }, taskAttachmentPreviews: {}, noteUnread: {},
+      isUsCollabWorkspace: () => false, openTask() {}, openProcurementProgress() {},
+    };
+    scope.taskRoleTab = binding("taskFilters", scope).role;
+    assert.equal(scope.taskRoleTab, role, query || "default primary");
+    scope.filteredRoleTasks = binding("filteredRoleTasks", scope);
+    scope.shownTasks = binding("shownTasks", scope);
+    const control = evaluate(roleControl, scope);
+    assert.equal(control.props.value, role);
+    const options = control.props.children.filter(node => node?.type === "ToggleGroupItem");
+    assert.deepEqual(options.map(node => node.props.value), ["primary", "collaborator"]);
+    assert.deepEqual(options.map(node => node.props.children.find(child => child?.type === "span").props.children[0]), [2, 1]);
+    control.props.onValueChange("collaborator");
+    control.props.onValueChange("");
+    assert.deepEqual(selectedRoles, ["collaborator"]);
+    const cards = evaluate(cardList, scope);
+    assert.equal(cards.length, expected.length);
+    assert.deepEqual(cards.map(node => node.type), expected.map(() => "WorkspaceTaskCard"));
+    assert.deepEqual(cards.map(node => node.props.task), expected, "Parent and child tasks remain separate cards, not category folders");
+    assert.ok(cards.every(node => node.props.onOpen === scope.openTask));
+  }
 });
 
 test("personal workspace returns separate, de-duplicated primary and assist task sets", () => {
@@ -32,7 +80,6 @@ test("personal workspace returns separate, de-duplicated primary and assist task
   assert.match(service, /const collabTasks = visibleTasks/);
   assert.match(service, /\.filter\(\(item\) => item\.role && !isPrimary\(item\.task\)\)/);
   assert.match(workspacePage, /primaryTaskIds\.has\(workspaceTaskIdentity\(task\)\)/);
-  assert.match(workspacePage, /\{t\("协助"\)\} \{activeCollabCount\}/);
 });
 
 test("personal workspace task projection includes attachment counts for compact cards", () => {

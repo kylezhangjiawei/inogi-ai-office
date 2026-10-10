@@ -2170,16 +2170,16 @@
 }
 
 .rd-native-task-hover .rd-horizon-task-card:focus-visible {
-  border-color: rgba(var(--primary-rgb), 0.36) !important;
-  background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface)) !important;
+  border-color: rgba(var(--primary-rgb), 0.65) !important;
+  background: color-mix(in srgb, var(--rd-primary) 14%, var(--rd-surface)) !important;
   outline: 2px solid var(--rd-primary) !important;
   outline-offset: 2px;
 }
 
 @media (hover: hover) {
   .rd-native-task-hover .rd-horizon-task-card:hover {
-    border-color: rgba(var(--primary-rgb), 0.36) !important;
-    background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface)) !important;
+    border-color: rgba(var(--primary-rgb), 0.65) !important;
+    background: color-mix(in srgb, var(--rd-primary) 14%, var(--rd-surface)) !important;
     box-shadow: var(--rd-shadow-focal) !important;
   }
 }
@@ -2947,8 +2947,8 @@
 
 @media (hover: hover) {
   .rd-native-task-hover.rd-horizon-board :is(.rd-board-task-main, .rd-board-subtask-row):hover {
-    background: color-mix(in srgb, var(--rd-primary) 4%, var(--rd-surface));
-    box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.36), var(--rd-shadow-card);
+    background: color-mix(in srgb, var(--rd-primary) 14%, var(--rd-surface));
+    box-shadow: inset 0 0 0 2px rgba(var(--primary-rgb), 0.65), var(--rd-shadow-card);
   }
 }
 

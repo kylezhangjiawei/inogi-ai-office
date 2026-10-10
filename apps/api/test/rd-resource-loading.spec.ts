@@ -1816,14 +1816,14 @@ test('研发放弃仍必须由管理员审核后删除', async () => {
   }
 });
 
-test('普通成员不能直接封存任务，任何人不能绕过待删除审核', async () => {
+test('普通成员不能直接封存任务，任何人不能绕过待结项或删除审核', async () => {
   for (const patch of [{ status: 'archived' }]) {
     const h = createReviewPolicyHarness();
     await assert.rejects(() => h.service.updateTask('policy-task', patch, policyMember), /审核/);
     assert.equal(h.task().status, 'in_progress');
     assert.equal(h.task().progress, 30);
   }
-  for (const type of ['abandon']) {
+  for (const type of ['result', 'abandon']) {
     for (const patch of [
       { status: 'completed', pending_review_type: null },
       { status: 'in_progress', pending_review_type: null },
@@ -1843,42 +1843,45 @@ test('普通成员不能直接封存任务，任何人不能绕过待删除审�
   }
 });
 
-test('研发直接完成、旧成果提交及省略类型提交均完成并且只评分一次', async () => {
+test('研发结项先提交审核，仅管理员可通过或驳回，完成后才评分', async () => {
   for (const patch of [
-    { status: 'completed', progress: 20 },
-    { status: 'pending_review', pending_review_type: 'result' },
+    { status: 'pending_review', pending_review_type: 'result', progress: 100 },
     { status: 'pending_review', progress: 100 },
   ]) {
     const h = createReviewPolicyHarness();
+    await assert.rejects(() => h.service.updateTask('policy-task', { status: 'completed' }, policyMember), /审核/);
     await h.service.updateTask('policy-task', patch, policyMember);
+    assert.equal(h.task().status, 'pending_review');
+    assert.equal(h.task().pending_review_type, 'result');
+    assert.equal(h.notifications(), 1);
+    assert.equal(h.scores(), 0);
+    for (const action of ['approve', 'reject']) {
+      await assert.rejects(() => h.service.updateTask('policy-task', { _review_action: action }, policyMember), /审核权限/);
+    }
+    const admin = { ...policyMember, canEditAny: true, permissions: ['rd-project:review-l1'] };
+    await h.service.updateTask('policy-task', { _review_action: 'reject' }, admin);
+    assert.equal(h.task().status, 'in_progress');
+    assert.equal(h.scores(), 0);
+    await h.service.updateTask('policy-task', patch, policyMember);
+    await h.service.updateTask('policy-task', { _review_action: 'approve' }, admin);
     assert.equal(h.task().status, 'completed');
     assert.equal(h.task().progress, 100);
     assert.equal(h.task().pending_review_type, null);
-    assert.equal(h.notifications(), 0);
     assert.equal(h.scores(), 1);
-    await h.service.updateTask('policy-task', { status: 'completed' }, policyMember);
-    assert.equal(h.scores(), 1, '重复保存不能再次评分');
+    await assert.rejects(() => h.service.updateTask('policy-task', { _review_action: 'approve' }, admin), /审核/);
+    assert.equal(h.scores(), 1);
   }
 });
 
-test('研发完成仍校验任务参与人，并发重复完成只触发一次评分', async () => {
+test('研发结项仍校验参与人，历史成果申请不能由普通成员自行批准', async () => {
   const h = createReviewPolicyHarness();
-  await assert.rejects(() => h.service.updateTask('policy-task', { status: 'completed' }, {
+  await assert.rejects(() => h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: 'result' }, {
     ...policyMember, requesterUserId: 'outsider', requesterName: '无关成员',
   }), /只能修改/);
-  await Promise.all([1, 2].map(() => h.service.updateTask('policy-task', { status: 'completed' }, policyMember)));
-  assert.equal(h.task().status, 'completed');
-  assert.equal(h.scores(), 1);
-});
-
-test('历史成果由参与人应用后完成并关闭旧待审通知', async () => {
-  const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
-  await h.service.updateTask('policy-task', { _review_action: 'approve' }, policyMember);
-  assert.equal(h.task().status, 'completed');
-  assert.equal(h.task().progress, 100);
-  assert.equal(h.handled(), 1);
-  assert.equal(h.notifications(), 0);
-  assert.equal(h.scores(), 1);
+  const pending = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
+  await assert.rejects(() => pending.service.updateTask('policy-task', { _review_action: 'approve' }, policyMember), /审核权限/);
+  assert.equal(pending.task().status, 'pending_review');
+  assert.equal(pending.scores() + pending.handled(), 0);
 });
 
 test('普通成员仍能更新进展及暂停恢复，管理员仍能直接完成', async () => {
@@ -1893,8 +1896,8 @@ test('普通成员仍能更新进展及暂停恢复，管理员仍能直接完�
   assert.equal(h.task().progress, 100);
 });
 
-test('研发免审变更不能覆盖待放弃状态', async () => {
-  for (const type of ['abandon']) {
+test('研发免审变更不能覆盖待结项或放弃状态', async () => {
+  for (const type of ['result', 'abandon']) {
     const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: type });
     await assert.rejects(() => h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: 'due_date', pending_due_date: '2026-09-20' }, policyMember), /审核/);
     assert.equal(h.task().pending_review_type, type);
@@ -1962,38 +1965,19 @@ test('研发成员与管理员不能通过普通 PATCH 归档或解封任务绕�
 
 const policyAdmin = { requesterUserId: 'admin', requesterName: '管理员', permissions: ['rd-project:review-l1'] };
 
-test('历史策略预览默认只读，删除、未知及转采购类型不能自动应用', async () => {
+test('历史策略保留结项审核，预览和显式应用均不能直接完成', async () => {
   const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
-  h.service.readMergedTaskCategories = async () => [{ children: [{ tasks: [
-    h.task(),
-    ...['abandon', 'future-type', '', 'procurement_transfer'].map((type, i) => ({
-      ...h.task(), task_id: `skip-${i}`, pending_review_type: type, progress: 100,
-    })),
-  ] }] }];
   const preview = await h.service.reconcileTaskReviewPolicy({}, policyAdmin);
   assert.equal(preview.dryRun, true);
-  assert.equal(preview.items.filter((item: any) => item.status === 'ready').length, 1);
-  assert.equal(preview.items.filter((item: any) => item.status === 'skipped').length, 4);
-  assert.match(preview.items[0].version, /^[a-f0-9]{64}$/);
+  assert.equal(preview.items[0].status, 'skipped');
+  assert.match(preview.items[0].reason, /结项审核/);
+  const applied = await h.service.reconcileTaskReviewPolicy({ dryRun: false, tasks: preview.items }, policyAdmin);
+  assert.equal(applied.items[0].status, 'skipped');
   assert.equal(h.task().status, 'pending_review');
   assert.equal(h.scores() + h.handled() + h.deletions(), 0);
   await assert.rejects(() => h.service.reconcileTaskReviewPolicy({}, policyMember), /权限/);
   await runInRdWorkspace('us-collab', () => assert.rejects(() => h.service.reconcileTaskReviewPolicy({}, policyAdmin), /研发/));
   await assert.rejects(() => h.service.reconcileTaskReviewPolicy({ dryRun: false }, policyAdmin), /预览|快照/);
-});
-
-test('历史策略应用复用完成逻辑，重复执行跳过，不重复评分', async () => {
-  const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
-  const preview = await h.service.reconcileTaskReviewPolicy({}, policyAdmin);
-  const body = { dryRun: false, tasks: preview.items };
-  const first = await h.service.reconcileTaskReviewPolicy(body, policyAdmin);
-  assert.equal(first.items[0].status, 'applied');
-  assert.equal(h.task().status, 'completed');
-  assert.equal(h.scores(), 1);
-  assert.equal(h.handled(), 1);
-  const replay = await h.service.reconcileTaskReviewPolicy(body, policyAdmin);
-  assert.equal(replay.items[0].status, 'skipped');
-  assert.equal(h.scores(), 1);
 });
 
 test('历史策略正确应用立项、协作和延期字段，不伪造成审批通知', async () => {
@@ -2014,29 +1998,27 @@ test('历史策略正确应用立项、协作和延期字段，不伪造成审�
   }
 });
 
-test('完成评分发生在完成留痕之后，提交后旁路失败不能导致重试重复评分', async () => {
+test('结项审批先留痕后评分，旁路失败不会让重复审批再次评分', async () => {
+  const admin = { ...policyAdmin, canEditAny: true };
   const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
   const order: string[] = [];
   h.service.recordServerAudit = async () => { order.push('audit'); };
   h.service.triggerTaskCompletionScoring = async () => { order.push('score'); };
-  await h.service.updateTask('policy-task', { status: 'completed' }, policyMember);
+  await h.service.updateTask('policy-task', { _review_action: 'approve' }, admin);
   assert.deepEqual(order, ['audit', 'score']);
 
   const failure = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
   failure.service.recomputeDirectorDashboard = async () => { throw new Error('派生看板暂时失败'); };
-  const preview = await failure.service.reconcileTaskReviewPolicy({}, policyAdmin);
-  const body = { dryRun: false, tasks: preview.items };
-  const first = await failure.service.reconcileTaskReviewPolicy(body, policyAdmin);
-  assert.equal(first.items[0].status, 'failed');
-  assert.equal(failure.task().status, 'completed', '失败结果不能冒充事务回滚');
+  await assert.rejects(() => failure.service.updateTask('policy-task', { _review_action: 'approve' }, admin), /派生看板/);
+  assert.equal(failure.task().status, 'completed');
   assert.equal(failure.scores(), 1);
-  assert.equal((await failure.service.reconcileTaskReviewPolicy(body, policyAdmin)).items[0].status, 'skipped');
+  await assert.rejects(() => failure.service.updateTask('policy-task', { _review_action: 'approve' }, admin), /审核/);
   assert.equal(failure.scores(), 1);
 });
 
-test('历史策略在写锁内拒绝预览后变更，不能把成果竞态变成删除批准', async () => {
+test('历史策略在写锁内拒绝预览后变更，不能把改期竞态变成删除批准', async () => {
   for (const mutation of [{ pending_review_type: 'abandon' }, { title: '预览后更新标题' }]) {
-    const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'result' });
+    const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'due_date', pending_due_date: '2026-10-10' });
     const preview = await h.service.reconcileTaskReviewPolicy({}, policyAdmin);
     h.service.getIdentityContext = async () => {
       Object.assign(h.task(), mutation);

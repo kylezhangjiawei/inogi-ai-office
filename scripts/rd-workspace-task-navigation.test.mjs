@@ -226,7 +226,7 @@ function drawerHeader(area, tab, completed = false) {
 }
 
 test('研发操作抽屉显示当前操作标题，不渲染重复的五个切换按钮', () => {
-  for (const [tab, title] of [['progress', '更新进度'], ['handoff', '移交协作'], ['submit', '标记完成'], ['settings', '任务设置']]) {
+  for (const [tab, title] of [['progress', '更新进度'], ['handoff', '移交协作'], ['submit', '提交结果'], ['settings', '任务设置']]) {
     const header = drawerHeader('rd', tab);
     assert.equal(header.title, title);
     assert.deepEqual(renderedNodes(header.tree).filter(node => node.type === 'Button'), []);

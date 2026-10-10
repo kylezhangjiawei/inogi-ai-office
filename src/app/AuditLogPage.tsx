@@ -119,6 +119,8 @@ const SOURCE_LABELS: Record<FilterValue<AuditSource>, string> = {
 };
 
 const RESOURCE_LABELS: Record<FilterValue<ResourceType>, string> = {
+  "meeting-week": "会议周清单",
+  "meeting-todo": "会议待办",
   all: "全部对象",
   task: "任务",
   proposal: "立项",
@@ -206,11 +208,11 @@ export function AuditLogPage() {
   const shouldReduceMotion = useReducedMotion();
 
   const nativeRdAudit = !isUsCollabWorkspace() && !isProductionWorkspace();
-  const [keyword, setKeyword] = useState("");
-  const deferredKeyword = useDeferredValue(keyword);
-  const [debouncedKeyword, setDebouncedKeyword] = useState("");
-  // 旧地址（/rd-audit-log 等）重定向过来时带 ?module=，落地即选中对应模块
   const [searchParams] = useSearchParams();
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const deferredKeyword = useDeferredValue(keyword);
+  const [debouncedKeyword, setDebouncedKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  // 旧地址（/rd-audit-log 等）重定向过来时带 ?module=，落地即选中对应模块
   const [moduleFilter, setModuleFilter] = useState(() => searchParams.get("module") ?? "all");
   const [category, setCategory] = useState<FilterValue<AuditCategory>>("all");
   const [source, setSource] = useState<FilterValue<AuditSource>>("all");

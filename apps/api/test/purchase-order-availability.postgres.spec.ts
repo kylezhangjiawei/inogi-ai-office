@@ -34,7 +34,7 @@ test('PostgreSQL: incremental migration, row locking, version conflicts, and ato
     await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
     created = true;
     // LIKE copies definitions only, and deliberately does not copy foreign keys into business tables.
-    for (const table of ['ProcPurchaseOrderMirror', 'AuditLog']) {
+    for (const table of ['ProcPurchaseOrderMirror', 'AuditLog', 'RuntimeState']) {
       await admin.$executeRawUnsafe(`CREATE TABLE "${schema}"."${table}" (LIKE "${originalSchema}"."${table}" INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`);
     }
     const migration = await readFile(resolve(__dirname, '../prisma/migrations/20260910090000_add_purchase_order_availability/migration.sql'), 'utf8');
