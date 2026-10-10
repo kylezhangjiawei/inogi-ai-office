@@ -1,0 +1,88 @@
+{
+  "result": "No new blocking overlap or inoperable controls after production-ui-theme",
+  "desktopComparison": [
+    {
+      "page": "P01",
+      "beforeFirstTable": {
+        "x": 237,
+        "y": 561.375,
+        "width": 923.34375,
+        "height": 207.921875
+      },
+      "afterFirstTable": {
+        "x": 237,
+        "y": 561.375,
+        "width": 923.34375,
+        "height": 207.921875
+      },
+      "sameGeometry": true
+    },
+    {
+      "page": "P06",
+      "beforeFirstTable": {
+        "x": 237,
+        "y": 474.375,
+        "width": 908.234375,
+        "height": 540
+      },
+      "afterFirstTable": {
+        "x": 237,
+        "y": 474.375,
+        "width": 908.234375,
+        "height": 540
+      },
+      "sameGeometry": true
+    },
+    {
+      "page": "P07",
+      "beforeFirstTable": {
+        "x": 237,
+        "y": 401.875,
+        "width": 1320,
+        "height": 400.65625
+      },
+      "afterFirstTable": {
+        "x": 237,
+        "y": 401.875,
+        "width": 1320,
+        "height": 400.65625
+      },
+      "sameGeometry": true
+    }
+  ],
+  "narrowWidth": 320,
+  "narrowBodyWidths": [
+    {
+      "width": 320,
+      "page": "P01"
+    },
+    {
+      "width": 320,
+      "page": "P06"
+    },
+    {
+      "width": 320,
+      "page": "P07"
+    }
+  ],
+  "narrowSelectionSucceeded": [
+    {
+      "url": "http://127.0.0.1:5198/production-execution?view=batches&dispatchTask=task-compressor",
+      "page": "P01"
+    },
+    {
+      "url": "http://127.0.0.1:5198/production-execution?plan=plan-a&view=all-tasks&allSelected=task%2Ftask-compressor",
+      "page": "P06"
+    }
+  ],
+  "limitation": "At 320px, the fixed task column leaves approximately 109px in P06. At the far-right scroll position, task identity and View remain visible; the status column is partly covered and requires a small horizontal scroll back to read fully.",
+  "sourceScope": [
+    "ProductionPlanningPage.tsx: one conditional mobile table hint",
+    "ProductionAllTasks.tsx: one conditional mobile table hint",
+    "production-prototype.css: local mobile-only sticky column/background/layer/width/touch-target rules plus hidden desktop hint"
+  ],
+  "sourceReviewBasis": "The three source files are untracked; there is no Git source baseline. Scope reviewed against this task edit history and current source. Existing screenshot baseline preserved.",
+  "repeatedTests": false,
+  "browserErrors": [],
+  "writeRequests": []
+}

@@ -100,6 +100,21 @@ test('风险账号切换立即隐藏旧数据且迟到响应不会覆盖新账�
   assert.match(text(view.tree), /B 的原记录/); assert.doesNotMatch(text(view.tree), /原记录1/); view.dispose();
 });
 
+test('生产驾驶舱风险卡保留原单跳转、跨月筛选与独立刷新，未知齐套数仍为未知', async () => {
+  const view = fixture('risk'); view.props.presentation = 'production'; view.render();
+  const data = { ...risks, risks: risks.risks.map((row, i) => ({ ...row, period: i === 0 ? 'carryover' : 'current' })) };
+  await view.resolve(0, data);
+  assert.equal(view.find(node => node.type === 'ProductionPagination').props.rows.length, 3);
+  view.click('批次齐套'); assert.match(text(view.tree), /待核对/); assert.doesNotMatch(text(view.tree), /整机完工/); view.click('问题协调');
+  const original = new URL(view.nodes(node => node.type === 'Link')[0].props.to, 'http://local');
+  assert.equal(original.searchParams.get('plan'), 'plan-real'); assert.equal(original.searchParams.get('quality'), 'record-0');
+  view.change('风险月份范围', 'carryover'); assert.equal(view.find(node => node.type === 'ProductionPagination').props.total, 1);
+  view.props.refreshKey = 1; view.render(); assert.equal(view.requests.length, 2); assert.equal(view.requests[0].signal.aborted, true);
+  assert.equal(view.nodes(node => node.type === 'Link').length, 0);
+  await view.resolve(1, data); assert.equal(view.find(node => node.type === 'ProductionPagination').props.total, 1);
+  view.user({ id: 'no-access', permissions: [] }); assert.equal(view.tree, null); view.dispose();
+});
+
 test('F02 供应链按原权限读取且不显示未授权生产指标，真实采购/订单链接保留原 ID', async () => {
   const view = fixture('risk').user({ id: 'buyer', permissions: ['page:proc-cockpit','page:purchase-orders'] });
   assert.equal(view.requests.length, 1);

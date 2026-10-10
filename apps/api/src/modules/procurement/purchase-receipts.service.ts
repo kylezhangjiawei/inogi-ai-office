@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Prisma, type ProcPurchaseReceipt } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,6 +7,9 @@ import type { CreatePurchaseInspectionDto, CreatePurchaseReceiptDto } from './dt
 import { readPurchaseFulfillment } from './purchase-fulfillment.service';
 import { calculatePurchaseFulfillment } from './purchase-fulfillment.model';
 import { lockOrderDependency } from './purchase-delivery-store';
+import { OssService } from '../oss/oss.service';
+import { OSS_ALLOWED_MIME_TYPES, OSS_MAX_FILE_SIZE } from '../oss/oss.constants';
+import type { QualityFile } from './quality-analysis';
 
 type Db = Prisma.TransactionClient;
 const lineSelect = {
@@ -19,6 +22,26 @@ const receiptInclude = { inspections: { orderBy: { version: 'desc' as const } } 
 type Receipt = Prisma.ProcPurchaseReceiptGetPayload<{ include: typeof receiptInclude }>;
 const MAX_QTY = new Prisma.Decimal('99999999999.999');
 const ZERO = () => new Prisma.Decimal(0);
+const detailsKey = (receiptId: string) => `procurement:receipt-details:v1:${receiptId}`;
+type ReceiptDetails = { receiptNumber: string; numberSource: 'system' | 'supplier'; files: QualityFile[] };
+async function receiptFiles(db: Db, ids: unknown, actor: ProcActor, previous: QualityFile[] = []) {
+  if (!Array.isArray(ids) || ids.length > 20 || ids.some(id => typeof id !== 'string') || new Set(ids).size !== ids.length) throw new BadRequestException('附件最多 20 个，且不能重复');
+  if (!ids.length) return [];
+  const savedFiles = new Map(previous.map(file => [file.fileId, file]));
+  const addedIds = ids.filter(id => !savedFiles.has(id));
+  const rows = addedIds.length ? await db.fileAsset.findMany({ where: { id: { in: addedIds }, status: 'active' } }) : [];
+  return ids.map(id => {
+    const saved = savedFiles.get(id);
+    if (saved) return saved;
+    const file = rows.find(row => row.id === id);
+    if (!file) throw new ForbiddenException('附件不存在、已删除或不属于本次上传');
+    const businessType = OSS_ALLOWED_MIME_TYPES['library/images'].includes(file.mimeType) ? 'library/images' : OSS_ALLOWED_MIME_TYPES['library/videos'].includes(file.mimeType) ? 'library/videos' : file.mimeType === 'application/pdf' ? 'assets' : null;
+    if (!businessType || !Number.isSafeInteger(file.fileSize) || file.fileSize <= 0 || file.fileSize > Math.min(OSS_MAX_FILE_SIZE[businessType], OSS_MAX_FILE_SIZE[file.businessType as keyof typeof OSS_MAX_FILE_SIZE] ?? 0)) throw new BadRequestException('收货附件支持 JPG/PNG/WebP/GIF（20 MB）、MP4/MOV/WebM（200 MB）或 PDF（50 MB）');
+    if (![businessType, 'assets'].includes(file.businessType) || file.uploadedBy !== actor.id) throw new ForbiddenException('附件不存在、已删除或不属于本次上传');
+    return { fileId: file.id, name: file.fileName, mime: file.mimeType, size: file.fileSize };
+  });
+}
+const internalReceiptNumber = (identity: string) => `RCV-${createHash('sha256').update(identity).digest('hex').slice(0, 20).toUpperCase()}`;
 const day = (value: Date) => value.toISOString().slice(0, 10);
 const permission = (actor: ProcActor, action?: string) => actor.permissions.includes('*')
   || (actor.permissions.includes('page:purchase-order-detail') && (!action || actor.permissions.includes(action)));
@@ -91,7 +114,7 @@ function sourceIssue(line: Line, receipts: ProcPurchaseReceipt[], localNetQty?: 
 
 @Injectable()
 export class PurchaseReceiptsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly oss?: OssService) {}
 
   async qualityOptions(actor: ProcActor) {
     this.assertPermission(actor, 'proc-purchase-order:inspect');
@@ -164,7 +187,32 @@ export class PurchaseReceiptsService {
   private async ledger(db: Db, line: Line, actor: ProcActor) {
     const receipts = await this.receipts(db, line.id);
     const { summary } = await readPurchaseFulfillment(db, { ...line, receipts });
-    return this.view(line, receipts, actor, summary);
+    const view = this.view(line, receipts, actor, summary);
+    const enriched = await Promise.all(view.receipts.map(async receipt => {
+      const [storedDetails, warehouseLink] = await Promise.all([
+        db.runtimeState.findUnique({ where: { key: detailsKey(receipt.id) } }),
+        db.runtimeState.findUnique({ where: { key: `procurement:warehouse-record:v1:receipt:${receipt.id}` } }),
+      ]);
+      const details: ReceiptDetails = storedDetails ? JSON.parse(storedDetails.value) : { receiptNumber: internalReceiptNumber(receipt.id), numberSource: 'supplier', files: [] };
+      const storedWarehouse = warehouseLink ? await db.runtimeState.findUnique({ where: { key: `procurement:warehouse-record:v1:record:${warehouseLink.value}` } }) : null;
+      const warehouse = storedWarehouse ? JSON.parse(storedWarehouse.value) : null;
+      return { ...receipt, ...details, warehouseRecord: warehouse ? { id: warehouse.id, status: warehouse.status, warehouse: warehouse.warehouse, quantity: warehouse.quantity, qualifiedQty: warehouse.qualifiedQty, defectiveQty: warehouse.defectiveQty, pendingQty: warehouse.pendingQty, confirmedAt: warehouse.confirmedAt, events: (warehouse.events ?? []).map((event: { action: string; actorName: string; at: string; reason: string }) => ({ action: event.action, actorName: event.actorName, at: event.at, reason: event.reason })) } : null };
+    }));
+    return { ...view, receipts: enriched };
+  }
+
+  async attachment(lineId: string, receiptId: string, fileId: string, actor: ProcActor) {
+    this.assertPermission(actor);
+    const receipts = await this.receipts(this.prisma, lineId);
+    if (!receipts.some(row => row.id === receiptId)) throw new NotFoundException('收货记录不存在');
+    const stored = await this.prisma.runtimeState.findUnique({ where: { key: detailsKey(receiptId) } });
+    const details: ReceiptDetails | null = stored ? JSON.parse(stored.value) : null;
+    if (!details?.files.some(file => file.fileId === fileId)) throw new NotFoundException('附件不属于此收货记录');
+    const asset = await this.prisma.fileAsset.findFirst({ where: { id: fileId, status: 'active' } });
+    if (!asset) throw new NotFoundException('附件已删除或不存在');
+    const url = this.oss?.getReadUrl(asset.objectKey, 600)?.url;
+    if (!url) throw new ServiceUnavailableException('附件暂时无法打开，请稍后重试');
+    return { id: asset.id, name: asset.fileName, mime: asset.mimeType, size: asset.fileSize, url, previewUrl: url, downloadUrl: url };
   }
 
   async list(lineId: string, actor: ProcActor) {
@@ -175,12 +223,13 @@ export class PurchaseReceiptsService {
   async receive(lineId: string, input: CreatePurchaseReceiptDto, actor: ProcActor) {
     this.assertPermission(actor, 'proc-purchase-order:receive');
     mutation(input);
-    const deliveryNo = text(input.deliveryNo, '送货单号', 120);
+    const systemNumber = input.deliveryNo === undefined;
+    const deliveryNo = systemNumber ? internalReceiptNumber(input.requestId) : text(input.deliveryNo, '送货单号', 120);
     if (/[\r\n\t]/.test(deliveryNo)) throw new BadRequestException('送货单号不能包含换行或制表符');
     const receivedDate = receiptDay(input.receivedDate, '收货日期');
     const receivedQty = receiptQuantity(input.receivedQty, '实收数量', true);
     const note = text(input.note, '收货备注', 2000, false);
-    const hash = fingerprint([lineId, input.expectedSourceUpdatedAt, deliveryNo, day(receivedDate), receivedQty.toString(), note]);
+    const hash = fingerprint([lineId, input.expectedSourceUpdatedAt, deliveryNo, day(receivedDate), receivedQty.toString(), note, ...(input.fileIds?.length ? [input.fileIds] : [])]);
     return this.transaction(async (db) => {
       await this.lock(db, lineId);
       const line = await this.line(db, lineId);
@@ -198,6 +247,7 @@ export class PurchaseReceiptsService {
       const total = new Prisma.Decimal(summary.localNetReceivedQty).plus(receivedQty);
       if (summary.effectiveOrderedQty === null) throw new ConflictException('履约调整尚未核对，请先确认 ERP 覆盖后再登记收货');
       if (total.greaterThan(summary.effectiveOrderedQty)) throw new BadRequestException('扣除已批准退货或冲销后的本地实收合计不能超过净订购数量');
+      const files = await receiptFiles(db, input.fileIds ?? [], actor);
       const saved = await db.procPurchaseReceipt.create({ data: {
         lineId, requestId: input.requestId, requestFingerprint: hash, deliveryNo, receivedDate, receivedQty, note,
         sourceOrderId: line.tpOrderId!, sourceOrderNo: line.tpOrderNo, sourceLineNo: line.tpLineNo,
@@ -205,11 +255,13 @@ export class PurchaseReceiptsService {
         sourceUnit: line.unit, sourceSupplierName: line.supplierName, sourceOrderedQty: line.orderedQty, sourceUpdatedAt: line.updatedAt,
         createdById: actor.id, createdByName: actor.name,
       } });
+      const details: ReceiptDetails = { receiptNumber: systemNumber ? deliveryNo : internalReceiptNumber(saved.id), numberSource: systemNumber ? 'system' : 'supplier', files };
+      await db.runtimeState.create({ data: { key: detailsKey(saved.id), value: JSON.stringify(details) } });
       await db.auditLog.create({ data: {
         module: 'procurement', source: 'web', action: 'purchase-order.receipt-created', resource: 'proc-purchase-receipt', resourceId: saved.id,
         resourceName: `${line.tpOrderNo} · ${line.tpLineNo} · ${deliveryNo}`, userId: actor.id, actorName: actor.name,
         summary: `登记采购订单 ${line.tpOrderNo} 第 ${line.tpLineNo} 行实收 ${receivedQty.toString()} ${line.unit}`,
-        meta: { lineId, orderNo: line.tpOrderNo, lineNo: line.tpLineNo, deliveryNo, receivedDate: day(receivedDate), receivedQty: receivedQty.toString(), note },
+        meta: { lineId, orderNo: line.tpOrderNo, lineNo: line.tpLineNo, deliveryNo, receiptNumber: details.receiptNumber, numberSource: details.numberSource, fileIds: files.map(file => file.fileId), receivedDate: day(receivedDate), receivedQty: receivedQty.toString(), note },
       } });
       return this.ledger(db, line, actor);
     });
@@ -224,7 +276,7 @@ export class PurchaseReceiptsService {
     const defectiveQty = receiptQuantity(input.defectiveQty, '不良数量');
     const pendingJudgmentQty = receiptQuantity(input.pendingJudgmentQty, '待判数量');
     const basis = text(input.basis, '检验依据', 2000), note = text(input.note, '检验结论及说明', 2000);
-    const hash = fingerprint([lineId, receiptId, input.expectedSourceUpdatedAt, input.expectedVersion, day(inspectionDate), qualifiedQty.toString(), defectiveQty.toString(), pendingJudgmentQty.toString(), basis, note, input.treeNodeId ?? null]);
+    const hash = fingerprint([lineId, receiptId, input.expectedSourceUpdatedAt, input.expectedVersion, day(inspectionDate), qualifiedQty.toString(), defectiveQty.toString(), pendingJudgmentQty.toString(), basis, note, input.treeNodeId ?? null, ...(input.fileIds?.length ? [input.fileIds] : [])]);
     return this.transaction(async (db) => {
       await this.lock(db, lineId);
       const line = await this.line(db, lineId);
@@ -259,6 +311,16 @@ export class PurchaseReceiptsService {
         receiptId, requestId: input.requestId, requestFingerprint: hash, version, inspectionDate,
         qualifiedQty, defectiveQty, pendingJudgmentQty, basis, note, createdById: actor.id, createdByName: actor.name,
       } });
+      if (input.fileIds?.length) {
+        const key = detailsKey(receipt.id), stored = await db.runtimeState.findUnique({ where: { key } });
+        const details: ReceiptDetails = stored ? JSON.parse(stored.value) : { receiptNumber: internalReceiptNumber(receipt.id), numberSource: 'supplier', files: [] };
+        const files = await receiptFiles(db, [...new Set([...details.files.map(file => file.fileId), ...input.fileIds])], actor, details.files);
+        const value = JSON.stringify({ ...details, files });
+        if (stored) {
+          const changed = await db.runtimeState.updateMany({ where: { key, value: stored.value }, data: { value } });
+          if (changed.count !== 1) throw conflict();
+        } else await db.runtimeState.create({ data: { key, value } });
+      }
       const previous = receipt.inspections[0];
       const sourceKey = `procurement:receipt-quality:v1:${receipt.id}`;
       const link = await db.runtimeState.findUnique({ where: { key: sourceKey } });
@@ -295,7 +357,7 @@ export class PurchaseReceiptsService {
       await db.auditLog.create({ data: {
         module: 'procurement', source: 'web', action: 'purchase-order.inspection-recorded', resource: 'proc-purchase-receipt-inspection', resourceId: saved.id,
         resourceName: `${line.tpOrderNo} · ${line.tpLineNo} · ${receipt.deliveryNo}`, userId: actor.id, actorName: actor.name,
-        summary: `记录采购订单 ${line.tpOrderNo} 送货单 ${receipt.deliveryNo} 第 ${version} 次检验判定`,
+        summary: `记录采购订单 ${line.tpOrderNo} 收货批次 ${receipt.deliveryNo} 第 ${version} 次检验判定`,
         meta: { lineId, receiptId, inspectionDate: day(inspectionDate), version, basis, note,
           changes: [
             { field: 'qualifiedQty', before: previous?.qualifiedQty.toString() ?? '0', after: qualifiedQty.toString() },

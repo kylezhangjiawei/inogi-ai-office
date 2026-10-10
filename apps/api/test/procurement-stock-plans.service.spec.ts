@@ -156,7 +156,7 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
     procTask: { create: async ({ data }: any) => { const next = { id: `task-${createdTasks.length + 1}`, ...data }; createdTasks.push(next); row.tasks.push(next); return next; } },
     procMaterial: {
       findUnique: async ({ where }: any) => materials.find((entry) => entry.id === where.id) ?? null,
-      findMany: async ({ where }: any) => materials.filter((entry) => where.tpInventoryCode.in.includes(entry.tpInventoryCode)),
+      findMany: async ({ where }: any) => materials.filter((entry) => where.id ? (typeof where.id === 'string' ? entry.id === where.id : where.id.in.includes(entry.id)) : where.tpInventoryCode.in.includes(entry.tpInventoryCode)),
     },
     procTaskTreeNode: { findUnique: async () => ({ id: 'product-root', parentId: null, productId: 'prod-portable-o2' }), findFirst: async () => null },
     procPurchaseOrderMirror: {
@@ -445,6 +445,17 @@ test('并发生成按计划行锁只创建一批任务，保留产品子系统�
   assert.equal(task.needDate, h.row.targetDate);
   assert.equal(task.buyerUserId, 'buyer-1');
   assert.equal(results[1].plan.tasks[0].id, task.id);
+});
+
+test('子系统人工组件库存替代 ERP 参与缺口建单并冻结来源依据', async () => {
+  const h = harness(fixture({ targetQty: 100, materialId: 'material-1', productId: 'prod-portable-o2', treeNodeId: 'subsystem-1' }), { balances: [balance()] });
+  h.prisma.runtimeState.findMany = async ({ where }: any = {}) => where?.key?.in?.includes('procurement:component-inventory:material-1') ? [{ key: 'procurement:component-inventory:material-1', value: JSON.stringify({ source: 'manual', quantity: 50, unavailable: 10, unit: '件', countedAt: now.toISOString(), version: 1, updatedBy: '采购员' }) }] : [];
+  const readiness = await h.instance.getStockPlanReadiness(h.row.id);
+  assert.equal(readiness.items[0].available, 40);
+  assert.equal(readiness.items[0].gapAfterTransit, 50);
+  await h.instance.generateStockPlanTasks(h.row.id, actor);
+  assert.equal(Number(h.createdTasks[0].quantity), 50);
+  assert.equal(h.createdTasks[0].metadata.inventoryBasis.componentStocks[0].source, 'manual');
 });
 
 test('整机 BOM 按用量拆物料，整机自身已订购套数先扣除且组件不增加整机订单进度', async () => {

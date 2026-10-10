@@ -64,6 +64,7 @@ function fixture(t, { component = 'StockPlanPanel', initial = navigation.buildSt
     '../../lib/routePaths': routes, '../../lib/stockPlanNavigation': stockHelpers,
     '../../lib/purchaseOrderLineNavigation': load('src/app/lib/purchaseOrderLineNavigation.ts', { './routePaths': routes }),
     '../../lib/procurementApi': {
+      listComponentInventory: async () => [],
       listProcStockPlans: async (signal, scope) => { calls.reads.push(scope); return response ? response(scope, signal) : rows; },
       listProcTaskTree: async (productId) => { calls.reads.push({ productId }); return treeResponse ? treeResponse(productId) : { roots: [] }; },
     },
@@ -337,7 +338,7 @@ test('计划保存和同父更新时间的批次变更重建本计划日期核�
   assert.equal(view.dateCheck('plan-1').key, siblingKey);
 });
 
-test('模块旧备货链接回到库存，保留产品模块且任务仅能只读查看', async (t) => {
+test('模块备货链接恢复独立备货入口，切换库存后采购任务仍只读查看', async (t) => {
   const scope = { productId: 'P', treeNodeId: 'M' }, initial = navigation.buildStockPlanReturnPath(currentView, scope);
   const task = { id: 'T', productId: 'P', code: 'PR-001', materialName: '阀', spec: '', quantity: 3, unit: '件', createdAt: '2026-09-21', status: 'priced' };
   const secondTask = { ...task, id: 'T2', code: 'PR-002' };
@@ -345,8 +346,10 @@ test('模块旧备货链接回到库存，保留产品模块且任务仅能只�
   const moduleInitial = navigation.buildStockPlanReturnPath({ ...currentView, supplier: 'id:S', creator: 'name:甲', page: 3, pageSize: 50 }, scope);
   const module = fixture(t, { component: 'ProcurementModuleDetail', initial: moduleInitial, props }); await module.ready();
   const panel = module.find((node) => node.type === 'StockPlanPanel');
-  assert.equal(panel, undefined);
-  assert.equal(module.query().get('moduleTab'), null);
+  assert.equal(panel.props.productId, 'P');
+  assert.equal(panel.props.treeNodeId, 'M');
+  assert.equal(module.query().get('moduleTab'), 'plans');
+  module.find(node => node.type === 'Button' && text(node) === '库存与任务').props.onClick(); module.render();
   assert.ok(!nodes(module.render()).some(node => ['编辑', '删除', '新增任务', '备货计划'].includes(node.props?.label ?? text(node))));
   module.find(node => node.type?.name === 'TaskActionButton' && node.props.label === '查看').props.onClick();
   const reader = module.find(node => node.type === 'ProcurementTaskSummaryDrawer');

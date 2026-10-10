@@ -12,6 +12,9 @@ const protectedRows: Row[] = [
   { id: 'factory-category-only', key: 'legacy-factory-config', category: 'factory-qc', value: { private: true } },
   { id: 'gate-prefix-only', key: 'electronic-gate.future.setting', category: 'legacy', value: { private: true } },
   { id: 'factory-prefix-only', key: 'factory-qc.serial.management', category: 'legacy', value: { private: true } },
+  { id: 'meeting-week', key: 'rd.meeting-todos.2026-10-05', category: 'rd-meeting-todos', value: { revision: 1, items: [] } },
+  { id: 'meeting-category-only', key: 'legacy-meeting-week', category: 'rd-meeting-todos', value: { private: true } },
+  { id: 'meeting-prefix-only', key: 'rd.meeting-todos.2026-10-12', category: 'legacy', value: { private: true } },
 ];
 
 function fixture() {
@@ -55,17 +58,17 @@ test('generic list excludes protected categories and namespaces while keeping or
   assert.equal(writes(), 0);
 });
 
-test('generic creation cannot enter either protected category', async () => {
+test('generic creation cannot enter protected categories', async () => {
   const { service, writes } = fixture();
-  for (const category of ['electronic-gate', 'factory-qc']) {
+  for (const category of ['electronic-gate', 'factory-qc', 'rd-meeting-todos']) {
     await assert.rejects(service.save({ category, key: 'ordinary-new-key', value: { bypass: true } }), forbidden);
   }
   assert.equal(writes(), 0);
 });
 
-test('disguising the category cannot write either protected key namespace', async () => {
+test('disguising the category cannot write protected key namespaces', async () => {
   const { service, writes } = fixture();
-  for (const key of ['electronic-gate.item.new', 'electronic-gate.future.new', 'factory-qc.protocol.history.version-2', 'factory-qc.serial.management']) {
+  for (const key of ['electronic-gate.item.new', 'electronic-gate.future.new', 'factory-qc.protocol.history.version-2', 'factory-qc.serial.management', 'rd.meeting-todos.2026-10-19']) {
     await assert.rejects(service.save({ category: 'ordinary', key, value: { bypass: true } }), forbidden);
   }
   assert.equal(writes(), 0);
@@ -84,7 +87,7 @@ test('protected records cannot be renamed by id into an ordinary category and ke
 test('upsert checks an existing protected category even when its legacy key looks ordinary', async () => {
   const { service, rows, writes } = fixture();
   const before = structuredClone(rows);
-  for (const key of ['legacy-gate-config', 'legacy-factory-config']) {
+  for (const key of ['legacy-gate-config', 'legacy-factory-config', 'legacy-meeting-week']) {
     await assert.rejects(service.save({ category: 'ordinary', key, value: { overwrite: true } }), forbidden);
   }
   assert.deepEqual(rows, before);
@@ -96,6 +99,7 @@ test('id updates also check the destination key owner and cannot move ordinary r
   const before = structuredClone(rows);
   await assert.rejects(service.save({ id: 'ordinary', category: 'ordinary', key: 'legacy-factory-config', value: { overwrite: true } }), forbidden);
   await assert.rejects(service.save({ id: 'ordinary', category: 'factory-qc', key: 'ordinary.setting', value: { overwrite: true } }), forbidden);
+  await assert.rejects(service.save({ id: 'ordinary', category: 'ordinary', key: 'legacy-meeting-week', value: { overwrite: true } }), forbidden);
   assert.deepEqual(rows, before);
   assert.equal(writes(), 0);
 });

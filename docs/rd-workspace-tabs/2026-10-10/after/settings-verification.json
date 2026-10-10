@@ -1,0 +1,17 @@
+[
+  {
+    "size": "desktop",
+    "deadlineEditor": true,
+    "progressNoteAttachmentButton": true,
+    "attachParentDialog": true
+  },
+  {
+    "size": "mobile",
+    "deadlineEditor": true,
+    "progressNoteAttachmentButton": true,
+    "attachParentDialog": true
+  },
+  {
+    "historicalChangeEntry": true
+  }
+]

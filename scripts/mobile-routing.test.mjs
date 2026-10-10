@@ -113,7 +113,7 @@ test("聊天分析自定义路径后，手机入口与宽屏返回仍匹配同�
   }
 });
 
-test("系统首页在窄屏保留响应式 Dashboard，研发工作台仍进入移动驾驶舱", () => {
+test("系统首页与研发工作台在窄屏保留响应式页面和原筛选", () => {
   let location = { pathname: "/", search: "?home=management&month=2026-09", hash: "#overview" };
   const routePath = (_code, fallback) => fallback;
   const protectedLayout = sourceFunction(appSource, "ProtectedLayout", {
@@ -128,15 +128,15 @@ test("系统首页在窄屏保留响应式 Dashboard，研发工作台仍进入�
     assert.equal(protectedLayout().type, "Root", search || "default home");
   }
 
-  location = { pathname: "/rd-my-workspace", search: "?view=mine", hash: "#task" };
-  const redirected = protectedLayout();
-  assert.equal(redirected.type, "Navigate");
-  assert.equal(redirected.props.to, "/m?view=mine#task");
+  location = { pathname: "/rd-my-workspace", search: "?role=collaborator&keyword=密封&status=in_progress", hash: "#task" };
+  assert.equal(protectedLayout().type, "Root");
+  assert.deepEqual(location, { pathname: "/rd-my-workspace", search: "?role=collaborator&keyword=密封&status=in_progress", hash: "#task" });
+  assert.match(appSource, /makeLazyProtected\(<RDMyWorkspacePage key="ws-rd" \/>, "page:rd-my-workspace"\)/);
 });
 
 
 test("生产总览在窄屏保留批次和风险页面，不跳入旧生产任务池", () => {
-  for (const pathname of ["/production-dashboard", "/rd-director-dashboard", "/production-execution"]) {
+  for (const pathname of ["/production-dashboard", "/rd-director-dashboard", "/production-execution", "/ebpr", "/inspection-release", "/qa-traceability"]) {
     const location = { pathname, search: "?month=2026-09&view=risks", hash: "" };
     const routePath = (_code, fallback) => fallback;
     const protectedLayout = sourceFunction(appSource, "ProtectedLayout", {

@@ -98,3 +98,21 @@ test('successful requests detach external abort listener and clear their deadlin
   const external = new AbortController(); await api.getPurchaseReceipts('line/1', external.signal);
   external.abort(); t.mock.timers.tick(30_000); assert.equal(forwarded.aborted, false);
 });
+
+
+test('S10 新编号与附件字段兼容旧响应，并拒绝损坏的新增记录结构', async () => {
+  const api = load(async () => response()), valid = ledger();
+  Object.assign(valid.receipts[0], { receiptNumber: 'RCV-TEST', numberSource: 'system', files: [{ fileId: 'f1', name: '证据.png', mime: 'image/png', size: 20 }], warehouseRecord: null });
+  assert.equal(api.isPurchaseReceiptLedger(valid), true); assert.equal(api.isPurchaseReceiptLedger(ledger()), true);
+  for (const patch of [{ receiptNumber: 3 }, { numberSource: 'external-unknown' }, { files: {} }, { files: [{ fileId: 'f1', name: 'x', mime: 'image/png', size: -1 }] }, { warehouseRecord: { events: [] } }]) {
+    const invalid = ledger(); Object.assign(invalid.receipts[0], patch); assert.equal(api.isPurchaseReceiptLedger(invalid), false);
+  }
+});
+
+test('S10 新客户端不传送货单号也不补造，附件读取沿订单行和收货原记录授权', async () => {
+  const calls = [], api = load(async (...args) => { calls.push(args); return response(); });
+  const withoutNumber = { ...input }; delete withoutNumber.deliveryNo;
+  await api.createPurchaseReceipt('line/1', withoutNumber); assert.equal('deliveryNo' in JSON.parse(calls[0][1].body), false);
+  await api.getPurchaseReceiptAttachment('line/1', 'receipt/1', 'file/1');
+  assert.equal(calls[1][0], '/api/procurement/purchase-order-lines/line%2F1/receipts/receipt%2F1/files/file%2F1');
+});

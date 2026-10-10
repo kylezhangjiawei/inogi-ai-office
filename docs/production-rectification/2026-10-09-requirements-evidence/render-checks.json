@@ -1,0 +1,245 @@
+{
+  "errors": [],
+  "checks": [
+    {
+      "id": "P00",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P00",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P01",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P01",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P02",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P02",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P03",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P03",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P04",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P04",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P05",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P05",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P05-archive",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P05-archive",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P06",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P06",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P07",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P07",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P08",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P08",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P10",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "P10",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "S06",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "S06",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "S16",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 1280,
+      "main": true
+    },
+    {
+      "id": "S16",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 358,
+      "main": true
+    },
+    {
+      "id": "S10",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 1152,
+      "main": true
+    },
+    {
+      "id": "S10",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 390,
+      "main": true
+    },
+    {
+      "id": "S11",
+      "size": "desktop",
+      "width": 1586,
+      "bodyWidth": 1586,
+      "dialog": 0,
+      "main": true
+    },
+    {
+      "id": "S11",
+      "size": "mobile",
+      "width": 390,
+      "bodyWidth": 390,
+      "dialog": 0,
+      "main": true
+    }
+  ]
+}

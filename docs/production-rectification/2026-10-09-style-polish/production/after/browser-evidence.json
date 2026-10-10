@@ -1,0 +1,297 @@
+{
+  "errors": [],
+  "writes": [],
+  "checks": [
+    {
+      "name": "P00-desktop",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": []
+    },
+    {
+      "name": "P02-desktop",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": []
+    },
+    {
+      "name": "P03-desktop",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": []
+    },
+    {
+      "name": "P04-desktop",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": []
+    },
+    {
+      "name": "P08-desktop",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": []
+    },
+    {
+      "name": "P03-desktop-dialog",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": [
+        {
+          "top": 149,
+          "bottom": 843,
+          "width": 768,
+          "scrollWidth": 766,
+          "clientWidth": 766,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P03-desktop-discard",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": [
+        {
+          "top": 149,
+          "bottom": 843,
+          "width": 768,
+          "scrollWidth": 766,
+          "clientWidth": 766,
+          "primary": "#1554e8"
+        },
+        {
+          "top": 415,
+          "bottom": 577,
+          "width": 512,
+          "scrollWidth": 510,
+          "clientWidth": 510,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P02-desktop-issue",
+      "bodyWidth": 1586,
+      "viewport": 1586,
+      "dialogs": [
+        {
+          "top": 49.6015625,
+          "bottom": 942.3984375,
+          "width": 768,
+          "scrollWidth": 766,
+          "clientWidth": 766,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P00-mobile",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": []
+    },
+    {
+      "name": "P02-mobile",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": []
+    },
+    {
+      "name": "P03-mobile",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": []
+    },
+    {
+      "name": "P04-mobile",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": []
+    },
+    {
+      "name": "P08-mobile",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": []
+    },
+    {
+      "name": "P03-mobile-dialog",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 358,
+          "scrollWidth": 356,
+          "clientWidth": 356,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P03-mobile-discard",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 358,
+          "scrollWidth": 356,
+          "clientWidth": 356,
+          "primary": "#1554e8"
+        },
+        {
+          "top": 317,
+          "bottom": 527,
+          "width": 358,
+          "scrollWidth": 356,
+          "clientWidth": 356,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P02-mobile-issue",
+      "bodyWidth": 390,
+      "viewport": 390,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 358,
+          "scrollWidth": 356,
+          "clientWidth": 356,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P00-small",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": []
+    },
+    {
+      "name": "P02-small",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": []
+    },
+    {
+      "name": "P03-small",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": []
+    },
+    {
+      "name": "P04-small",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": []
+    },
+    {
+      "name": "P08-small",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": []
+    },
+    {
+      "name": "P03-small-dialog",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 288,
+          "scrollWidth": 286,
+          "clientWidth": 286,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P03-small-discard",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 288,
+          "scrollWidth": 286,
+          "clientWidth": 286,
+          "primary": "#1554e8"
+        },
+        {
+          "top": 317,
+          "bottom": 527,
+          "width": 288,
+          "scrollWidth": 286,
+          "clientWidth": 286,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "P02-small-issue",
+      "bodyWidth": 320,
+      "viewport": 320,
+      "dialogs": [
+        {
+          "top": 25.3203125,
+          "bottom": 818.6796875,
+          "width": 288,
+          "scrollWidth": 286,
+          "clientWidth": 286,
+          "primary": "#1554e8"
+        }
+      ]
+    },
+    {
+      "name": "unrelated-route-keeps-global-theme",
+      "pass": true
+    }
+  ],
+  "screenshots": [
+    "P00-desktop.png",
+    "P02-desktop.png",
+    "P03-desktop.png",
+    "P04-desktop.png",
+    "P08-desktop.png",
+    "P03-desktop-dialog.png",
+    "P03-desktop-select.png",
+    "P03-desktop-calendar.png",
+    "P03-desktop-focus.png",
+    "P03-desktop-discard.png",
+    "P02-desktop-issue.png",
+    "P02-desktop-department.png",
+    "P00-mobile.png",
+    "P02-mobile.png",
+    "P03-mobile.png",
+    "P04-mobile.png",
+    "P08-mobile.png",
+    "P03-mobile-dialog.png",
+    "P03-mobile-select.png",
+    "P03-mobile-calendar.png",
+    "P03-mobile-focus.png",
+    "P03-mobile-discard.png",
+    "P02-mobile-issue.png",
+    "P02-mobile-department.png",
+    "P00-small.png",
+    "P02-small.png",
+    "P03-small.png",
+    "P04-small.png",
+    "P08-small.png",
+    "P03-small-dialog.png",
+    "P03-small-select.png",
+    "P03-small-calendar.png",
+    "P03-small-focus.png",
+    "P03-small-discard.png",
+    "P02-small-issue.png",
+    "P02-small-department.png"
+  ]
+}

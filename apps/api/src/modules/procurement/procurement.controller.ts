@@ -156,6 +156,10 @@ export class ProcurementController {
     return this.service.getStockPlanOrderDateCheck(id, query, this.actor(req));
   }
 
+  @Get('stock-plans/:id/execution')
+  @Permissions('page:proc-cockpit')
+  getStockPlanExecution(@Param('id') id: string) { return this.service.getStockPlanExecution(id); }
+
   @Get('stock-plans/:id/readiness')
   @Permissions('page:proc-cockpit')
   getStockPlanReadiness(@Param('id') id: string, @Query('month') month?: string) {

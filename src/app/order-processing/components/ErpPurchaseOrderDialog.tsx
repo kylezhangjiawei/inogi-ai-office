@@ -10,7 +10,8 @@ import { erpPurchaseOrderApi as api, type ErpOrderInput, type ErpOrderLine, type
 
 const emptyLine=():ErpOrderLine=>({inventoryCode:'',unitName:'',quantity:1,unitPrice:0,taxRate:0,etaDate:''});
 const newForm=():ErpOrderInput=>({requestId:crypto.randomUUID(),action:'create',orderNo:'',expectedId:'',expectedTs:'',orderDate:new Date().toLocaleDateString('sv-SE'),supplierCode:'',contractNo:'',memo:'',lines:[emptyLine()]});
-export function ErpPurchaseOrderDialog({mode,orderNo,onClose,onSaved}:{mode:'create'|'update'|'delete'|'read';orderNo?:string;onClose:()=>void;onSaved:(result:ErpOrderResult)=>void}) {
+export function ErpPurchaseOrderDialog({mode,orderNo,onClose,onSaved,initial}:{mode:'create'|'update'|'delete'|'read';orderNo?:string;onClose:()=>void;onSaved:(result:ErpOrderResult)=>void;initial?:Pick<ErpOrderInput,'lines'|'memo'>}) {
+ const initialRef=useRef(initial);
  const {t}=useI18n();const [form,setForm]=useState<ErpOrderInput>(()=>({...newForm(),action:mode==='create'?'create':mode==='delete'?'delete':'update'})),[view,setView]=useState<ErpOrderView|null>(null),[options,setOptions]=useState<ErpOrderOptions>({suppliers:[],materials:[]});
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[recovery,setRecovery]=useState(false),[confirmed,setConfirmed]=useState(''),[revision,setRevision]=useState(0);
  const busyRef=useRef(false),active=useRef(true);
@@ -21,7 +22,7 @@ export function ErpPurchaseOrderDialog({mode,orderNo,onClose,onSaved}:{mode:'cre
    const current=orderNo&&!pending?await api.read(orderNo):null;
    if(!alive)return;setOptions(available);setView(current);
    if(pending){setForm(pending.input);setRecovery(true);setError(pending.error||t('发现上次未确认的操作，请先核对结果'));}
-   else {setRecovery(false);setForm(current?{...newForm(),action:mode==='delete'?'delete':'update',orderNo:current.orderNo,expectedId:current.id,expectedTs:current.ts,orderDate:current.orderDate,supplierCode:current.supplierCode,contractNo:current.contractNo,memo:current.memo,lines:current.lines}:newForm());}
+   else {setRecovery(false);setForm(current?{...newForm(),action:mode==='delete'?'delete':'update',orderNo:current.orderNo,expectedId:current.id,expectedTs:current.ts,orderDate:current.orderDate,supplierCode:current.supplierCode,contractNo:current.contractNo,memo:current.memo,lines:current.lines}:{...newForm(),...(mode==='create'?initialRef.current:{})});}
   }catch(cause){if(alive)setError(cause instanceof Error?cause.message:t('读取ERP失败'));}finally{if(alive)setLoading(false);}
  })();return()=>{alive=false;};},[mode,orderNo,revision,t]);
  const patch=(change:Partial<ErpOrderInput>)=>{setError('');setForm(previous=>({...previous,...change,requestId:crypto.randomUUID()}));};

@@ -14,6 +14,38 @@ const reportInput: SaveProductionReportDto = { productId: 'product-1', treeNodeI
 const qualityInput: SaveQualityRecordDto = { productId: 'product-1', treeNodeId: 'node-1', stockPlanId: 'plan-1', source: 'production', batchNo: 'B-1', inspectionDate: '2026-09-04', unit: '套', inspectedQty: 90, defectiveQty: 3, issue: '外观划痕', disposition: 'pending', status: 'open' };
 
 const analysisData = { category: 'process', detail: '装配工艺偏差', evidence: '检验记录和现场复核一致', responsibility: { kind: 'internal', id: 'responsible', name: '客户端伪造姓名' }, phenomena: [{ name: '划痕', count: 6 }, { name: '偏位', count: 2 }], references: [{ source: 'warehouse', reference: '真实反馈单号', note: '同批原异常追踪' }], fileIds: ['real-file-1'], reason: '依据现场实测确认' };
+
+test('报工创建请求重放只记录一次，改写同一请求被拒绝，不影响合法分批', async () => {
+  const f = fixture(), input = { ...reportInput, requestId: 'production-request-001' };
+  const first = await f.service.saveProductionReport(null, input, actor);
+  const retry = await f.service.saveProductionReport(null, input, actor);
+  assert.equal(retry.id, first.id); assert.equal(f.reports.length, 1);
+  await assert.rejects(f.service.saveProductionReport(null, { ...input, actualQty: 100 }, actor), /提交标识/);
+  const second = { ...input, requestId: 'production-request-002' };
+  await f.service.saveProductionReport(null, second, actor);
+  assert.equal(f.reports.length, 2);
+});
+test('跨月待办保留未关闭异常，月度历史仍按初检月份读取', async () => {
+  const f = fixture(); const record = await f.service.saveQualityRecord(null, qualityInput, actor);
+  const monthly = await f.service.list({ productId: 'product-1', month: '2026-10' });
+  assert.equal(monthly.qualityRecords.length, 0);
+  const pending = await f.service.list({ productId: 'product-1', month: '2026-10', qualityView: 'pending' } as any);
+  assert.equal(pending.qualityRecords[0]?.id, record.id);
+  f.quality[0].status = 'closed';
+  assert.equal((await f.service.list({ productId: 'product-1', month: '2026-10', qualityView: 'pending' } as any)).qualityRecords.length, 0);
+});
+test('报工未登记不良跨月跟进，只减已关联数量，不重复加入质量异常总数', async () => {
+  const f = fixture(); const report = await f.service.saveProductionReport(null, reportInput, actor);
+  const read = async () => await f.service.list({ productId: 'product-1', treeNodeId: 'node-1', month: '2026-10' }) as any;
+  assert.equal((await read()).productionFollowUps?.[0]?.unregisteredDefectiveQty, 5);
+  await f.service.saveQualityRecord(null, { ...qualityInput, productionReportId: report.id, inspectedQty: 30, defectiveQty: 3 }, actor);
+  let result = await read();
+  assert.equal(result.productionReports.length, 0);
+  assert.equal(result.productionFollowUps[0].unregisteredDefectiveQty, 2);
+  assert.equal(result.productionFollowUps[0].unregisteredInspectedQty, 60);
+  await f.service.saveQualityRecord(null, { ...qualityInput, batchNo: 'B-2', productionReportId: report.id, inspectedQty: 60, defectiveQty: 2 }, actor);
+  assert.equal((await read()).productionFollowUps.length, 0);
+});
 test('F04 四来源沿原异常登记，6件8次分离，责任人从账号读取且授权确认幂等', async () => {
   const f=fixture();
   for(const source of ['procurement','production','warehouse','after_sales'] as const)await f.service.saveQualityRecord(null,{...qualityInput,source,defectiveQty:6},actor);
@@ -26,6 +58,19 @@ test('F04 四来源沿原异常登记，6件8次分离，责任人从账号读�
   assert.equal(result.analysis.history.length,1);assert.equal(f.quality.length,4);assert.equal(result.analysis.references.length,1);
   assert.equal((await f.service.qualityAttachment(record.id,'real-file-1',actor)).name,'证据.png');
 });
+test('只保存处置保留已确认主因，修改分析内容后才退回待分析', async () => {
+  const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
+  await f.service.saveQualityAnalysis(record.id,{requestId:'quality-disposition-confirm-01',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:analysisData},actor);
+  let current=await f.service.qualityAnalysis(record.id,actor);
+  const confirmedAt=current.analysis.confirmedAt;
+  await f.service.saveQualityAnalysis(record.id,{requestId:'quality-disposition-save-001',version:1,baseUpdatedAt:current.record.updatedAt,action:'save',data:{...analysisData,disposition:'rework',resolution:'返工完成，等待复验'}},actor);
+  current=await f.service.qualityAnalysis(record.id,actor);
+  assert.equal(current.analysis.state,'confirmed'); assert.equal(current.analysis.confirmedAt,confirmedAt);
+  assert.equal(current.record.status,'processing'); assert.equal(current.record.resolution,'返工完成，等待复验');
+  await f.service.saveQualityAnalysis(record.id,{requestId:'quality-disposition-change-01',version:2,baseUpdatedAt:current.record.updatedAt,action:'save',data:{...analysisData,detail:'更新原因依据'}},actor);
+  assert.equal((await f.service.qualityAnalysis(record.id,actor)).analysis.state,'pending');
+});
+
 test('F04 未知可以保存待分析但不能冒充确认，协同经办没有确认权限', async () => {
   const f=fixture(),record=await f.service.saveQualityRecord(null,qualityInput,actor);
   const input={requestId:'quality-analysis-unknown-001',version:0,baseUpdatedAt:record.updatedAt,action:'confirm',data:{...analysisData,category:'unknown'}};

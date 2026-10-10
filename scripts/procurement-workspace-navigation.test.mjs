@@ -81,19 +81,19 @@ test("研发详情只在研发工作区采用已校验来源，生产和协同�
     [false, valid, "/us-collab-task-management", "/us-collab-task-management"],
   ]) {
     const procurementReturnPath = evaluate(declaration("procurementReturnPath"), { researchWorkspace, location: { state }, procurementWorkspaceReturnPath });
-    assert.equal(evaluate(declaration("detailReturnPath"), { procurementReturnPath, cockpitReturnPath }), expected);
+    assert.equal(evaluate(declaration("detailReturnPath"), { procurementReturnPath, workspaceReturnPath: null, cockpitReturnPath }), expected);
   }
 });
 
 test("研发序列切换继续保留原采购任务和筛选，且不会丢失任务预加载数据", () => {
   const original = "/proc-my-workspace?month=2026-08&period=carryover&task=PR-8&page=3";
-  const procurementReturnState = evaluate(declaration("procurementReturnState").arguments[0], { procurementReturnPath: original })();
+  const taskReturnState = evaluate(declaration("taskReturnState").arguments[0], { procurementReturnPath: original, workspaceReturnPath: null })();
   const calls = [];
   const target = { task_id: "RD-2", title: "下一项研发任务" };
   const gotoSeq = evaluate(declaration("gotoSeq").arguments[0], {
     taskNavigationLocked: false, seqIndex: 0, taskSeq: [{ task_id: "RD-1" }, target],
     document: { querySelector: () => null },
-    taskDetailPath: (id) => `/rd-task/${id}`, procurementReturnState,
+    taskDetailPath: (id) => `/rd-task/${id}`, taskReturnState,
     navigate: (...args) => calls.push(args),
   });
   gotoSeq(1);
@@ -103,7 +103,7 @@ test("研发序列切换继续保留原采购任务和筛选，且不会丢失�
   const jumps = nodesWhere(ast, (node) => ts.isCallExpression(node) && node.expression.getText(ast) === "navigate"
     && node.arguments[0]?.getText(ast).startsWith("taskDetailPath("));
   assert.ok(jumps.length >= 7, "Parent/subtask/related-task and sequence navigation must all be covered");
-  for (const jump of jumps) assert.match(jump.arguments[1]?.getText(ast) || "", /procurementReturnState/, jump.getText(ast));
+  for (const jump of jumps) assert.match(jump.arguments[1]?.getText(ast) || "", /taskReturnState/, jump.getText(ast));
 });
 
 test("正常详情及失败空态的返回按钮采用同一目的地，并显示采购来源", () => {

@@ -34,8 +34,8 @@ function ledger(patch = {}) {
 }
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 const allPermissions = ['page:purchase-order-detail', 'proc-purchase-order:receive', 'proc-purchase-order:inspect'];
-function fixture({ response = ledger(), permissions = [...allPermissions], get, receive, inspect, qualityOptions } = {}) {
-  const slots = [], reads = [], receives = [], inspections = [], qualityReads = [], focused = [], scrolled = [];
+function fixture({ response = ledger(), permissions = [...allPermissions], get, receive, inspect, qualityOptions, upload, attachment } = {}) {
+  const slots = [], reads = [], receives = [], inspections = [], qualityReads = [], uploads = [], focused = [], scrolled = [];
   let cursor = 0, effects = [], tree, closed = 0, user = { id: 'qa-operator' };
   const props = { lineId: 'line-1', orderNo: 'PO-1', onClose: () => { closed += 1; }, onCloseAutoFocus: () => {} };
   const same = (a, b) => Boolean(a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])));
@@ -46,6 +46,8 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
   };
   const deps = {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
+    '../../lib/routePaths': { routePath: (_permission, path) => path },
+    '../../lib/resourceUpload': { uploadResourceFile: async (file, businessType, options) => { uploads.push({ file, businessType, options }); return upload ? upload(file) : { fileId: 'uploaded-1', fileName: file.name }; } },
     '../../auth': { useAuth: () => ({ user }) },
     '../../hooks/usePermission': { usePermission: (name) => permissions.includes('*') || permissions.includes(name) },
     '../../lib/i18n': { useI18n: () => ({ t }), i18nLocale: () => 'zh-CN' },
@@ -59,6 +61,7 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
       getPurchaseReceipts: async (lineId, signal) => { reads.push({ lineId, signal }); return get ? get(lineId, signal) : response; },
       createPurchaseReceipt: async (lineId, payload) => { receives.push({ lineId, payload }); return receive ? receive(lineId, payload) : response; },
       createPurchaseInspection: async (lineId, receiptId, payload) => { inspections.push({ lineId, receiptId, payload }); return inspect ? inspect(lineId, receiptId, payload) : response; },
+      getPurchaseReceiptAttachment: async (lineId, receiptId, fileId) => attachment(lineId, receiptId, fileId),
     },
   };
   const exports = {};
@@ -69,7 +72,7 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
     return components;
   });
   const view = {
-    props, reads, receives, inspections, qualityReads, focused, scrolled, closed: () => closed,
+    props, reads, receives, inspections, qualityReads, uploads, focused, scrolled, closed: () => closed,
     render() { cursor = 0; effects = []; tree = exports.PurchaseReceiptDrawer(props);
       for (const node of elements(tree)) if (node.props?.ref) node.props.ref.current = { focus() { focused.push(node.props.id); }, scrollIntoView() { scrolled.push(node.type); } };
       const jobs = effects; effects = []; jobs.forEach((job) => job()); return tree; },
@@ -90,7 +93,7 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
   view.render(); return view;
 }
 function fillReceipt(view) {
-  view.click('登记收货'); view.fill('deliveryNo', 'DN-NEW'); view.fill('receivedQty', '5'); view.fill('date', '2020-02-02');
+  view.click('登记收货'); view.fill('receivedQty', '5'); view.fill('date', '2020-02-02');
 }
 
 test('approved reversal allows replacement against net receipts while retaining original gross receipt display', async () => {
@@ -128,18 +131,18 @@ test('订单来源不完整或阻断时只能查看；历史批次源变化不�
 
 test('每页十批，分页在批次前，不改变草稿', async () => {
   const view = fixture({ response: ledger({ receipts: Array.from({ length: 23 }, (_, index) => receipt(`batch-${index}`)) }) }); await view.settle();
-  assert.match(view.text(), /第 1 \/ 3 页，共 23 批/); assert.equal(view.nodes().filter((n) => n.type === 'li').length, 10);
-  assert.ok(view.nodes().findIndex((n) => n.props?.['aria-label'] === '下一页收货记录') < view.nodes().findIndex((n) => n.type === 'li'));
-  fillReceipt(view); view.click('下一页收货记录'); assert.equal(view.field('deliveryNo').props.value, 'DN-NEW'); assert.match(view.text(), /第 2 \/ 3 页/);
-  view.click('下一页收货记录'); assert.equal(view.nodes().filter((n) => n.type === 'li').length, 3);
+  assert.match(view.text(), /第 1 \/ 3 页，共 23 批/); assert.equal(view.nodes().filter((n) => n.type === 'li' && n.props.className?.includes('min-w-0')).length, 10);
+  assert.ok(view.nodes().findIndex((n) => n.props?.['aria-label'] === '下一页收货记录') < view.nodes().findIndex((n) => n.type === 'li' && n.props.className?.includes('min-w-0')));
+  fillReceipt(view); view.click('下一页收货记录'); assert.equal(view.field('receivedQty').props.value, '5'); assert.match(view.text(), /第 2 \/ 3 页/);
+  view.click('下一页收货记录'); assert.equal(view.nodes().filter((n) => n.type === 'li' && n.props.className?.includes('min-w-0')).length, 3);
 });
 
 test('打开收货表单时只预填中国当日日期，实收数量空白，合法输入保存对应精确行', async () => {
   const view = fixture(); await view.settle(); view.click('登记收货');
   assert.equal(view.field('receivedQty').props.value, ''); assert.match(view.field('date').props.value, /^\d{4}-\d{2}-\d{2}$/);
-  view.fill('deliveryNo', ' DN-TEST '); view.fill('receivedQty', '2.5'); view.fill('date', '2020-02-02'); await view.submit(); await view.settle();
+  view.fill('receivedQty', '2.5'); view.fill('date', '2020-02-02'); await view.submit(); await view.settle();
   assert.equal(view.receives.length, 1); assert.equal(view.receives[0].lineId, 'line-1');
-  assert.deepEqual({ ...view.receives[0].payload, requestId: 'uuid' }, { requestId: 'uuid', expectedSourceUpdatedAt: ledger().line.updatedAt, deliveryNo: 'DN-TEST', receivedDate: '2020-02-02', receivedQty: 2.5, note: '' });
+  assert.deepEqual({ ...view.receives[0].payload, requestId: 'uuid' }, { requestId: 'uuid', expectedSourceUpdatedAt: ledger().line.updatedAt, receivedDate: '2020-02-02', receivedQty: 2.5, note: '' });
   assert.equal(view.node('form'), undefined); assert.match(view.text(), /收货已登记/);
 });
 
@@ -250,34 +253,34 @@ test('权限改变后旧保存回调不发送请求；在途保存返回不能�
 test('未改动表单直接关闭，填写草稿关闭或切换批次使用 AlertDialog', async () => {
   const clean = fixture(); await clean.settle(); clean.click('登记收货'); clean.node('Sheet').props.onOpenChange(false); assert.equal(clean.closed(), 1);
   const view = fixture(); await view.settle(); fillReceipt(view); view.node('Sheet').props.onOpenChange(false); view.render(); assert.equal(view.closed(), 0); assert.equal(view.node('AlertDialog').props.open, true);
-  view.click('继续填写'); assert.equal(view.closed(), 0); assert.equal(view.field('deliveryNo').props.value, 'DN-NEW');
+  view.click('继续填写'); assert.equal(view.closed(), 0); assert.equal(view.field('receivedQty').props.value, '5');
   view.node('Sheet').props.onOpenChange(false); view.render(); view.click('放弃草稿'); assert.equal(view.closed(), 1);
 });
 
-test('实收不超过本台账剩余可登记量，精度和单号长度与服务端一致', async () => {
+test('实收不超过剩余量；不再要求供应商送货单号或关联异常输入', async () => {
   const view = fixture(); await view.settle(); fillReceipt(view);
-  assert.match(view.text(), /本台账剩余可登记量\s*：\s*90\s+件/); assert.equal(view.field('receivedQty').props.step, '0.001'); assert.equal(view.field('deliveryNo').props.maxLength, 120);
+  assert.match(view.text(), /本台账剩余可登记量\s*：\s*90\s+件/); assert.equal(view.field('receivedQty').props.step, '0.001'); assert.equal(view.field('deliveryNo'), undefined); assert.equal(view.field('qualityId'), undefined);
   view.fill('receivedQty', '90.001'); await view.submit(); await view.settle(); assert.match(view.text(), /不能超过剩余可登记量 90\s+件/); assert.equal(view.receives.length, 0);
-  view.fill('receivedQty', '90'); view.fill('deliveryNo', 'A'.repeat(121)); await view.submit(); await view.settle(); assert.match(view.text(), /不能超过 120 个字符/); assert.equal(view.receives.length, 0);
+  view.fill('receivedQty', '90'); await view.submit(); await view.settle(); assert.equal(view.receives.length, 1); assert.equal('deliveryNo' in view.receives[0].payload, false); assert.equal('qualityId' in view.receives[0].payload, false);
 });
 
 test('打开收货或检验表单时滚动并聚焦首字段，后续填写不抢焦点', async () => {
-  const view = fixture(); await view.settle(); view.click('登记收货'); assert.equal(view.focused.at(-1), 'receipt-deliveryNo'); assert.equal(view.scrolled.at(-1), 'form');
-  const count = view.focused.length; view.fill('deliveryNo', 'DN-new'); assert.equal(view.focused.length, count);
+  const view = fixture(); await view.settle(); view.click('登记收货'); assert.equal(view.focused.at(-1), 'receipt-receivedQty'); assert.equal(view.scrolled.at(-1), 'form');
+  const count = view.focused.length; view.fill('receivedQty', '3'); assert.equal(view.focused.length, count);
   view.click('记录检验结果：DN-receipt-1'); view.click('放弃草稿'); assert.equal(view.focused.at(-1), 'receipt-date');
 });
 
 test('ERP 单位变化后历史卡片、检验历史及台账汇总保留登记时单位并提供来源核对', async () => {
   const item = receipt('receipt-1', { sourceChanged: true, inspections: [{ id: 'i-1', version: 1, inspectionDate: '2020-01-02', qualifiedQty: 7, defectiveQty: 1, pendingJudgmentQty: 1, pendingQty: 1, basis: 'SIP', note: '结果说明', createdByName: '检验员', createdAt: '2020-01-02T01:00:00Z' }] });
   const view = fixture({ response: ledger({ line: { ...ledger().line, unit: '箱', spec: 'B型' }, receipts: [item], summaryUnit: '件', sourceIssue: '单位发生变化' }) }); await view.settle();
-  const card = view.nodes().find((node) => node.type === 'li'); assert.match(text(card), /实收\s+10\s+件/); assert.doesNotMatch(text(card), /箱/); assert.match(text(card), /查看登记时的订单来源/); assert.match(text(card), /A型/); assert.match(text(card), /本批累计数量\s*·\s+件/);
+  const card = view.nodes().find((node) => node.type === 'li' && node.props.className?.includes('min-w-0')); assert.match(text(card), /实收\s+10\s+件/); assert.doesNotMatch(text(card), /箱/); assert.match(text(card), /查看登记时的订单来源/); assert.match(text(card), /A型/); assert.match(text(card), /本批累计数量\s*·\s+件/);
   const aside = view.node('aside'); assert.match(text(aside), /本台账实收\s+10\s+件/); assert.doesNotMatch(text(aside), /箱/);
 });
 
 test('历史批次单位不一致时不相加，逐批保留原单位并关闭登记操作', async () => {
   const view = fixture({ response: ledger({ receipts: [receipt('one'), receipt('two', { source: { ...receipt().source, unit: '箱' } })] }) }); await view.settle();
   assert.match(view.text(), /历史批次存在不同单位，请逐批核对数量，暂不合计/); assert.doesNotMatch(text(view.node('aside')), /本台账实收/); assert.equal(view.button('登记收货'), undefined);
-  const cards = view.nodes().filter((node) => node.type === 'li'); assert.match(text(cards[0]), /实收\s+10\s+件/); assert.match(text(cards[1]), /实收\s+10\s+箱/);
+  const cards = view.nodes().filter((node) => node.type === 'li' && node.props.className?.includes('min-w-0')); assert.match(text(cards[0]), /实收\s+10\s+件/); assert.match(text(cards[1]), /实收\s+10\s+箱/);
 });
 
 test('收货或检验保存成功后滚入并聚焦成功状态，重新填写不会抢焦点', async () => {
@@ -288,6 +291,76 @@ test('收货或检验保存成功后滚入并聚焦成功状态，重新填写�
     assert.equal(view.focused.at(-1), 'purchase-receipt-notice'); assert.equal(view.scrolled.at(-1), 'p');
     const status = view.nodes().find((node) => node.props?.id === 'purchase-receipt-notice');
     assert.equal(status.props.role, 'status'); assert.equal(status.props.tabIndex, -1); assert.equal(view.node('form'), undefined);
-    view.click('登记收货'); const count = view.focused.length; view.fill('deliveryNo', 'DN-NEXT'); assert.equal(view.focused.length, count);
+    view.click('登记收货'); const count = view.focused.length; view.fill('receivedQty', '2'); assert.equal(view.focused.length, count);
+  }
+});
+
+
+test('S10 三段业务和真实侧栏存在，仓管不能用收货权限填写QC结论', async () => {
+  const view = fixture({ permissions: ['page:purchase-order-detail', 'proc-purchase-order:receive'] }); await view.settle();
+  for (const label of ['收货信息', '来料检验', '入库处置', '收货检验汇总', '质检图片、视频与文件', '处理记录']) assert.ok(view.text().includes(label), label);
+  fillReceipt(view); assert.equal(view.field('deliveryNo'), undefined); assert.equal(view.field('qualityId'), undefined); assert.equal(view.field('qualifiedQty'), undefined);
+  await view.submit(); await view.settle(); assert.equal(view.receives.length, 1); assert.equal(view.inspections.length, 0);
+});
+
+test('S10 入库处置按真实状态显示，未确认记录不能显示已交接', async () => {
+  for (const [status, label] of [['pending', '待仓库确认'], ['confirmed', '已确认交接'], ['cancelled', '入库记录已取消']]) {
+    const view = fixture({ response: ledger({ receipts: [receipt('receipt-1', { warehouseRecord: { id: 'warehouse-1', status, warehouse: '待检区', events: [] } })] }) });
+    await view.settle(); assert.match(view.text(), new RegExp(label));
+    if (status !== 'confirmed') assert.equal(view.text().includes('已确认交接'), false);
+  }
+});
+
+test('S10 附件上传后随真实收货请求提交，上传中阻止保存与关闭', async () => {
+  const waiting = deferred(), view = fixture({ upload: () => waiting.promise }); await view.settle(); fillReceipt(view);
+  const file = { name: '收货照片.png', type: 'image/png', size: 20 };
+  view.nodes().find(node => node.props?.['aria-label'] === '收货附件').props.onChange({ target: { files: [file], value: 'selected' } }); view.render();
+  assert.equal(view.node('SheetContent').props.closeDisabled, true); await view.submit(); assert.equal(view.receives.length, 0);
+  waiting.resolve({ fileId: 'file-1', fileName: file.name }); await view.settle();
+  assert.match(view.text(), /收货照片/); await view.submit(); await view.settle(); assert.deepEqual(view.receives[0].payload.fileIds, ['file-1']);
+});
+
+test('S10 上传失败保留收货草稿，不发送空白替代记录', async () => {
+  const view = fixture({ upload: async () => { throw new Error('上传断网'); } }); await view.settle(); fillReceipt(view);
+  view.nodes().find(node => node.props?.['aria-label'] === '收货附件').props.onChange({ target: { files: [{ name: '证据.png', type: 'image/png', size: 20 }], value: 'selected' } }); await view.settle();
+  assert.match(view.text(), /上传断网/); assert.equal(view.field('receivedQty').props.value, '5'); assert.equal(view.receives.length, 0);
+});
+
+test('S10 复用媒体上传：图片20MB、MP4/MOV/WebM视频200MB，文件ID随收货提交', async () => {
+  for (const [type, size, businessType] of [['image/png', 20 * 1024 * 1024, 'library/images'], ['video/mp4', 200 * 1024 * 1024, 'library/videos'], ['video/quicktime', 30 * 1024 * 1024, 'library/videos'], ['video/webm', 60 * 1024 * 1024, 'library/videos'], ['application/pdf', 50 * 1024 * 1024, 'assets']]) {
+    const view = fixture(); await view.settle(); fillReceipt(view);
+    const file = { name: '收货证据', type, size }, input = view.nodes().find(node => node.props?.['aria-label'] === '收货附件');
+    assert.equal(input.type, 'Input'); assert.match(input.props.accept, /video\/mp4,video\/quicktime,video\/webm/);
+    input.props.onChange({ target: { files: [file], value: 'selected' } }); await view.settle();
+    assert.equal(view.uploads[0].businessType, businessType); await view.submit(); await view.settle(); assert.deepEqual(view.receives[0].payload.fileIds, ['uploaded-1']);
+  }
+});
+
+test('S10 拒绝超限视频、SVG或伪视频MIME，上传前保留草稿', async () => {
+  for (const [type, size] of [['video/mp4', 200 * 1024 * 1024 + 1], ['image/png', 20 * 1024 * 1024 + 1], ['application/pdf', 50 * 1024 * 1024 + 1], ['video/x-msdownload', 20], ['image/svg+xml', 20], ['application/javascript', 20]]) {
+    const view = fixture(); await view.settle(); fillReceipt(view);
+    view.nodes().find(node => node.props?.['aria-label'] === '收货附件').props.onChange({ target: { files: [{ name: 'disguised.mp4', type, size }], value: 'selected' } }); await view.settle();
+    assert.equal(view.uploads.length, 0); assert.equal(view.field('receivedQty').props.value, '5'); assert.match(view.text(), /视频 200 MB/);
+  }
+});
+
+test('S10 原记录视频交给现有附件播放器，链接续期仍从同一收货权限端点读取', async () => {
+  const calls = [], file = { fileId: 'video-1', name: '收货视频.mp4', mime: 'video/mp4', size: 100 };
+  const view = fixture({ response: ledger({ receipts: [receipt('receipt-1', { files: [file] })] }), attachment: async (...args) => { calls.push(args); return { id: file.fileId, name: file.name, mime: file.mime, url: '/signed-video' }; } });
+  await view.settle(); view.nodes().find(node => node.type === 'Button' && text(node).includes(file.name)).props.onClick(); await view.settle();
+  const preview = view.node('AttachmentPreviewDialog').props.attachment;
+  assert.equal(preview.mime, 'video/mp4'); assert.equal(preview.url, '/signed-video'); await preview.refresh();
+  assert.deepEqual(calls, [['line-1', 'receipt-1', 'video-1'], ['line-1', 'receipt-1', 'video-1']]);
+});
+
+test('S10 仅供应商来源编号在历史处理记录只读展示，登记表单仍不恢复单号字段', async () => {
+  for (const numberSource of ['supplier', 'system', undefined]) {
+    const view = fixture({ response: ledger({ receipts: [receipt('receipt-1', { receiptNumber: 'RCV-INTERNAL', deliveryNo: 'SUP-HISTORICAL-001', numberSource })] }) });
+    await view.settle();
+    const history = view.nodes().find(node => node.props?.className === 'purchase-receipt-activity');
+    assert.equal(text(history).includes('原始供应商来源编号：SUP-HISTORICAL-001'), numberSource === 'supplier');
+    assert.match(view.text(), /内部收货编号/); view.click('登记收货');
+    assert.equal(view.field('deliveryNo'), undefined); assert.equal(view.field('qualityId'), undefined);
+    assert.doesNotMatch(text(view.node('form')), /SUP-HISTORICAL|供应商来源编号|送货单号|发货单号/);
   }
 });

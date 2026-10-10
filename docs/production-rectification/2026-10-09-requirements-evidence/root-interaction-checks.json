@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "name": "A13 更换型号清空旧生产单与队列筛选",
+      "result": "passed"
+    },
+    {
+      "name": "P03 旧链接生产单失效可直接恢复",
+      "result": "passed"
+    },
+    {
+      "name": "P03 原料检验入口与真实页面路径",
+      "result": "passed"
+    },
+    {
+      "name": "P03 手机检验办理入口与原任务关联",
+      "result": "passed",
+      "note": "入口进入原任务的登记检验对话框；首次测试误用了不存在的标题定位，校正为实际控件后通过"
+    },
+    {
+      "name": "S16 手机处置及复验区域可达",
+      "result": "passed",
+      "note": "处置选择可打开；未保存处置时独立复验被正确禁用。首次测试误用复验与记录按钮名称，校正为实际控件后通过；未提交处置。"
+    },
+    {
+      "name": "S10 删除字段且可无发货单号保存实收",
+      "result": "passed"
+    },
+    {
+      "name": "S10 视频允许类型与真实原图附件预览",
+      "result": "passed"
+    }
+  ],
+  "errors": [],
+  "writes": [
+    {
+      "url": "http://127.0.0.1:5198/api/procurement/purchase-order-lines/preview-receipt-line-1/receipts",
+      "body": {
+        "expectedSourceUpdatedAt": "2026-10-09T01:00:00.000Z",
+        "receivedDate": "2026-10-09",
+        "receivedQty": 10,
+        "note": "仅隔离内存验收，未连接真实业务",
+        "requestId": "f3b259af-3e8a-4496-8008-b8df8d392b14"
+      }
+    }
+  ],
+  "scope": "127.0.0.1:5198 fixture only; one receipt written to volatile preview memory"
+}

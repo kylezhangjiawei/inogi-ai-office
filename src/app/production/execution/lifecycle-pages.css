@@ -1,0 +1,83 @@
+.lifecycle-page { display: flex; flex-direction: column; gap: 1rem; min-width: 0; container-type: inline-size; }
+.lifecycle-columns { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(17rem, 1fr); gap: 1rem; align-items: start; }
+.lifecycle-main, .lifecycle-aside, .lifecycle-stack { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.lifecycle-page .production-surface { background: var(--card); }
+.lifecycle-page .production-section-heading { align-items: flex-start; }
+.lifecycle-page .production-section-heading h2, .lifecycle-page .production-section-heading h3 { color: var(--foreground); }
+.lifecycle-page .production-detail-heading { padding: .25rem 0; }
+.lifecycle-page .production-detail-heading h2 { font-size: 1.25rem; }
+.lifecycle-record-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; }
+.lifecycle-record-bar > header { flex: 1 1 20rem; min-width: 0; }
+.lifecycle-record-bar > .lifecycle-record-picker { flex: 0 1 27rem; }
+.lifecycle-record-picker { display: flex; align-items: center; flex-wrap: wrap; gap: .625rem; font-size: .8125rem; }
+.lifecycle-record-picker label { color: var(--muted-foreground); font-size: .75rem; }
+.lifecycle-record-bar .lifecycle-record-picker label { width: 100%; }
+.lifecycle-record-bar .lifecycle-record-picker [data-slot=select-trigger] { flex: 1 1 15rem; }
+.lifecycle-record-picker [data-slot=select-trigger] { flex: 0 1 24rem; min-width: 0; max-width: 100%; min-height: 2.5rem; padding: .5rem 2rem .5rem .75rem; border: 1px solid var(--border); border-radius: .625rem; background: var(--card); color: var(--foreground); font: inherit; text-overflow: ellipsis; }
+.lifecycle-record-picker > span { color: var(--muted-foreground); font-size: .75rem; }
+.lifecycle-checks > dl { padding: 0 1rem .5rem; }
+.lifecycle-checks > dl > div { display: grid; grid-template-columns: minmax(7rem, .3fr) minmax(0, 1fr); gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--border); font-size: .8125rem; line-height: 1.5; }
+.lifecycle-checks dt { font-weight: 600; }
+.lifecycle-checks dd { min-width: 0; overflow-wrap: anywhere; }
+.lifecycle-checks dd strong { display: block; font-size: .8125rem; font-weight: 500; white-space: pre-wrap; }
+.lifecycle-checks dd span { display: block; margin-top: .25rem; font-size: .75rem; color: var(--muted-foreground); }
+.lifecycle-checks > dl > div:nth-child(-n+3) dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: .125rem .75rem; }
+.lifecycle-checks > dl > div:nth-child(-n+3) dd span { margin: 0; }
+.lifecycle-inset { padding: 0 1rem 1rem; font-size: .8125rem; line-height: 1.7; }
+.lifecycle-muted { padding: 0 1rem 1rem; font-size: .75rem; line-height: 1.7; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.lifecycle-aside > .lifecycle-muted { padding: 0 .25rem; }
+.lifecycle-attention { color: var(--foreground); background: var(--muted); border-radius: .5rem; padding: .625rem .75rem; font-size: .75rem; line-height: 1.6; }
+.lifecycle-checks > .lifecycle-attention { margin: 0 1rem 1rem; }
+.lifecycle-related > ul { list-style: none; padding: 0 1rem; margin: 0; }
+.lifecycle-related li { padding: .875rem 0; border-top: 1px solid var(--border); min-width: 0; }
+.lifecycle-related li > p { font-size: .75rem; color: var(--muted-foreground); line-height: 1.6; margin-top: .375rem; }
+.lifecycle-related dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-top: .75rem; font-size: .75rem; }
+.lifecycle-related dt { color: var(--muted-foreground); }
+.lifecycle-related dd { margin-top: .25rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.lifecycle-related-links { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; padding: 0 1rem 1rem; font-size: .8125rem; }
+.lifecycle-secondary { min-width: 0; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); }
+.lifecycle-secondary > summary { padding: 1rem; cursor: pointer; font-size: .8125rem; font-weight: 600; color: var(--foreground); }
+.lifecycle-secondary > .lifecycle-stack, .lifecycle-secondary > [data-slot=tabs] { padding: 0 1rem 1rem; }
+.lifecycle-action-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .875rem; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--card); }
+.lifecycle-action-bar > p { flex: 1 1 22rem; margin: 0; font-size: .75rem; line-height: 1.65; color: var(--muted-foreground); }
+.lifecycle-action-bar > div { display: flex; flex-wrap: wrap; gap: .625rem; }
+.lifecycle-action-bar button, .lifecycle-personal-actions button { white-space: normal; height: auto; min-height: 2.5rem; }
+.lifecycle-document-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.lifecycle-document-comparison .production-surface li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem; padding-top: .625rem; padding-bottom: .625rem; }
+.lifecycle-document-comparison .production-surface li > div { min-width: 0; }
+.lifecycle-document-comparison .production-surface li > button { min-width: max-content; min-height: 2.25rem; height: auto; padding: .375rem .5rem; white-space: nowrap; line-height: 1.4; }
+.lifecycle-my-confirmation .lifecycle-inset > p + p { margin-top: .75rem; }
+.lifecycle-personal-actions { display: flex; flex-direction: column; gap: .625rem; margin: 1rem 0; }
+.lifecycle-personal-actions:empty { display: none; }
+.lifecycle-inline-links { display: flex; flex-wrap: wrap; gap: .5rem .875rem; }
+.lifecycle-snapshots { padding: 0 1rem 1rem; }
+.lifecycle-snapshots > details { border-top: 1px solid var(--border); padding: .75rem 0; }
+.lifecycle-snapshots summary { cursor: pointer; overflow-wrap: anywhere; font-size: .8125rem; font-weight: 500; }
+.lifecycle-snapshots .production-surface { border: 0; border-radius: 0; margin-top: .75rem; }
+.lifecycle-snapshots .production-section-heading { padding: 0; }
+.lifecycle-snapshots .production-surface > ul, .lifecycle-snapshots .production-surface > p { padding-left: 0; padding-right: 0; }
+.lifecycle-page summary:focus-visible, .lifecycle-record-picker [data-slot=select-trigger]:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: .375rem; }
+.lifecycle-mobile-shortcuts { display: none; }
+.lifecycle-mobile-shortcuts a { color: var(--primary); font-size: .8125rem; line-height: 1.5; padding: .375rem 0; text-decoration: underline; text-underline-offset: 3px; }
+.lifecycle-mobile-shortcuts a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.lifecycle-page [id^=lifecycle-] { scroll-margin-top: 1rem; }
+@container (max-width: 880px) {
+  .lifecycle-columns { grid-template-columns: minmax(0, 1fr); }
+  .lifecycle-page--ecn .lifecycle-aside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lifecycle-page--ecn .lifecycle-aside > .lifecycle-muted { grid-column: 1 / -1; }
+  .lifecycle-mobile-shortcuts { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
+}
+@container (max-width: 560px) {
+  .lifecycle-document-comparison, .lifecycle-page--ecn .lifecycle-aside { grid-template-columns: minmax(0, 1fr); }
+  .lifecycle-checks > dl > div { grid-template-columns: 6rem minmax(0, 1fr); gap: .5rem; }
+  .lifecycle-page .production-documents-compact > ul { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .lifecycle-page .production-documents-compact > ul > li { border-top: 1px solid var(--border); padding-top: .75rem; }
+  .lifecycle-record-picker label { width: 100%; }
+  .lifecycle-record-picker [data-slot=select-trigger] { flex: 1 1 12rem; }
+  .lifecycle-record-bar > .lifecycle-record-picker { flex-basis: 100%; gap: .375rem; }
+  .lifecycle-record-bar .lifecycle-record-picker label { width: auto; }
+  .lifecycle-record-bar .lifecycle-record-picker > span { display: none; }
+  .lifecycle-action-bar > div { width: 100%; }
+  .lifecycle-action-bar > div > button { flex: 1 1 9rem; }
+  .lifecycle-secondary > .lifecycle-stack, .lifecycle-secondary > [data-slot=tabs] { padding: 0 .5rem .5rem; }
+}

@@ -80,13 +80,30 @@ test("鉴权恢复与登录跳转先于移动测试入口，登录返回地址�
   assert.equal(loggedOut.props.state.from, "/rd-my-workspace?sampleTest=proc%2Fself&tab=mine#detail");
 });
 
-test("空样品参数、普通手机页面和桌面页面维持原路由行为", () => {
+test("空样品参数保留响应式工作台，任务和协同手机路由不变", () => {
   for (const search of ["", "?sampleTest=", "?sampleTest=%20%20"]) {
-    assert.equal(route({ search, hash: "" }).tree.props.to, `/m${search}`);
+    assert.equal(route({ search, hash: "" }).tree.type, "Root");
   }
   assert.equal(route({ pathname: "/rd-task/rd-123", search: "?tab=notes", hash: "" }).tree.props.to, "/m/task/rd-123?tab=notes");
   assert.equal(route({ pathname: "/us-collab-workspace", search: "?sampleTest=proc-1", hash: "" }).tree.props.to, "/us-collab-m?sampleTest=proc-1");
   assert.equal(route({ mobile: false }).tree.type, "Root");
+});
+
+test("配置后的研发工作台精确保留筛选，样品专用页优先且其他路径继续移动路由", () => {
+  const configuredPath = "/engineering/my-work";
+  const search = "?role=collaborator&keyword=密封&priority=high&status=in_progress&due=3d";
+  const result = route({ pathname: configuredPath, configuredPath, search, hash: "#tasks" });
+  assert.equal(result.tree.type, "Root");
+  assert.deepEqual(result.location, { pathname: configuredPath, search, hash: "#tasks" });
+  assert.ok(elements(route({ pathname: configuredPath, configuredPath, search: search + "&sampleTest=proc-1" }).tree).some(item => item.type === "MobileSamplePage"));
+  for (const pathname of ["/rd-my-workspace", "/engineering/my-work-old", "/rd-task-management"]) {
+    const tree = route({ pathname, configuredPath, search: "", hash: "" }).tree;
+    assert.equal(tree.type, "Navigate");
+    assert.equal(tree.props.to, "/m");
+  }
+  const collaboration = route({ pathname: "/us-collab-workspace", configuredPath, search, hash: "#tasks" }).tree;
+  assert.equal(collaboration.type, "Navigate");
+  assert.equal(collaboration.props.to, `/us-collab-m${search}#tasks`);
 });
 
 test("样品入口跟随配置工作台路径，任务或账号变化时重挂轻量页", () => {

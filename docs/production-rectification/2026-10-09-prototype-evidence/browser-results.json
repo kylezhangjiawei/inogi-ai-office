@@ -1,0 +1,225 @@
+{
+  "errors": [],
+  "checks": [
+    {
+      "name": "P01-selected-task-original-dispatch-dialog",
+      "pass": true
+    },
+    {
+      "name": "plan-model-change-clears-old-production-batch",
+      "pass": true
+    },
+    {
+      "name": "explicit-plan-model-consistency",
+      "pass": true
+    },
+    {
+      "name": "P02-report-dialog-opens",
+      "pass": true
+    },
+    {
+      "name": "P02-failed-submit-keeps-draft-and-reuses-request",
+      "pass": true
+    },
+    {
+      "name": "P03-global-inspection-return-keeps-global-scope",
+      "pass": true
+    },
+    {
+      "name": "P04-real-collaboration-reply-dialog",
+      "pass": true
+    },
+    {
+      "name": "P06-task-return-preserves-all-plans",
+      "pass": true
+    },
+    {
+      "name": "P06-quality-link-opens-original-record",
+      "pass": true
+    },
+    {
+      "name": "P05-published-package-and-actual-batch",
+      "pass": true
+    },
+    {
+      "name": "P10-reading-confirmation-dialog",
+      "pass": true
+    },
+    {
+      "name": "unknown-quality-deep-link-does-not-fallback",
+      "pass": true
+    },
+    {
+      "name": "unknown-plan-does-not-fallback",
+      "pass": true
+    },
+    {
+      "name": "read-only-user-has-no-write-actions",
+      "pass": true
+    },
+    {
+      "name": "P01-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P01-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P01-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P02-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P02-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P02-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P03-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P03-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P03-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P04-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P04-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P04-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P05-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P05-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P05-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P06-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P06-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P06-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P07-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P07-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P07-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P08-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P08-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P08-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P10-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P10-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P10-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P05-archive-desktop",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "P05-archive-mobile",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P05-archive-mobile-lower",
+      "width": 390,
+      "scroll": 390
+    },
+    {
+      "name": "P01-laptop",
+      "width": 1366,
+      "scroll": 1366
+    },
+    {
+      "name": "P08-tablet",
+      "width": 1024,
+      "scroll": 1024
+    },
+    {
+      "name": "load-failure-visible-and-retryable",
+      "pass": true
+    }
+  ]
+}

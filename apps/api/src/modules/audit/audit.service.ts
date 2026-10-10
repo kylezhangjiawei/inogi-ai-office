@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogQueryDto } from './dto/audit-log-query.dto';
+import { rdTaskReadViewer } from '../research-development/rd-task-access';
+import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 
 /**
  * 「能看全部人的留痕」按模块授权。
@@ -45,6 +47,10 @@ export type AuditViewer = {
   userName?: string;
   permissions: string[];
 };
+
+function canViewMeetingAudit(viewer: AuditViewer): boolean {
+  return Boolean(viewer.userId && rdTaskReadViewer(viewer).hasFullAccess && isWorkspaceAllowed('rd', viewer.permissions));
+}
 
 /** 该用户能「看全部人记录」的模块。'*' 代表不限模块。 */
 export function auditViewAllModules(permissions: string[]): '*' | string[] {
@@ -156,10 +162,10 @@ export class AuditService {
    * 只受可见范围与模块约束，不受其他筛选条件影响——否则选中一项后其余选项会互相抹掉。
    */
   async listFacets(viewer: AuditViewer, module?: string) {
+    const scopeOnly = { AND: [this.scopeWhere(viewer), this.meetingAuditWhere(viewer)] };
     const where: Prisma.AuditLogWhereInput = module
-      ? { AND: [this.scopeWhere(viewer), { module }] }
-      : this.scopeWhere(viewer);
-    const scopeOnly = this.scopeWhere(viewer);
+      ? { AND: [scopeOnly, { module }] }
+      : scopeOnly;
 
     const [modules, actions, resources, actorRows] = await Promise.all([
       this.prisma.auditLog.groupBy({ by: ['module'], where: scopeOnly, _count: { _all: true } }),
@@ -210,6 +216,7 @@ export class AuditService {
       query.dateTo ?? '',
       query.keyword ?? '',
       auditViewAllModules(viewer.permissions),
+      canViewMeetingAudit(viewer),
       viewer.userId ?? '',
       viewer.userName ?? '',
     ]);
@@ -244,7 +251,7 @@ export class AuditService {
   }
 
   private buildWhere(query: AuditLogQueryDto, viewer: AuditViewer, snapshotAt: Date): Prisma.AuditLogWhereInput {
-    const filters: Prisma.AuditLogWhereInput[] = [this.scopeWhere(viewer)];
+    const filters: Prisma.AuditLogWhereInput[] = [this.scopeWhere(viewer), this.meetingAuditWhere(viewer)];
 
     if (query.module) filters.push({ module: query.module });
     if (query.source) filters.push({ source: query.source });
@@ -286,6 +293,15 @@ export class AuditService {
     return { AND: filters };
   }
 
+  /** Private meeting contents stay private even in an administrator's old logs or raw API payloads. */
+  private meetingAuditWhere(viewer: AuditViewer): Prisma.AuditLogWhereInput {
+    if (canViewMeetingAudit(viewer)) return {};
+    return { AND: [
+      { resource: { notIn: ['meeting-todo', 'meeting-week'] } },
+      { OR: [{ resource: { not: 'research-development' } }, { resourceId: null }, { resourceId: { not: 'meeting-todos' } }] },
+    ] };
+  }
+
   /**
    * buildWhere 的 SQL 版本，只服务于「涉及对象」的去重计数。
    *
@@ -299,6 +315,10 @@ export class AuditService {
    */
   private buildSqlWhere(query: AuditLogQueryDto, viewer: AuditViewer, snapshotAt: Date): Prisma.Sql {
     const parts: Prisma.Sql[] = [this.scopeSqlWhere(viewer)];
+    if (!canViewMeetingAudit(viewer)) {
+      parts.push(Prisma.sql`("resource" NOT IN ('meeting-todo', 'meeting-week') AND
+        ("resource" <> 'research-development' OR "resourceId" IS NULL OR "resourceId" <> 'meeting-todos'))`);
+    }
 
     if (query.module) parts.push(Prisma.sql`"module" = ${query.module}`);
     if (query.source) parts.push(Prisma.sql`"source" = ${query.source}`);

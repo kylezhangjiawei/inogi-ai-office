@@ -15,12 +15,13 @@ export const saveQualityAnalysis = (id: string, input: { requestId: string; vers
 export const getQualityAttachment = (id: string, fileId: string, signal?: AbortSignal) => request<{ id: string; name: string; mime: string; size: number; url: string; previewUrl: string; downloadUrl: string }>(`/quality-records/${encodeURIComponent(id)}/attachments/${encodeURIComponent(fileId)}`, { signal });
 
 
-export type OperationsScope = { productId: string; treeNodeId?: string; stockPlanId?: string; month?: string };
+export type OperationsScope = { productId: string; treeNodeId?: string; stockPlanId?: string; month?: string; qualityView?: 'month' | 'pending' };
 export type QualitySource = 'procurement' | 'production' | 'warehouse' | 'after_sales';
 export type QualityStatus = 'open' | 'processing' | 'closed';
 export type QualityDisposition = 'pending' | 'return' | 'rework' | 'scrap' | 'concession' | 'replacement';
 
 export interface ProductionReportInput {
+  requestId?: string;
   productId: string; treeNodeId: string; stockPlanId?: string | null;
   reportDate: string; shift: string; lineName: string; unit: string;
   plannedQty: number; actualQty: number; goodQty: number; workHours: number;
@@ -35,13 +36,14 @@ export interface QualityRecordInput {
 }
 interface RecordIdentity { id: string; treeNodeName: string; stockPlanCode: string | null; createdByName: string; updatedByName?: string | null; createdAt: string; updatedAt: string }
 export interface ProductionReport extends ProductionReportInput, RecordIdentity { defectiveQty: number; capacityQty: number | null }
-export interface QualityRecord extends QualityRecordInput, RecordIdentity { analysis?: QualityAnalysis | null; taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null; collaboration?: { dueDate?: string; requiredInfo?: string; verificationPlan?: string; ownerId: string; ownerName: string; originatorName: string; phase: 'waiting_reply' | 'returned'; reason: string; reply: string | null; repliedByName?: string } | null }
+export interface ProductionFollowUp extends ProductionReport { unregisteredDefectiveQty: number; unregisteredInspectedQty: number }
+export interface QualityRecord extends QualityRecordInput, RecordIdentity { analysis?: QualityAnalysis | null; taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null; collaboration?: { department?: string | null; priority?: 'high' | 'medium' | 'low'; dueDate?: string; requiredInfo?: string; verificationPlan?: string; ownerId: string; ownerName: string; originatorName: string; phase: 'waiting_reply' | 'returned'; reason: string; reply: string | null; repliedByName?: string } | null }
 export interface ProductionSummary {
   unit: string; reports: number; plannedQty: number; actualQty: number; goodQty: number; defectiveQty: number;
   workHours: number; capacityQty: number | null; capacityRecorded: number; attainmentRate: number | null; yieldRate: number | null; capacityUtilization: number | null;
 }
 export interface QualitySummary { source: QualitySource; unit: string; records: number; open: number; inspectedQty: number; defectiveQty: number; defectRate: number | null }
-export interface OperationsResponse { month: string; productionReports: ProductionReport[]; qualityRecords: QualityRecord[]; productionSummary: ProductionSummary[]; qualitySummary: QualitySummary[] }
+export interface OperationsResponse { month: string; productionReports: ProductionReport[]; productionFollowUps?: ProductionFollowUp[]; qualityRecords: QualityRecord[]; productionSummary: ProductionSummary[]; qualitySummary: QualitySummary[] }
 export interface OperationsOptions {
   plans: Array<{ id: string; code: string; unit: string; materialId: string | null }>;
   tasks: Array<{ id: string; code: string; materialId: string | null; stockPlanId: string | null; unit: string }>;
@@ -55,6 +57,7 @@ function query(scope: OperationsScope) {
   if (scope.treeNodeId) search.set('treeNodeId', scope.treeNodeId);
   if (scope.stockPlanId) search.set('stockPlanId', scope.stockPlanId);
   if (scope.month) search.set('month', scope.month);
+  if (scope.qualityView) search.set('qualityView', scope.qualityView);
   return search.toString();
 }
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

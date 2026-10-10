@@ -41,6 +41,7 @@ import { openMateChat } from "./components/matechat/openMateChat";
 import { createRdTaskPageContext } from "./components/matechat/pageContext";
 import { PERMISSIONS } from "./lib/permissions";
 import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
+import { rdWorkspaceReturnPath } from "./lib/rdWorkspaceNavigation";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
@@ -99,7 +100,7 @@ import { TechnicalDocumentsPanel } from "./rd/TechnicalDocumentsPanel";
 import "./rd/rdTaskDetail.css";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
-import { isTaskOverdue } from "./lib/taskDue";
+import { isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 import {
@@ -351,9 +352,12 @@ export default function RDTaskDetailPage() {
     : canOpenRdCockpit ? routePath("page:rd-task-management", "/rd-task-management") : routePath("page:rd-my-workspace", "/rd-my-workspace");
   const cockpitReturnPath = `${cockpitPath}${location.search}`;
   const procurementReturnPath = researchWorkspace ? procurementWorkspaceReturnPath(location.state) : null;
-  const detailReturnPath = procurementReturnPath ?? cockpitReturnPath;
-  const procurementReturnState = useMemo(() => procurementReturnPath
-    ? { procurementWorkspaceReturn: procurementReturnPath } : undefined, [procurementReturnPath]);
+  const workspaceReturnPath = researchWorkspace ? rdWorkspaceReturnPath(location.state) : null;
+  const detailReturnPath = procurementReturnPath ?? workspaceReturnPath ?? cockpitReturnPath;
+  const taskReturnState = useMemo(() => procurementReturnPath || workspaceReturnPath ? {
+    ...(procurementReturnPath ? { procurementWorkspaceReturn: procurementReturnPath } : {}),
+    ...(workspaceReturnPath ? { rdWorkspaceReturn: workspaceReturnPath } : {}),
+  } : undefined, [procurementReturnPath, workspaceReturnPath]);
   const taskDetailPath = useCallback(
     (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}${location.search}`,
     [location.search, productionWorkspace],
@@ -414,7 +418,10 @@ export default function RDTaskDetailPage() {
   const [auditTaskFilter, setAuditTaskFilter] = useState("all");
   const [notesLoading, setNotesLoading] = useState(true);
   const [notesError, setNotesError] = useState("");
-  const [tab, setTab] = useState<DetailTab>("notes");
+  const [tab, setTab] = useState<DetailTab>(() => researchWorkspace && new URLSearchParams(location.search).get("tab") === "conversation" ? "conversation" : "notes");
+  useEffect(() => {
+    if (researchWorkspace) setTab(new URLSearchParams(location.search).get("tab") === "conversation" ? "conversation" : "notes");
+  }, [location.search, researchWorkspace, taskId]);
   const [discussionUnread, setDiscussionUnread] = useState(0);
   const [progressThreadOpen, setProgressThreadOpen] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
@@ -1059,7 +1066,7 @@ export default function RDTaskDetailPage() {
 
   // ── 研发侧特有动作（与驾驶舱抽屉同口径） ────────────────────────────────────
 
-  /** 主责人可提交完成；研发直接生效，其他工作区保留审核。管理员使用单独完成入口。 */
+  /** 主责人提交成果后等待管理员审核。管理员使用单独完成入口。 */
   const isCurrentOwner = Boolean(
     task && user && (
       (task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
@@ -1087,12 +1094,10 @@ export default function RDTaskDetailPage() {
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(expectedTaskId, researchWorkspace
-        ? { status: "completed", pending_review_type: null, progress: 100 }
-        : { status: "pending_review", progress: 100 });
+      await updateRdTask(expectedTaskId, { status: "pending_review", pending_review_type: "result", progress: 100 });
       if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.success(t(researchWorkspace ? "任务已标记完成" : "任务已提交审核，等待确认"));
-      if (!researchWorkspace) window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      toast.success(t("任务已提交审核，等待确认"));
+      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
@@ -1243,9 +1248,9 @@ export default function RDTaskDetailPage() {
   );
   const openRelationTask = useCallback((target: RdTask) => {
     if (target.task_id !== taskId) {
-      navigate(taskDetailPath(target.task_id), { state: { ...procurementReturnState, task: target } });
+      navigate(taskDetailPath(target.task_id), { state: { ...taskReturnState, task: target } });
     }
-  }, [navigate, taskDetailPath, taskId, procurementReturnState]);
+  }, [navigate, taskDetailPath, taskId, taskReturnState]);
   /**
    * 可并入为子任务的候选：顶层任务、非自身、未归档。
    * 候选可以自带完整子任务树；挂载后原层级永久保留。
@@ -1359,9 +1364,9 @@ export default function RDTaskDetailPage() {
     (offset: number) => {
       if (taskNavigationLocked || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       const target = taskSeq[seqIndex + offset];
-      if (target) navigate(taskDetailPath(target.task_id), { state: { ...procurementReturnState, task: target } });
+      if (target) navigate(taskDetailPath(target.task_id), { state: { ...taskReturnState, task: target } });
     },
-    [navigate, seqIndex, taskDetailPath, taskNavigationLocked, taskSeq, procurementReturnState],
+    [navigate, seqIndex, taskDetailPath, taskNavigationLocked, taskSeq, taskReturnState],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1423,7 +1428,7 @@ export default function RDTaskDetailPage() {
             {t("重新加载")}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)}>
-            {t(procurementReturnPath ? "返回采购工作台" : "返回驾驶舱")}
+            {t(procurementReturnPath ? "返回采购工作台" : workspaceReturnPath ? "返回工作台" : "返回驾驶舱")}
           </Button>
         </div>
       </div>
@@ -1534,7 +1539,7 @@ export default function RDTaskDetailPage() {
       {canSubmitForReview && (
         <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
           <Send className="size-3.5" aria-hidden="true" />
-          {t(researchWorkspace ? "标记完成" : "提交审核")}
+          {t("提交审核")}
         </Button>
       )}
       {canManage && task.status === "pending_review" && reviewMeta ? (
@@ -1692,10 +1697,10 @@ export default function RDTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
         <div className="rd-horizon-detail-orientation">
-        {/* 采购关联保留工作台来源；其他入口直接回驾驶舱，不逐条回退任务序列。 */}
+        {/* 保留采购或研发工作台来源；其他入口沿用驾驶舱返回，不逐条回退任务序列。 */}
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)} className="rd-horizon-detail-nav-control gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
-          {t(procurementReturnPath ? "返回采购工作台" : "返回")}
+          {t(procurementReturnPath ? "返回采购工作台" : workspaceReturnPath ? "返回工作台" : "返回")}
         </Button>
         {/* 序列导航：按驾驶舱同口径顺序穿行任务（j/k 快捷键同效） */}
         {seqIndex >= 0 && taskSeq.length > 1 && (
@@ -2080,7 +2085,7 @@ export default function RDTaskDetailPage() {
               </div>
               <Button variant="unstyled"
                 type="button"
-                onClick={() => navigate(taskDetailPath(parentTask.task_id), { state: procurementReturnState })}
+                onClick={() => navigate(taskDetailPath(parentTask.task_id), { state: taskReturnState })}
                 className="rd-horizon-detail-parent-task__link flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
               >
                 <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-sky-500" />
@@ -2174,7 +2179,7 @@ export default function RDTaskDetailPage() {
                         <Button variant="unstyled"
                           key={sub.task_id}
                           type="button"
-                          onClick={() => navigate(taskDetailPath(sub.task_id), { state: procurementReturnState })}
+                          onClick={() => navigate(taskDetailPath(sub.task_id), { state: taskReturnState })}
                           className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition-colors hover:border-primary/20 hover:bg-accent"
                         >
                           <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", subCfg.dot)} />
@@ -2333,7 +2338,7 @@ export default function RDTaskDetailPage() {
                     ) : noteTaskFilter !== "all" ? (
                       <Button type="button" variant="outline" size="sm" onClick={() => changeNoteTaskFilter("all")} className="rd-horizon-detail-filter-clear mt-2 min-h-10 text-primary">{t("查看全部任务留痕")}</Button>
                     ) : (
-                      <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)} className="mt-2 min-h-10">{t(procurementReturnPath ? "返回采购工作台" : "返回驾驶舱")}</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)} className="mt-2 min-h-10">{t(procurementReturnPath ? "返回采购工作台" : workspaceReturnPath ? "返回工作台" : "返回驾驶舱")}</Button>
                     )}
                   </div>
                 ) : null}
@@ -2352,7 +2357,7 @@ export default function RDTaskDetailPage() {
                   progressPresentation="timeline"
                   onUnreadChange={setDiscussionUnread}
                   onOpenSourceTask={(sourceTaskId) => {
-                    if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId), { state: procurementReturnState });
+                    if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId), { state: taskReturnState });
                   }}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}
                   onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
@@ -2436,7 +2441,7 @@ export default function RDTaskDetailPage() {
                                 {sourceTaskId && sourceTaskId !== taskId ? (
                                   <Button variant="unstyled"
                                     type="button"
-                                    onClick={() => navigate(taskDetailPath(sourceTaskId), { state: procurementReturnState })}
+                                    onClick={() => navigate(taskDetailPath(sourceTaskId), { state: taskReturnState })}
                                     title={sourceTaskTitle || sourceTaskId}
                                     className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-primary hover:text-primary-hover"
                                   >
@@ -2589,7 +2594,6 @@ export default function RDTaskDetailPage() {
       )}
       {showComplete && (
         <CompleteConfirmDialog
-          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleDirectComplete()}
@@ -2598,7 +2602,6 @@ export default function RDTaskDetailPage() {
       )}
       {showSubmitConfirm && (
         <SubmitConfirmDialog
-          directCompletion={researchWorkspace}
           taskTitle={task.title}
           submitting={submitting}
           onConfirm={() => void handleSubmitForReview()}
@@ -2696,7 +2699,7 @@ export default function RDTaskDetailPage() {
                     type="button"
                     onClick={() => {
                       setPersonTasksFor(null);
-                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id), { state: procurementReturnState });
+                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id), { state: taskReturnState });
                     }}
                     className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-primary/20 hover:bg-accent"
                   >
@@ -2842,7 +2845,7 @@ function CreateSubtaskDialog({
   useI18n();
   const [title, setTitle] = useState("");
   const [ownerName, setOwnerName] = useState(parentTask.primary_owner ?? "");
-  const [dueDate, setDueDate] = useState(parentTask.due_date ?? "");
+  const [dueDate, setDueDate] = useState(todayLocalDateStr);
   const [priority, setPriority] = useState<RdPriority>(parentTask.final_priority ?? "medium");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);

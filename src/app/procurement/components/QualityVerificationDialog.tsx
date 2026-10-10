@@ -1,3 +1,4 @@
+import '../../production/execution/production-theme.css';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ClipboardCheck, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -62,7 +63,7 @@ export function QualityVerificationDialog({ record, canVerify, onClose, onSaved 
 
   return <>
     <Dialog open onOpenChange={(open) => { if (!open) requestClose(); }}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl" onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }} onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}>
+      <DialogContent className="production-ui-theme max-h-[90dvh] overflow-y-auto sm:max-w-xl" onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }} onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}>
         <DialogHeader><DialogTitle className="flex items-center gap-2 text-balance"><ClipboardCheck className="size-5 text-primary" aria-hidden="true" />{t('质量验证')}</DialogTitle><DialogDescription className="text-pretty">{record.batchNo} · {record.issue}</DialogDescription></DialogHeader>
         <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted/60 p-4 text-sm"><div><p className="text-muted-foreground">{t('原不良数量')}</p><p className="mt-1 font-semibold tabular-nums">{record.defectiveQty} {record.unit}</p></div><div><p className="text-muted-foreground">{t('当前状态')}</p><p className="mt-1 font-semibold">{t(closed ? '已关闭' : '待验证')}</p></div><p className="col-span-2 whitespace-pre-wrap text-pretty text-muted-foreground">{record.resolution || t('尚未填写处理结果，请先完成处置。')}</p></div>
         {loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('读取验证记录')}</p> : loadError ? <div role="alert"><p className="text-sm text-destructive">{loadError}</p><Button variant="outline" className="mt-2" onClick={() => setReload((value) => value + 1)}>{t('重新读取')}</Button></div> : <section aria-label={t('验证历史')} className="space-y-3">
@@ -82,6 +83,6 @@ export function QualityVerificationDialog({ record, canVerify, onClose, onSaved 
         </fieldset></form> : <DialogFooter><Button variant="outline" onClick={requestClose}>{t('返回')}</Button></DialogFooter>}
       </DialogContent>
     </Dialog>
-    <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) setConfirm(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t(confirm === 'discard' ? '放弃尚未保存的填写？' : confirm === 'reopen' ? '重新打开这条异常？' : '确认验证通过并关闭？')}</AlertDialogTitle><AlertDialogDescription>{t(confirm === 'discard' ? '已保存的验证记录会保留。' : confirm === 'reopen' ? '原验证历史会保留，异常重新进入处理中。' : '将记录您的验证身份、数量和依据，关闭后普通处理人不能直接修改。')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('继续核对')}</AlertDialogCancel><AlertDialogAction onClick={() => { const action = confirm; setConfirm(null); if (action === 'discard') onClose(); else void submit(); }}>{t('确认')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) setConfirm(null); }}><AlertDialogContent className="production-ui-theme"><AlertDialogHeader><AlertDialogTitle>{t(confirm === 'discard' ? '放弃尚未保存的填写？' : confirm === 'reopen' ? '重新打开这条异常？' : '确认验证通过并关闭？')}</AlertDialogTitle><AlertDialogDescription>{t(confirm === 'discard' ? '已保存的验证记录会保留。' : confirm === 'reopen' ? '原验证历史会保留，异常重新进入处理中。' : '将记录您的验证身份、数量和依据，关闭后普通处理人不能直接修改。')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('继续核对')}</AlertDialogCancel><AlertDialogAction onClick={() => { const action = confirm; setConfirm(null); if (action === 'discard') onClose(); else void submit(); }}>{t('确认')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </>;
 }

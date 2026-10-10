@@ -1,0 +1,319 @@
+{
+  "origin": "http://127.0.0.1:5198",
+  "fixtureOnly": true,
+  "errors": [],
+  "interceptedWrites": [],
+  "blockedExternal": [],
+  "checks": [
+    {
+      "name": "desktop-conditional-hint-and-original-validation",
+      "pass": true,
+      "labels": [
+        "资料包版本编号",
+        "样品性质",
+        "样品任务与轮次",
+        "SOP 受控版本（转量产必填）",
+        "SIP 受控版本（转量产必填）",
+        "图纸 / BOM 受控版本（转量产必填）",
+        "结论、文件位置与凭证依据"
+      ],
+      "selectedWidths": [
+        {
+          "text": "转量产验证",
+          "width": 303,
+          "left": 801,
+          "right": 1104,
+          "inside": true
+        },
+        {
+          "text": "SP-Q7-1008 · Q7 转量产样品（虚拟） · passed",
+          "width": 303,
+          "left": 482,
+          "right": 785,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 303,
+          "left": 801,
+          "right": 1104,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 303,
+          "left": 482,
+          "right": 785,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 303,
+          "left": 801,
+          "right": 1104,
+          "inside": true
+        }
+      ],
+      "style": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 457,
+          "y": 227,
+          "width": 672,
+          "height": 538,
+          "top": 227,
+          "right": 1129,
+          "bottom": 765,
+          "left": 457
+        }
+      }
+    },
+    {
+      "name": "desktop-checkbox-row-and-label-association",
+      "pass": true,
+      "rows": [
+        {
+          "id": ":r8:-documentsChecked",
+          "label": "已核对 SOP、SIP、图纸 / BOM 文件及版本一致",
+          "checkbox": {
+            "x": 482,
+            "y": 423,
+            "width": 16,
+            "height": 16,
+            "top": 423,
+            "right": 498,
+            "bottom": 439,
+            "left": 482
+          },
+          "labelBounds": {
+            "x": 510,
+            "y": 419,
+            "width": 594,
+            "height": 24,
+            "top": 419,
+            "right": 1104,
+            "bottom": 443,
+            "left": 510
+          },
+          "sameRow": true
+        },
+        {
+          "id": ":r8:-productionValidated",
+          "label": "已完成实际转量产验证并确认通过",
+          "checkbox": {
+            "x": 482,
+            "y": 463,
+            "width": 16,
+            "height": 16,
+            "top": 463,
+            "right": 498,
+            "bottom": 479,
+            "left": 482
+          },
+          "labelBounds": {
+            "x": 510,
+            "y": 459,
+            "width": 594,
+            "height": 24,
+            "top": 459,
+            "right": 1104,
+            "bottom": 483,
+            "left": 510
+          },
+          "sameRow": true
+        }
+      ],
+      "style": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 457,
+          "y": 322,
+          "width": 672,
+          "height": 348,
+          "top": 322,
+          "right": 1129,
+          "bottom": 670,
+          "left": 457
+        }
+      },
+      "labelClickTogglesBoth": true,
+      "discardStyle": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 537,
+          "y": 417,
+          "width": 512,
+          "height": 158,
+          "top": 417,
+          "right": 1049,
+          "bottom": 575,
+          "left": 537
+        }
+      }
+    },
+    {
+      "name": "mobile-conditional-hint-and-original-validation",
+      "pass": true,
+      "labels": [
+        "资料包版本编号",
+        "样品性质",
+        "样品任务与轮次",
+        "SOP 受控版本（转量产必填）",
+        "SIP 受控版本（转量产必填）",
+        "图纸 / BOM 受控版本（转量产必填）",
+        "结论、文件位置与凭证依据"
+      ],
+      "selectedWidths": [
+        {
+          "text": "转量产验证",
+          "width": 308,
+          "left": 41,
+          "right": 349,
+          "inside": true
+        },
+        {
+          "text": "SP-Q7-1008 · Q7 转量产样品（虚拟） · passed",
+          "width": 308,
+          "left": 41,
+          "right": 349,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 308,
+          "left": 41,
+          "right": 349,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 308,
+          "left": 41,
+          "right": 349,
+          "inside": true
+        },
+        {
+          "text": "请选择",
+          "width": 308,
+          "left": 41,
+          "right": 349,
+          "inside": true
+        }
+      ],
+      "style": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 16,
+          "y": 42.203125,
+          "width": 358,
+          "height": 759.59375,
+          "top": 42.203125,
+          "right": 374,
+          "bottom": 801.796875,
+          "left": 16
+        }
+      }
+    },
+    {
+      "name": "mobile-checkbox-row-and-label-association",
+      "pass": true,
+      "rows": [
+        {
+          "id": ":r8:-documentsChecked",
+          "label": "已核对 SOP、SIP、图纸 / BOM 文件及版本一致",
+          "checkbox": {
+            "x": 41,
+            "y": 325,
+            "width": 16,
+            "height": 16,
+            "top": 325,
+            "right": 57,
+            "bottom": 341,
+            "left": 41
+          },
+          "labelBounds": {
+            "x": 69,
+            "y": 321,
+            "width": 280,
+            "height": 48,
+            "top": 321,
+            "right": 349,
+            "bottom": 369,
+            "left": 69
+          },
+          "sameRow": true
+        },
+        {
+          "id": ":r8:-productionValidated",
+          "label": "已完成实际转量产验证并确认通过",
+          "checkbox": {
+            "x": 41,
+            "y": 389,
+            "width": 16,
+            "height": 16,
+            "top": 389,
+            "right": 57,
+            "bottom": 405,
+            "left": 41
+          },
+          "labelBounds": {
+            "x": 69,
+            "y": 385,
+            "width": 280,
+            "height": 24,
+            "top": 385,
+            "right": 349,
+            "bottom": 409,
+            "left": 69
+          },
+          "sameRow": true
+        }
+      ],
+      "style": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 16,
+          "y": 200,
+          "width": 358,
+          "height": 444,
+          "top": 200,
+          "right": 374,
+          "bottom": 644,
+          "left": 16
+        }
+      },
+      "labelClickTogglesBoth": true,
+      "discardStyle": {
+        "theme": true,
+        "primary": "#1554e8",
+        "rect": {
+          "x": 16,
+          "y": 321,
+          "width": 358,
+          "height": 202,
+          "top": 321,
+          "right": 374,
+          "bottom": 523,
+          "left": 16
+        }
+      }
+    }
+  ],
+  "screenshots": [
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-desktop-create.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-desktop-conditional-validation.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-desktop-discard-theme.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-desktop-validate.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-desktop-validate-labels-checked.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-mobile-create.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-mobile-conditional-validation.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-mobile-discard-theme.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-mobile-validate.png",
+    "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\after\\P05-mobile-validate-labels-checked.png"
+  ]
+}

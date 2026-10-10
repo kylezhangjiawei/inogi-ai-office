@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,7 @@ const expectedStages = [
   "api_readiness",
   "frontend_activate",
   "nginx_reload",
+  "frontend_readiness",
 ];
 
 function configuredStages() {
@@ -112,6 +113,7 @@ async function createFakeDeployment() {
     writeFile(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8"),
     writeFile(join(repoDir, "apps/api/scripts/run-tests.cjs"), "// Compiler subprocess fixture\nprocess.exit(0);\n"),
     writeFile(join(repoDir, "scripts", "test-postgres-release.sh"), "exit 0\n", "utf8"),
+    writeFile(join(repoDir, "scripts", "deploy-frontend-readiness.mjs"), "// HTTP boundary is simulated by the node fixture.\n", "utf8"),
     ...["deploy-baseline", "deploy-change-plan", "test-postgres-release", "business"].map((name) =>
       writeFile(join(repoDir, "scripts", `${name}.test.mjs`), "export {};\n", "utf8")),
     writeStub(binDir, "pnpm"),
@@ -127,6 +129,10 @@ exit 0`),
     writeStub(binDir, "nginx"),
     writeStub(binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo v22.22.1; exit 0; fi
 if [ "\${1:-}" = "-e" ]; then exec "${bashPath(process.execPath)}" "$@"; fi
+if [[ "\${1:-}" == *deploy-frontend-readiness.mjs ]]; then
+  printf '%s\\n' "$2" "$3" > "$REPO_DIR/.deploy-cache/frontend-http-call"
+  exit "\${DEPLOY_TEST_FRONTEND_STATUS:-0}"
+fi
 exit 0`),
   ]);
   return { root, repoDir, binDir, webRoot, metricsDir };
@@ -150,6 +156,9 @@ async function enableChangePlanner(fixture) {
   const realNode = bashPath(process.execPath).replaceAll('"', '\\"');
   await writeStub(fixture.binDir, "node", `
 case "\${1:-}" in
+  *deploy-frontend-readiness.mjs)
+    printf '%s\\n' "$2" "$3" > "$REPO_DIR/.deploy-cache/frontend-http-call"
+    exit "\${DEPLOY_TEST_FRONTEND_STATUS:-0}" ;;
   *deploy-change-plan.mjs|*deploy-artifacts.mjs|-e) exec "${realNode}" "$@" ;;
   --version) echo v22.22.1 ;;
 esac
@@ -174,6 +183,8 @@ function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
     DEPLOY_ARTIFACT_DIR: "",
     DEPLOY_RUN_TESTS: "1",
     DEPLOY_HEALTH_TIMEOUT_SECONDS: "2",
+    DEPLOY_FRONTEND_URL: "https://public.example.invalid/",
+    DEPLOY_TEST_FRONTEND_STATUS: "0",
     DEPLOY_OPERATOR: 'qa"\n\u0001operator',
     DATABASE_URL: "postgresql://secret-user:secret-password@secret-host/secret-db",
     ...overrides,
@@ -609,6 +620,8 @@ test("fake deployment writes one parseable, secret-free baseline without real in
     assert.equal(record.stages.length, expectedStages.length);
     assert.ok(record.stages.every((stage) => Number.isFinite(stage.duration_ms) && stage.duration_ms >= 0));
     assert.equal(record.stages.find((stage) => stage.name === "database_backup")?.status, "skipped");
+    assert.equal(record.stages.find((stage) => stage.name === "frontend_readiness")?.status, "success");
+    assert.deepEqual((await readFile(join(fixture.repoDir, '.deploy-cache/frontend-http-call'), 'utf8')).trim().split(/\r?\n/), ["https://public.example.invalid/", bashPath(fixture.webRoot)]);
     assert.doesNotMatch(text, /secret-user|secret-password|secret-host|secret-db/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -859,13 +872,17 @@ test("prepared artifacts deploy without rebuilding or testing and corruption blo
     assert.doesNotMatch(result.stdout, /重启后端 pm2|执行 prisma migrate deploy|发布前端 dist|启动后台数据库备份/);
     await readFile(join(artifact, 'manifest.json'));
     const preparedMetrics = (await readdir(fixture.metricsDir)).find(name => name.endsWith('.json'));
-    assert.equal(JSON.parse(await readFile(join(fixture.metricsDir, preparedMetrics), 'utf8')).mode, 'prepare');
+    const preparedRecord = JSON.parse(await readFile(join(fixture.metricsDir, preparedMetrics), 'utf8'));
+    assert.equal(preparedRecord.mode, 'prepare');
+    assert.equal(preparedRecord.stages.find((stage) => stage.name === 'frontend_readiness')?.status, 'skipped');
+    await assert.rejects(readFile(join(fixture.repoDir, '.deploy-cache/frontend-http-call')));
     await assert.rejects(readFile(join(fixture.repoDir, '.deploy-cache/deploy-inputs.json')));
     // Reject every build/test command now. Only a verified artifact may bypass them.
     await writeStub(fixture.binDir, 'npm', 'echo "$*" >> "$DEPLOY_CALL_LOG"; exit 29');
     result = runFakeDeployment(bash, fixture, overrides);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /已载入通过验收的版本/);
+    await readFile(join(fixture.repoDir, '.deploy-cache/frontend-http-call'));
     const modes = await Promise.all((await readdir(fixture.metricsDir)).filter(name => name.endsWith('.json'))
       .map(async name => JSON.parse(await readFile(join(fixture.metricsDir, name), 'utf8')).mode));
     assert.ok(modes.includes('artifact-deploy'));
@@ -997,4 +1014,227 @@ test("unready, stale-version or invalid health responses cannot publish the fron
       await rm(fixture.root, { recursive: true, force: true });
     }
   }
+});
+
+async function runStaticPublication(transfer, failure = '') {
+  const fixture = await createFakeDeployment();
+  const events = join(fixture.root, 'chmod-events');
+  const branch = join(fixture.root, 'transfer-branch');
+  const secret = join(fixture.repoDir, 'apps/api/.env');
+  const privateLog = join(fixture.root, 'deployment.log');
+  const start = deploySource.indexOf('if [ "$DEPLOY_PLAN_FRONTEND" != "1" ]; then\n  log "前端未变化，跳过静态文件发布。"');
+  const end = deploySource.indexOf('# ---------------------------- 10. nginx', start);
+  assert.ok(start >= 0 && end > start, 'real static publication branch must be found');
+  try {
+    // Windows junctions exercise real find -P traversal without requiring the
+    // elevated symbolic-link privilege. Neither private target may be chmod'ed.
+    await symlink(join(fixture.repoDir, 'apps/api'), join(fixture.webRoot, 'linked-private'), process.platform === 'win32' ? 'junction' : 'dir');
+    // Intercept chmod arguments while still executing the real command. Git Bash
+    // on Windows does not enforce POSIX modes; the target set remains testable.
+    await writeStub(fixture.binDir, 'chmod', `
+printf '%s\\0' "$@" >> "$STATIC_CHMOD_EVENTS"
+printf '\\0' >> "$STATIC_CHMOD_EVENTS"
+${failure === 'chmod' ? 'exit 23' : 'PATH=/usr/bin:/bin exec chmod "$@"'}`);
+    if (failure === 'find') await writeStub(fixture.binDir, 'find', 'exit 24');
+    await writeStub(fixture.binDir, 'rsync', `
+printf 'rsync' > "$STATIC_TRANSFER_BRANCH"
+[ "$1" = -a ] && [ "$2" = --delete-after ] || exit 96
+# This fixture preserves modes like rsync -a; no rsync installation is required.
+command cp -a "$3/." "$4"`);
+    const setup = `
+set -Eeuo pipefail
+export PATH="$DEPLOY_TEST_PATH"
+umask 077
+PATH=/usr/bin:/bin command chmod 0700 "$WEB_ROOT" "$REPO_DIR/dist"
+mkdir -p "$REPO_DIR/dist/assets/nested directory"
+printf 'restricted build' > "$REPO_DIR/dist/index.html"
+printf 'javascript asset' > "$REPO_DIR/dist/assets/nested directory/app file.js"
+printf 'private configuration' > "$STATIC_SECRET"
+printf 'private deployment output' > "$STATIC_PRIVATE_LOG"
+PATH=/usr/bin:/bin command chmod 0600 "$REPO_DIR/dist/index.html" "$STATIC_SECRET" "$STATIC_PRIVATE_LOG"
+command() {
+  if [ "\${1:-}" = -v ] && [ "\${2:-}" = rsync ]; then return ${transfer === 'rsync' ? '0' : '1'}; fi
+  builtin command "$@"
+}
+cp() { printf 'cp' > "$STATIC_TRANSFER_BRANCH"; command cp "$@"; }
+log() { :; }
+start_stage() { printf 'start:%s\\n' "$1"; }
+finish_stage() { printf 'finish:%s\\n' "$1"; }
+skip_stage() { printf 'skip:%s\\n' "$1"; }
+die() { printf 'failure:%s\\n' "$*"; exit 1; }
+${deploySource.slice(start, end)}
+printf 'publication-complete\\n'
+`;
+    const result = spawnSync(bash, ['-s'], {
+      input: setup,
+      cwd: fixture.repoDir,
+      env: {
+        ...process.env,
+        DEPLOY_TEST_PATH: `${bashPath(fixture.binDir)}:/usr/bin:/bin`,
+        WEB_ROOT: bashPath(fixture.webRoot), REPO_DIR: bashPath(fixture.repoDir),
+        DEPLOY_PLAN_FRONTEND: '1', RELEASE: 'restricted-umask-test', GIT_SHA: '0123456',
+        STATIC_CHMOD_EVENTS: bashPath(events), STATIC_TRANSFER_BRANCH: bashPath(branch),
+        STATIC_SECRET: bashPath(secret), STATIC_PRIVATE_LOG: bashPath(privateLog),
+      },
+      encoding: 'utf8', timeout: 15_000,
+    });
+    const calls = (await readFile(events, 'utf8').catch(() => '')).split('\0\0').filter(Boolean).map((call) => call.split('\0'));
+    return { fixture, result, calls, branch: await readFile(branch, 'utf8'), secret, privateLog };
+  } catch (error) {
+    await rm(fixture.root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+for (const transfer of ['rsync', 'cp']) {
+  test(`static publication normalizes umask 077 artifacts only inside WEB_ROOT (${transfer})`, { skip: !bash }, async (t) => {
+    const { fixture, result, calls, branch, secret, privateLog } = await runStaticPublication(transfer);
+    try {
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(branch, transfer);
+      assert.match(result.stdout, /finish:success[\s\S]*publication-complete/);
+      const expected = new Map([
+        [fixture.webRoot, 0o755],
+        [join(fixture.webRoot, 'assets'), 0o755],
+        [join(fixture.webRoot, 'assets/nested directory'), 0o755],
+        [join(fixture.webRoot, 'index.html'), 0o644],
+        [join(fixture.webRoot, 'version.json'), 0o644],
+        [join(fixture.webRoot, 'assets/nested directory/app file.js'), 0o644],
+      ].map(([path, mode]) => [bashPath(path), mode]));
+      const actual = new Map();
+      for (const [mode, ...args] of calls) {
+        for (const path of args.filter((arg) => arg !== '--')) {
+          assert.ok(expected.has(path), `permission change escaped static files: ${path}`);
+          actual.set(path, Number.parseInt(mode, 8));
+        }
+      }
+      assert.deepEqual(actual, expected, 'every static directory/file must receive the correct public mode');
+      assert.equal(await readFile(join(fixture.webRoot, 'index.html'), 'utf8'), 'restricted build');
+      assert.equal(await readFile(join(fixture.webRoot, 'assets/nested directory/app file.js'), 'utf8'), 'javascript asset');
+      assert.deepEqual(JSON.parse(await readFile(join(fixture.webRoot, 'version.json'), 'utf8')), { release: 'restricted-umask-test', git_sha: '0123456' });
+      assert.equal(await readFile(secret, 'utf8'), 'private configuration');
+      assert.equal(await readFile(privateLog, 'utf8'), 'private deployment output');
+      if (process.platform === 'win32') {
+        t.diagnostic('Windows: real copy/find/chmod commands and scope verified; POSIX 755/644/600 enforcement requires Linux/macOS. rsync transfer uses a mode-preserving cp fixture.');
+      } else {
+        for (const [path, mode] of expected) assert.equal((await stat(path)).mode & 0o777, mode, path);
+        for (const path of [secret, privateLog, join(fixture.repoDir, 'dist/index.html')]) assert.equal((await stat(path)).mode & 0o777, 0o600, path);
+        assert.equal((await stat(join(fixture.repoDir, 'dist'))).mode & 0o777, 0o700);
+      }
+    } finally { await rm(fixture.root, { recursive: true, force: true }); }
+  });
+
+  for (const failure of ['chmod', 'find']) {
+    test(`static publication stops when ${failure} fails (${transfer})`, { skip: !bash }, async () => {
+      const { fixture, result, calls } = await runStaticPublication(transfer, failure);
+      try {
+        assert.equal(result.error, undefined);
+        assert.notEqual(result.status, 0, result.stdout + result.stderr);
+        if (failure === 'chmod') assert.ok(calls.length > 0, 'permission operation must actually be attempted');
+        assert.doesNotMatch(result.stdout, /finish:success|publication-complete/);
+      } finally { await rm(fixture.root, { recursive: true, force: true }); }
+    });
+  }
+}
+
+function runFinalPublicationChecks({ reload = '0', frontend = '0', failure = '' } = {}) {
+  const start = deploySource.indexOf('# ---------------------------- 10. nginx');
+  const failureStart = deploySource.indexOf('die() {');
+  const failureEnd = deploySource.indexOf('retry() {', failureStart);
+  assert.ok(start >= 0 && failureStart >= 0 && failureEnd > failureStart, 'real publication and failure handlers must be found');
+  return spawnSync(bash, ['-s'], {
+    input: `set -Eeuo pipefail
+DEPLOY_CURRENT_STAGE=''
+DEPLOY_FAILED_STAGE=''
+DEPLOY_FAILURE_LINE=''
+DEPLOY_PLAN_CANDIDATE_FILE=''
+DEPLOY_COMPLETED=0
+RELEASE=fixture-release
+REPO_DIR=/fixture-repo
+WEB_ROOT='/fixture static'
+DEPLOY_FRONTEND_URL=https://public.example.invalid/
+ts() { printf 'fixture-time'; }
+log() { printf 'log:%s\\n' "$*"; }
+start_stage() { DEPLOY_CURRENT_STAGE="$1"; printf 'start:%s\\n' "$1"; }
+finish_stage() { printf 'stage:%s:%s\\n' "$DEPLOY_CURRENT_STAGE" "$1"; DEPLOY_CURRENT_STAGE=''; }
+skip_stage() { printf 'stage:%s:skipped\\n' "$1"; }
+cleanup_background_backup() { :; }
+finalize_deploy_metrics() { printf 'result:%s:%s:%s:%s\\n' "$1" "$2" "$DEPLOY_FAILED_STAGE" "$DEPLOY_COMPLETED"; }
+commit_change_plan() { printf 'snapshot-saved\\n'; }
+command() {
+  if [ "\${1:-}" = -v ] && [ "\${2:-}" = nginx ]; then [ "$FINAL_TEST_FAILURE" != missing-nginx ]; return; fi
+  builtin command "$@"
+}
+nginx() {
+  printf 'nginx:%s\\n' "$*" >&2
+  [ "$FINAL_TEST_FAILURE:$*" != 'nginx-config:-t' ] && [ "$FINAL_TEST_FAILURE:$*" != 'nginx-reload:-s reload' ]
+}
+node() {
+  [ "$#" = 3 ] && [[ "$1" == *deploy-frontend-readiness.mjs ]] \\
+    && [ "$2" = "$DEPLOY_FRONTEND_URL" ] && [ "$3" = "$WEB_ROOT" ] || return 96
+  printf 'frontend-http-check\\n'
+  [ "$FINAL_TEST_FAILURE" != frontend-http ]
+}
+${deploySource.slice(failureStart, failureEnd)}
+trap 'on_deploy_error "$?" "$LINENO"' ERR
+trap 'on_deploy_exit "$?"' EXIT
+${deploySource.slice(start)}
+`,
+    env: { ...process.env, DEPLOY_RELOAD_NGINX: reload, DEPLOY_PLAN_FRONTEND: frontend, FINAL_TEST_FAILURE: failure },
+    encoding: 'utf8', timeout: 5_000,
+  });
+}
+
+for (const frontend of ['0', '1']) {
+  test(`final publication requires frontend HTTP acceptance even when frontend changed=${frontend}`, { skip: !bash }, () => {
+    const result = runFinalPublicationChecks({ frontend });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /stage:nginx_reload:skipped[\s\S]*start:frontend_readiness[\s\S]*frontend-http-check[\s\S]*stage:frontend_readiness:success[\s\S]*snapshot-saved[\s\S]*result:success:0::1/);
+  });
+}
+
+test('final publication records frontend HTTP failure without a success snapshot or completed flag', { skip: !bash }, () => {
+  const result = runFinalPublicationChecks({ failure: 'frontend-http' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /frontend-http-check[\s\S]*stage:frontend_readiness:failed[\s\S]*result:failed:1:frontend_readiness:0/);
+  assert.doesNotMatch(result.stdout, /snapshot-saved|部署完成/);
+});
+
+test('final publication accepts requested nginx reload before checking the frontend', { skip: !bash }, () => {
+  const result = runFinalPublicationChecks({ reload: '1' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /nginx:-s reload/);
+  assert.match(result.stdout, /stage:nginx_reload:success[\s\S]*frontend-http-check[\s\S]*snapshot-saved/);
+});
+
+for (const failure of ['nginx-config', 'nginx-reload', 'missing-nginx']) {
+  test(`final publication rejects requested nginx operation failure: ${failure}`, { skip: !bash }, () => {
+    const result = runFinalPublicationChecks({ reload: '1', failure });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /stage:nginx_reload:failed[\s\S]*result:failed:1:nginx_reload:0/);
+    assert.doesNotMatch(result.stdout, /frontend-http-check|snapshot-saved|部署完成/);
+  });
+}
+
+test('frontend HTTP failure in a full deployment records the failed stage and does not commit inputs', { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await enableChangePlanner(fixture);
+    const result = runFakeDeployment(bash, fixture, { DEPLOY_CHANGE_PLAN: '1', DEPLOY_TEST_FRONTEND_STATUS: '17' });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout, /✅ 部署完成/);
+    await assert.rejects(readFile(join(fixture.repoDir, '.deploy-cache/deploy-inputs.json')));
+    const files = (await readdir(fixture.metricsDir)).filter((name) => name.endsWith('.json'));
+    assert.equal(files.length, 1);
+    const record = JSON.parse(await readFile(join(fixture.metricsDir, files[0]), 'utf8'));
+    assert.equal(record.status, 'failed');
+    assert.equal(record.failed_stage, 'frontend_readiness');
+    assert.equal(record.stages.find((stage) => stage.name === 'frontend_readiness')?.status, 'failed');
+    assert.deepEqual((await readFile(join(fixture.repoDir, '.deploy-cache/frontend-http-call'), 'utf8')).trim().split(/\r?\n/), ['https://public.example.invalid/', bashPath(fixture.webRoot)]);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });

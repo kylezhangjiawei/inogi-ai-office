@@ -270,7 +270,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     items: [
       // 沿用原主管驾驶舱的权限码，保持既有角色授权与访问地址有效。
       { label: "生产驾驶舱", path: "/production-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
-      { label: "生产计划与执行", path: "/production-execution", icon: CalendarDays, requiredPermission: "page:production-execution" },
+      { label: "生产管理", path: "/production-execution", icon: CalendarDays, requiredPermission: "page:production-execution" },
       { label: "电子批记录", path: "/ebpr", icon: ListChecks, requiredPermission: "page:ebpr" },
       { label: "电子闸门", path: "/electronic-gate", icon: ShieldCheck, requiredPermission: "page:electronic-gate" },
       { label: "设备检测记录", path: "/device-inspection-records", icon: ClipboardList, requiredPermission: "page:device-inspection-records" },
@@ -372,6 +372,7 @@ export const routeTitleMap = navGroups
     "/rd-task": "研发任务详情",
     "/production-task": "生产任务详情",
     "/rd-people-management": "研发人员管理",
+    "/rd-meeting-todos": "会议待办",
     "/proc-people-management": "供应链人员管理",
     "/us-collab-people-management": "协同人员管理",
     "/production-people-management": "生产人员管理",

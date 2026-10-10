@@ -29,6 +29,9 @@ import { StatusPill } from "./common";
 import { ProcurementTaskSummaryDrawer } from "./ProcurementTaskSummaryDrawer";
 import { SubsystemOperationsPanel } from "./SubsystemOperationsPanel";
 import { Button } from "../../components/ui/button";
+import { StockPlanPanel } from './StockPlanPanel';
+import { ComponentInventoryValue, ComponentInventoryEditor, InventoryTip } from './ComponentInventory';
+import type { ComponentInventory } from '../../lib/procurementApi';
 
 const QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
 
@@ -48,6 +51,7 @@ export function ProcurementModuleDetail({
   productName,
   tasks,
   onBack,
+  componentStock, stockError, onStockSaved,
 }: {
   materials: Material[];
   node: ProcTaskTreeNode;
@@ -55,11 +59,16 @@ export function ProcurementModuleDetail({
   productName: string;
   tasks: ProcurementTask[];
   onBack: () => void;
+  componentStock?: ComponentInventory;
+  stockError?: string;
+  onStockSaved: () => void;
 }) {
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const canViewMaterials = usePermission("page:proc-materials");
+  const canCreate = usePermission('proc-task:create');
+  const [editingStock, setEditingStock] = useState(false);
   const material = useMemo(
     () => materials.find((item) => item.id === node.materialId) ?? null,
     [materials, node.materialId],
@@ -75,8 +84,8 @@ export function ProcurementModuleDetail({
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryVersion, setInventoryVersion] = useState(0);
   const [openTask, setOpenTask] = useState<ProcurementTask | null>(null);
-  const detailTab = params.get("moduleTab") === "operations" ? "operations" : "inventory";
-  const setDetailTab = (value: "inventory" | "operations") => {
+  const detailTab = params.get("moduleTab") === "plans" ? "plans" : params.get("moduleTab") === "operations" ? "operations" : "inventory";
+  const setDetailTab = (value: "inventory" | "operations" | "plans") => {
     if (value === detailTab) return;
     setParams((current) => {
       const next = clearStockPlanViewParams(new URLSearchParams(current));
@@ -84,10 +93,6 @@ export function ProcurementModuleDetail({
       return next;
     }, { replace: true, state: location.state });
   };
-  useEffect(() => {
-    if (params.get("moduleTab") !== "plans") return;
-    setParams(current => clearStockPlanViewParams(new URLSearchParams(current)), { replace: true, state: location.state });
-  }, [params, setParams, location.state]);
   const inventoryCode = material?.tpInventoryCode?.trim() || null;
 
   const retryInventory = useCallback(() => {
@@ -124,7 +129,6 @@ export function ProcurementModuleDetail({
     const canonicalName = warehouse.name.trim().replace(/\s+/g, "").replace(/^【[^】]+】/, "");
     return canonicalName === "量产仓" || canonicalName === "量产仓库";
   }).reduce((sum, warehouse) => sum + warehouse.available, 0) ?? 0;
-  const totalStock = item?.stock ?? material?.stockQty ?? 0;
 
   return (
     <section className="proc-horizon-module-detail material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
@@ -151,18 +155,17 @@ export function ProcurementModuleDetail({
           </div>
         </div>
         <div className="proc-horizon-module-actions flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs text-slate-600">
-            <Boxes className="size-3.5 text-muted-foreground" />
-            {t("全仓现存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
-          </span>
+          <ComponentInventoryValue stock={componentStock} error={stockError} />
+          {canCreate && material && <Button variant="outline" size="sm" disabled={!componentStock} onClick={() => setEditingStock(true)}>维护库存</Button>}
+          {canCreate && detailTab !== 'plans' && <Button size="sm" onClick={() => setParams(current => { const next = clearStockPlanViewParams(new URLSearchParams(current)); next.set('moduleTab', 'plans'); next.set('newPlan', '1'); return next; }, { state: location.state })}>新建备货任务单</Button>}
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-xs text-primary">
             <ClipboardList className="size-3.5" />
             {t("任务")} <strong className="tabular-nums">{moduleTasks.length}</strong>
           </span>
         </div>
       </header>
-      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["operations", "生产与质量"]] as const).map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</Button>)}</div>
-      {detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
+      <div className="flex shrink-0 flex-wrap gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["plans", "日常备货批量物料"], ["inventory", "库存与任务"], ["operations", "生产与质量"]] as const).map(([value, label]) => <Button variant="unstyled" key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</Button>)}</div>
+      {detailTab === 'plans' ? <div className="flex min-h-0 flex-1 flex-col p-3"><StockPlanPanel key={node.id} materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} defaultMaterialId={node.materialId ?? undefined} /></div> : detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
         : <div className="proc-horizon-module-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
         <section className="proc-horizon-module-inventory flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
@@ -215,9 +218,9 @@ export function ProcurementModuleDetail({
             ) : (
               <div className="p-4">
                 <div className="proc-horizon-module-inventory-stats mb-4 grid grid-cols-2 gap-3">
-                  <InventoryStat icon={Boxes} label={t("全仓现存量")} value={item.stock} />
-                  <InventoryStat icon={PackageCheck} label={t("量产仓可用量")} value={productionAvailable} />
-                  <InventoryStat icon={Truck} label={t("全仓在途量")} value={item.in} />
+                  <InventoryStat icon={Boxes} label={t("全仓现存量")} value={item.stock} explanation="ERP 当前组件在全部仓库的现存合计，包含非量产仓。不能与组件实际库存再次相加或重复抵扣。" syncedAt={item.syncedAt} />
+                  <InventoryStat icon={PackageCheck} label={t("量产仓可用量")} value={productionAvailable} explanation="ERP 量产仓／量产仓库可用量。备货核算还会检查本地冻结、占用及来源；选择人工库存后，以人工可用量替代。" syncedAt={item.syncedAt} />
+                  <InventoryStat icon={Truck} label={t("全仓在途量")} value={item.in} explanation="ERP 全仓已订购未到货数量，不是现存库存；包含非量产仓，不保证在需求日期前到货。" syncedAt={item.syncedAt} />
                   <InventoryStat icon={Warehouse} label={t("仓库数")} value={item.warehouses.length} integer />
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-slate-100">
@@ -319,6 +322,7 @@ export function ProcurementModuleDetail({
 
       }
       {openTask && <ProcurementTaskSummaryDrawer task={openTask} materials={materials} readOnly onClose={() => setOpenTask(null)} />}
+      {editingStock && material && componentStock && <ComponentInventoryEditor material={material} stock={componentStock} onClose={() => setEditingStock(false)} onSaved={() => { setEditingStock(false); onStockSaved(); }} />}
     </section>
   );
 }
@@ -328,17 +332,19 @@ function InventoryStat({
   integer = false,
   label,
   value,
+  explanation, syncedAt,
 }: {
   icon: typeof Boxes;
   integer?: boolean;
   label: string;
   value: number;
+  explanation?: string; syncedAt?: string | null;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-lg bg-slate-50 px-3 py-3">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm"><Icon className="size-4" /></span>
       <span className="min-w-0 break-words">
-        <strong className="block text-lg font-semibold tabular-nums text-slate-900">{integer ? value : formatQuantity(value)}</strong>
+        {explanation ? <InventoryTip label={<strong className="block text-lg font-semibold tabular-nums text-slate-900">{formatQuantity(value)}</strong>}><p>{explanation}</p><p>统计时间：{syncedAt ? new Date(syncedAt).toLocaleString('zh-CN') : '无记录'}</p></InventoryTip> : <strong className="block text-lg font-semibold tabular-nums text-slate-900">{integer ? value : formatQuantity(value)}</strong>}
         <span className="text-[11px] text-slate-500">{label}</span>
       </span>
     </div>

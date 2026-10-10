@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./auth";
 import { hasAnyPermission, hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { rdWorkspaceForPath } from "./lib/rdWorkspace";
+import { MEETING_ADMIN_PERMISSIONS } from "./lib/rdMeetingTodosApi";
 import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
 import { DEPT_KBS, HR_PREVIEW_PERMISSIONS, routePermissionMap } from "./routesConfig";
 // 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值
@@ -44,6 +45,7 @@ const DeviceInspectionRecordsPage = lazyNamed(() => import("./DeviceInspectionRe
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");
+const RDMeetingTodosPage = lazyNamed(() => import("./RDMeetingTodosPage"), "RDMeetingTodosPage");
 const MobileProcSampleTestPage = lazyNamed(() => import("./MobileProcSampleTestPage"), "MobileProcSampleTestPage");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
@@ -56,14 +58,14 @@ const DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "
 const PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");
 const ManualPage = lazyNamed(() => import("./ManualPage"), "ManualPage");
 const ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage");
-const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");
+const EBPRPage = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionBatchRecordEntry");
 const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");
 const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");
 const ApplicantFormsPage = lazyNamed(() => import("./ApplicantFormsPage"), "ApplicantFormsPage");
 const PublicApplicantFormPage = lazyNamed(() => import("./applicant-forms/PublicApplicantFormPage"), "PublicApplicantFormPage");
 const ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");
 const ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");
-const InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");
+const InspectionReleasePage = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionInspectionEntry");
 const InquiryPage = lazyNamed(() => import("./InquiryPage"), "InquiryPage");
 const MailboxManagementPage = lazyNamed(() => import("./MailboxManagementPage"), "MailboxManagementPage");
 const MeetingMinutes = lazyNamed(() => import("./MeetingMinutes"), "MeetingMinutes");
@@ -152,7 +154,7 @@ const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcP
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
-const QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");
+const QATraceability = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionTraceabilityEntry");
 const AttendancePage = lazyNamed(() => import("./AttendancePage"), "AttendancePage");
 const RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");
 const RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");
@@ -361,7 +363,7 @@ function ResponsiveMobileLayout() {
       location.search,
       location.hash,
     );
-    return <Navigate to={desktopTarget} replace />;
+    return <Navigate to={desktopTarget} replace state={location.state} />;
   }
 
   return <MobileLayout />;
@@ -398,7 +400,9 @@ function ProtectedLayout() {
 
   // 已有窄屏布局的独立工具保留业务入口，权限仍由子路由校验。
   if (location.pathname === routePath("page:email-ai", "/email-ai")
-    || location.pathname === routePath("page:proc-quote-book", "/proc-quote-book")) return <Root />;
+    || location.pathname === routePath("page:proc-quote-book", "/proc-quote-book")
+    || matchPath({ path: "/rd-meeting-todos", end: true }, location.pathname)
+    || matchPath({ path: routePath("page:audit-log", "/audit-log"), end: true }, location.pathname)) return <Root />;
 
   // 采购工作台及关联页自身支持窄屏，保留工作上下文和原路由权限检查。
   if (location.pathname === routePath("page:proc-my-workspace", "/proc-my-workspace")
@@ -408,6 +412,9 @@ function ProtectedLayout() {
     || location.pathname === subRoutePath("page:proc-materials", "/proc-materials", "bom")
     || location.pathname === routePath("page:proc-key-materials", "/proc-key-materials")
     || location.pathname === routePath("page:production-execution", "/production-execution")
+    || location.pathname === routePath("page:ebpr", "/ebpr")
+    || location.pathname === routePath("page:inspection-release", "/inspection-release")
+    || location.pathname === routePath("page:qa-traceability", "/qa-traceability")
     || location.pathname === "/production-dashboard"
     || location.pathname === "/rd-director-dashboard"
     || location.pathname === routePath("page:warehouse-flow", "/warehouse-flow")
@@ -423,6 +430,9 @@ function ProtectedLayout() {
   if (isMobile && location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace") && sampleTestId) {
     return makeLazyProtected(<MobileProcSampleTestPage key={`${user.id}:${sampleTestId}`} taskId={sampleTestId} />, "page:rd-my-workspace");
   }
+
+  // 个人工作台已有窄屏布局；保留快捷操作和详情返回的筛选，样品测试仍优先使用专用页。
+  if (location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace")) return <Root />;
 
   // L2 自动跳：移动视口直接进入移动只读视图。
   // 已移除「切换到电脑版」偏好开关——领导用手机即看移动版；如需桌面版改用宽屏访问。
@@ -450,7 +460,7 @@ function ProtectedLayout() {
         : location.pathname === routePath("page:chat-analytics", "/chat-analytics")
           ? `/m${routePath("page:chat-analytics", "/chat-analytics")}${suffix}`
           : `${workspaceMobileBase}${suffix}`;
-    return <Navigate to={target} replace />;
+    return <Navigate to={target} replace state={location.state} />;
   }
 
   return <Root />;
@@ -548,6 +558,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:issue-ai", "/issue-ai")), element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
       // 由动作码 rd-people:manage 守卫（目录中为 action 类型、无 routePath），故路径保持硬编码
       { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" visualVariant="rd-horizon" onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "rd-meeting-todos", element: makeLazyProtected(<RDMeetingTodosPage />, MEETING_ADMIN_PERMISSIONS) },
       { path: asChildPath(routePath("page:rd-my-workspace", "/rd-my-workspace")), element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
       { path: "rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:rd-sheet", "/rd-sheet")), element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },

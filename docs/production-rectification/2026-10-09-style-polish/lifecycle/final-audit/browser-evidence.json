@@ -1,0 +1,113 @@
+{
+  "origin": "http://127.0.0.1:5198",
+  "errors": [],
+  "writes": [],
+  "checks": [
+    {
+      "size": "desktop",
+      "boxes": [
+        {
+          "slot": "checkbox",
+          "rect": {
+            "x": 482,
+            "y": 423,
+            "width": 16,
+            "height": 16,
+            "top": 423,
+            "right": 498,
+            "bottom": 439,
+            "left": 482
+          },
+          "minHeight": "auto"
+        },
+        {
+          "slot": "checkbox",
+          "rect": {
+            "x": 482,
+            "y": 463,
+            "width": 16,
+            "height": 16,
+            "top": 463,
+            "right": 498,
+            "bottom": 479,
+            "left": 482
+          },
+          "minHeight": "auto"
+        }
+      ],
+      "disabled": {
+        "disabled": true,
+        "opacity": "0.5",
+        "pointerEvents": "none",
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 39, 90)",
+        "rect": {
+          "x": 550.8125,
+          "y": 478.375,
+          "width": 88,
+          "height": 36,
+          "top": 478.375,
+          "right": 638.8125,
+          "bottom": 514.375,
+          "left": 550.8125
+        },
+        "lines": 1
+      },
+      "screenshot": "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\final-audit\\P10-desktop-disabled-loading.png",
+      "pass": true
+    },
+    {
+      "size": "mobile",
+      "boxes": [
+        {
+          "slot": "checkbox",
+          "rect": {
+            "x": 41,
+            "y": 325,
+            "width": 16,
+            "height": 16,
+            "top": 325,
+            "right": 57,
+            "bottom": 341,
+            "left": 41
+          },
+          "minHeight": "auto"
+        },
+        {
+          "slot": "checkbox",
+          "rect": {
+            "x": 41,
+            "y": 389,
+            "width": 16,
+            "height": 16,
+            "top": 389,
+            "right": 57,
+            "bottom": 405,
+            "left": 41
+          },
+          "minHeight": "auto"
+        }
+      ],
+      "disabled": {
+        "disabled": true,
+        "opacity": "0.5",
+        "pointerEvents": "none",
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 39, 90)",
+        "rect": {
+          "x": 273,
+          "y": 401.78125,
+          "width": 88,
+          "height": 40,
+          "top": 401.78125,
+          "right": 361,
+          "bottom": 441.78125,
+          "left": 273
+        },
+        "lines": 1
+      },
+      "screenshot": "docs\\production-rectification\\2026-10-09-style-polish\\lifecycle\\final-audit\\P10-mobile-disabled-loading.png",
+      "pass": true
+    }
+  ]
+}

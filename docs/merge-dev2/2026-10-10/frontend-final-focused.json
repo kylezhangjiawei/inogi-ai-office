@@ -1,0 +1,25 @@
+{
+  "exitCode": 0,
+  "files": [
+    "scripts/mobile-progress-history.test.mjs",
+    "scripts/mobile-rd-cockpit-horizon-ui.test.mjs",
+    "scripts/rd-category-task-tables.test.mjs",
+    "scripts/vite-dev-api-target.test.mjs",
+    "scripts/rd-workspace-task-navigation.test.mjs",
+    "scripts/rd-workspace-navigation.test.mjs",
+    "scripts/rd-direct-task-changes.test.mjs",
+    "scripts/rd-meeting-todos.test.mjs",
+    "scripts/mobile-routing.test.mjs",
+    "scripts/procurement-sample-test-mobile.test.mjs"
+  ],
+  "summary": [
+    "ℹ tests 89",
+    "ℹ suites 0",
+    "ℹ pass 89",
+    "ℹ fail 0",
+    "ℹ cancelled 0",
+    "ℹ skipped 0",
+    "ℹ todo 0",
+    "ℹ duration_ms 11431.2511"
+  ]
+}

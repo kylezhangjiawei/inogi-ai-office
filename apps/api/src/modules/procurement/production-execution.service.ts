@@ -12,6 +12,7 @@ import { emptyQualityAnalysis, QUALITY_ANALYSIS_PREFIX, qualityFiles, qualityPhe
 import { effectiveVerificationQuantity, type QualityVerificationEntry } from './quality-verification.service';
 import { warehouseReturns } from './warehouse-records.service';
 import { productionBasis, type LifecycleState } from './production-lifecycle.service';
+import { executionDashboard } from './production-dashboard.model';
 
 export const EXECUTION_PREFIX = 'procurement:execution:v1:';
 export const WAREHOUSE_PREFIX = 'procurement:warehouse-flow:v1:';
@@ -30,9 +31,9 @@ export class ProductionExecutionService {
     const [nodes, models, users] = await Promise.all([
       this.prisma.procTaskTreeNode.findMany({ select: { id: true, productId: true, parentId: true, name: true }, orderBy: { sortOrder: 'asc' } }),
       this.prisma.procBomNode.findMany({ where: { parentId: null }, select: { id: true, name: true, productLine: true, productRootId: true, revisions: { where: { retiredAt: null }, select: { id: true, version: true }, orderBy: { version: 'desc' } } } }),
-      this.prisma.user.findMany({ where: { status: 'ACTIVE' }, select: { id: true, name: true, role: { select: { permissions: true } } }, orderBy: { name: 'asc' } }),
+      this.prisma.user.findMany({ where: { status: 'ACTIVE' }, select: { id: true, name: true, department: true, role: { select: { permissions: true } } }, orderBy: { name: 'asc' } }),
     ]);
-    return { nodes, devices: models, models: models.map((row) => row.productLine).filter(Boolean), users: users.map((row) => ({ id: row.id, name: row.name, canReport: canReceive(row.role?.permissions, 'proc-production:report'), canCollaborate: canReceive(row.role?.permissions, 'proc-quality:collaborate') })).filter((row) => row.canReport || row.canCollaborate) };
+    return { nodes, devices: models, models: models.map((row) => row.productLine).filter(Boolean), users: users.map((row) => ({ id: row.id, name: row.name, department: row.department?.trim() || null, canReport: canReceive(row.role?.permissions, 'proc-production:report'), canCollaborate: canReceive(row.role?.permissions, 'proc-quality:collaborate') })).filter((row) => row.canReport || row.canCollaborate) };
   }
   async overview(month: string, actor: ProcActor) {
     executionMonth(month);
@@ -40,8 +41,10 @@ export class ProductionExecutionService {
     const all = actor.permissions.some(code => ['*', 'page:rd-director-dashboard', 'production:plan', 'production:view-all'].includes(code));
     const rows = await this.prisma.runtimeState.findMany({ where: { OR: [{ key: { startsWith: `${EXECUTION_PREFIX}plan:` } }, { key: { startsWith: 'procurement:lifecycle:v1:plan:' } }] } });
     const states = new Map(rows.filter(row => row.key.startsWith('procurement:lifecycle:')).map(row => [row.key.slice('procurement:lifecycle:v1:plan:'.length), JSON.parse(row.value) as LifecycleState]));
-    const plans = rows.filter(row => row.key.startsWith(`${EXECUTION_PREFIX}plan:`)).map(row => decode(row.value)).filter(plan => plan.month <= month);
-    const tasks = plans.flatMap(plan => plan.tasks.filter(task => task.status !== 'cancelled' && (all || task.ownerId === actor.id)).map(task => ({ ...task, planId: plan.id, month: plan.month, productLine: plan.productLine, batchCode: plan.batches.find(batch => batch.id === task.batchId)?.code, reportedQty: task.reports.reduce((sum, row) => sum + row.quantity, 0), goodQty: task.reports.reduce((sum, row) => sum + row.goodQty, 0) })));
+    const allPlans = rows.filter(row => row.key.startsWith(`${EXECUTION_PREFIX}plan:`)).map(row => decode(row.value));
+    const plans = allPlans.filter(plan => plan.month <= month);
+    const authorizedTasks = allPlans.flatMap(plan => plan.tasks.filter(task => task.status !== 'cancelled' && (all || task.ownerId === actor.id)).map(task => ({ ...task, planId: plan.id, month: plan.month, productLine: plan.productLine, batchCode: plan.batches.find(batch => batch.id === task.batchId)?.code, reportedQty: task.reports.reduce((sum, row) => sum + row.quantity, 0), goodQty: task.reports.reduce((sum, row) => sum + row.goodQty, 0) })));
+    const tasks = authorizedTasks.filter(task => task.month <= month);
     const carriedTasks = tasks.filter(task => task.month < month);
     const qualityIds = carriedTasks.flatMap(task => [...(task.inspections ?? []).flatMap(row => row.qualityId ? [row.qualityId] : []), ...(task.fieldIssues ?? []).map(row => row.qualityId)]);
     const [quality, verificationRows] = qualityIds.length ? await Promise.all([
@@ -66,6 +69,7 @@ export class ProductionExecutionService {
       shipmentTargetQty: all ? plans.filter(plan => plan.month === month).reduce((sum, plan) => sum + plan.shipmentTargetQty, 0) : null,
       actualShippedQty: all ? actualShipments.reduce((sum, row) => sum + row.quantity, 0) : null,
       firstFinal: executionFinalInspectionSummary(tasks.map(task => ({ ...task, inspections: (task.inspections ?? []).filter(row => row.date.startsWith(month)) }))),
+      dashboard: executionDashboard(authorizedTasks, month),
       tasks: tasks.filter(task => task.month === month || unfinished.has(task.id)),
       shipments: actualShipments.map(({ id, batchId, quantity, date, voucher, recipient }) => ({ id, batchId, quantity, date, voucher, recipient })) };
   }
@@ -223,6 +227,16 @@ export class ProductionExecutionService {
         if (recorded.gt(0)) throw new ConflictException('该次报工已有现场异常，请沿原异常补充现象和证据');
         if (!new Prisma.Decimal(defectiveQty).eq(new Prisma.Decimal(report.quantity).minus(report.goodQty))) throw new BadRequestException('现场不良件数须与本次报工不良数一致；同一批实物的多个现象在原异常分别登记次数');
         const issue = executionText(input.data.issue, '不良现象', 2000), evidence = executionText(input.data.reason, '现场证据说明', 2000);
+        const initialCause = input.data.initialCause == null ? 'unknown' : String(input.data.initialCause);
+        if (!['unknown', 'material', 'software', 'assembly', 'other'].includes(initialCause)) throw new BadRequestException('初步原因选项无效');
+        let requestedCollaboration: { department: string | null; ownerId: string; ownerName: string } | undefined;
+        if (input.data.requestedCollaboration != null) {
+          const requested = input.data.requestedCollaboration as Record<string, unknown>;
+          const owner = await db.user.findFirst({ where: { id: executionText(requested.ownerId, '建议协同接收人'), status: 'ACTIVE' }, select: { id: true, name: true, department: true, role: { select: { permissions: true } } } });
+          if (!owner || !canReceive(owner.role?.permissions, 'proc-quality:collaborate')) throw new BadRequestException('建议接收人已停用或没有协同权限，请重新选择');
+          if (requested.department !== (owner.department?.trim() || null)) throw new ConflictException('建议接收人所属部门已变化，请重新选择');
+          requestedCollaboration = { department: owner.department?.trim() || null, ownerId: owner.id, ownerName: owner.name };
+        }
         const phenomena = qualityPhenomena(input.data.phenomena);
         if (!phenomena.length) throw new BadRequestException('请填写至少一项现象及发生次数');
         const files = await qualityFiles(db, input.data.fileIds ?? [], actor);
@@ -241,7 +255,7 @@ export class ProductionExecutionService {
         });
         const fieldId = randomUUID(), at = new Date().toISOString();
         const record = await db.procQualityRecord.create({ data: { productId: plan.productId, treeNodeId: task.treeNodeId, source: 'production', batchNo: `${plan.batches.find(row => row.id === task.batchId)!.code}/${fieldId}`, unit: task.unit, inspectionDate: new Date(`${report.date}T00:00:00.000Z`), inspectedQty: new Prisma.Decimal(report.quantity), defectiveQty: new Prisma.Decimal(defectiveQty), issue, disposition: 'pending', status: 'open', createdBy: actor.id, createdByName: actor.name } });
-        (task.fieldIssues ??= []).push({ id: fieldId, qualityId: record.id, reportId: report.id, date: report.date, defectiveQty, issue, actorId: actor.id, actorName: actor.name, at, materialBatches });
+        (task.fieldIssues ??= []).push({ id: fieldId, qualityId: record.id, reportId: report.id, date: report.date, defectiveQty, issue, actorId: actor.id, actorName: actor.name, at, initialCause: initialCause as NonNullable<ExecutionPlan['tasks'][number]['fieldIssues']>[number]['initialCause'], ...(requestedCollaboration ? { requestedCollaboration } : {}), materialBatches });
         await db.runtimeState.create({ data: { key: `${EXECUTION_PREFIX}quality:${record.id}`, value: JSON.stringify({ planId: plan.id, taskId: task.id, fieldIssueId: fieldId, reportId: report.id, materialBatches }) } });
         const analysis = { ...emptyQualityAnalysis(), version: 1, phenomena, files, evidence, materialBatches, references: [{ source: 'production', reference: task.id, note: issue }] };
         await db.runtimeState.create({ data: { key: QUALITY_ANALYSIS_PREFIX + record.id, value: JSON.stringify(analysis) } });
@@ -266,13 +280,16 @@ export class ProductionExecutionService {
         } else {
           let next: Record<string, unknown>;
           if (input.action === 'assign-quality') {
-            const owner = await db.user.findFirst({ where: { id: executionText(input.data.ownerId, '协同处理人'), status: 'ACTIVE' }, select: { id: true, name: true, role: { select: { permissions: true } } } });
+            const owner = await db.user.findFirst({ where: { id: executionText(input.data.ownerId, '协同处理人'), status: 'ACTIVE' }, select: { id: true, name: true, department: true, role: { select: { permissions: true } } } });
             if (!owner || !canReceive(owner.role?.permissions, 'proc-quality:collaborate')) throw new BadRequestException('协同处理人不存在、已停用或没有查看并回复异常的权限');
+            if (input.data.department !== undefined && input.data.department !== (owner.department?.trim() || null)) throw new ConflictException('协同处理人所属部门已变化，请重新选择');
+            const priority = input.data.priority == null ? 'medium' : String(input.data.priority);
+            if (!['high', 'medium', 'low'].includes(priority)) throw new BadRequestException('协同优先级无效');
             assignmentName = owner.name;
             const dueDate = executionDay(input.data.dueDate, '协同期限');
             if (dueDate < executionToday()) throw new BadRequestException('协同期限不能早于今天');
             const requiredInfo = executionText(input.data.requiredInfo, '待补资料', 2000), verificationPlan = executionText(input.data.verificationPlan, '验证安排', 2000);
-            next = { ownerId: owner.id, ownerName: owner.name, originatorId: actor.id, originatorName: actor.name, phase: 'waiting_reply', reason, dueDate, requiredInfo, verificationPlan, reply: null, at: new Date().toISOString() };
+            next = { ownerId: owner.id, ownerName: owner.name, department: owner.department?.trim() || null, priority, originatorId: actor.id, originatorName: actor.name, phase: 'waiting_reply', reason, dueDate, requiredInfo, verificationPlan, reply: null, at: new Date().toISOString() };
           } else {
             if (!collaboration || collaboration.phase !== 'waiting_reply' || collaboration.ownerId !== actor.id) throw new ForbiddenException('只有当前协同处理人可以回复，不能代替他人确认');
             next = { ...collaboration, phase: 'returned', ownerId: collaboration.originatorId, ownerName: collaboration.originatorName, reply: reason, repliedById: actor.id, repliedByName: actor.name, repliedAt: new Date().toISOString() };

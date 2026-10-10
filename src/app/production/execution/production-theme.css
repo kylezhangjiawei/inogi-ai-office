@@ -1,0 +1,42 @@
+/* Share production/quality colors with their explicitly themed dialog portals.
+   Floating selects/calendars are mounted under body, outside the page DOM. */
+.production-ui-theme,
+body:has(.production-ui-theme) :where([data-slot="select-content"], [data-slot="popover-content"]) {
+  --primary: #1554e8;
+  --primary-hover: #1043bc;
+  --primary-foreground: #fff;
+  --primary-rgb: 21, 84, 232;
+  --primary-soft-border: #d5e2ff;
+  --foreground: #17275a;
+  --muted-foreground: #52678d;
+  --card: #fff;
+  --card-foreground: #17275a;
+  --popover: #fff;
+  --popover-foreground: #17275a;
+  --border: #e1e9f5;
+  --input: #d4dfed;
+  --input-background: #fff;
+  --muted: #f1f5fc;
+  --accent: #edf3ff;
+  --accent-rgb: 237, 243, 255;
+  --accent-foreground: #184ebe;
+  --secondary: #eaf1ff;
+  --secondary-foreground: #154bc4;
+  --ring: #346deb;
+  --shadow-primary: none;
+  --button-radius: .5rem;
+  --radius-control: .5rem;
+  --m3-shape-dialog: 1rem;
+}
+.production-ui-theme:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+  color: var(--foreground);
+}
+.production-ui-theme :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"], .production-editor-footer) button {
+  min-height: 2.5rem;
+  min-width: 5.5rem;
+}
+@media (max-width: 760px) {
+  .production-ui-theme [data-slot="button"]:not(.cockpit-info),
+  .production-ui-theme [data-slot="select-trigger"],
+  .production-ui-theme [data-slot="date-picker-trigger"] { min-height: 2.5rem; }
+}

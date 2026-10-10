@@ -173,8 +173,10 @@ export class ProcurementOperationsService {
       });
       if (input.action === 'confirm' && (data.category === 'unknown' || !detail || !evidence || responsibility.kind === 'unknown' || !phenomena.length)) throw new BadRequestException('确认主因须填写原因、责任认定、依据及现象次数；未知项请先保存待分析');
       const at = new Date().toISOString();
-      const snapshot: Omit<QualityAnalysis, 'history'> = { version: current.version + 1, state: input.action === 'confirm' ? 'confirmed' : 'pending', category: data.category as QualityAnalysis['category'], detail, evidence, responsibility, phenomena, files, references, ...(materialBatches ? { materialBatches } : {}),
-        ...(input.action === 'confirm' ? { confirmedBy: actor.id, confirmedByName: actor.name, confirmedAt: at } : {}) };
+      const unchanged = JSON.stringify([data.category, detail, evidence, responsibility, phenomena, files, references, materialBatches ?? []]) === JSON.stringify([current.category, current.detail, current.evidence, current.responsibility, current.phenomena, current.files, current.references, current.materialBatches ?? []]);
+      const keepConfirmation = current.state === 'confirmed' && unchanged;
+      const snapshot: Omit<QualityAnalysis, 'history'> = { version: current.version + 1, state: input.action === 'confirm' || keepConfirmation ? 'confirmed' : 'pending', category: data.category as QualityAnalysis['category'], detail, evidence, responsibility, phenomena, files, references, ...(materialBatches ? { materialBatches } : {}),
+        ...(input.action === 'confirm' ? { confirmedBy: actor.id, confirmedByName: actor.name, confirmedAt: at } : keepConfirmation ? { confirmedBy: current.confirmedBy, confirmedByName: current.confirmedByName, confirmedAt: current.confirmedAt } : {}) };
       const next: QualityAnalysis = { ...snapshot, history: [...current.history, { actorId: actor.id, actorName: actor.name, at, action: input.action, reason, snapshot }] };
       if (stored) {
         const changed = await db.runtimeState.updateMany({ where: { key, value: stored.value }, data: { value: JSON.stringify(next) } });
@@ -221,13 +223,24 @@ export class ProcurementOperationsService {
     const { month, range } = this.monthRange(query.month);
     const where = { productId: query.productId, ...(query.treeNodeId ? { treeNodeId: query.treeNodeId } : {}), ...(query.stockPlanId ? { stockPlanId: query.stockPlanId } : {}) };
     const [reports, quality] = await Promise.all([
-      this.prisma.procProductionReport.findMany({ where: { ...where, reportDate: range }, include: productionInclude, orderBy: [{ reportDate: 'desc' }, { createdAt: 'desc' }] }),
-      this.prisma.procQualityRecord.findMany({ where: { ...where, inspectionDate: range }, include: qualityInclude, orderBy: [{ inspectionDate: 'desc' }, { createdAt: 'desc' }] }),
+      this.prisma.procProductionReport.findMany({ where, include: productionInclude, orderBy: [{ reportDate: 'desc' }, { createdAt: 'desc' }] }),
+      this.prisma.procQualityRecord.findMany({ where, include: qualityInclude, orderBy: [{ inspectionDate: 'desc' }, { createdAt: 'desc' }] }),
     ]);
-    const productionReports = reports.map((row) => this.productionView(row));
-    const analysisRows = quality.length ? await this.prisma.runtimeState.findMany({ where: { key: { in: quality.map(row => QUALITY_ANALYSIS_PREFIX + row.id) } } }) : [];
+    const productionReports = reports.filter(row => row.reportDate >= range.gte && row.reportDate < range.lt).map((row) => this.productionView(row));
+    const registered = new Map<string, { defective: Prisma.Decimal; inspected: Prisma.Decimal }>();
+    for (const row of quality) {
+      if (!row.productionReportId) continue;
+      const total = registered.get(row.productionReportId) ?? { defective: new Prisma.Decimal(0), inspected: new Prisma.Decimal(0) };
+      registered.set(row.productionReportId, { defective: total.defective.plus(row.defectiveQty), inspected: total.inspected.plus(row.inspectedQty) });
+    }
+    const productionFollowUps = reports.map(row => ({ ...this.productionView(row),
+      unregisteredDefectiveQty: Math.max(0, number(row.actualQty.minus(row.goodQty).minus(registered.get(row.id)?.defective ?? 0))),
+      unregisteredInspectedQty: Math.max(0, number(row.actualQty.minus(registered.get(row.id)?.inspected ?? 0))),
+    })).filter(row => row.unregisteredDefectiveQty > 0);
+    const visibleQuality = quality.filter(row => query.qualityView === 'pending' ? row.status !== 'closed' : row.inspectionDate >= range.gte && row.inspectionDate < range.lt);
+    const analysisRows = visibleQuality.length ? await this.prisma.runtimeState.findMany({ where: { key: { in: visibleQuality.map(row => QUALITY_ANALYSIS_PREFIX + row.id) } } }) : [];
     const analyses = new Map(analysisRows.map(row => [row.key, JSON.parse(row.value) as QualityAnalysis]));
-    const qualityRecords = quality.map(row => ({ ...this.qualityView(row), analysis: analyses.get(QUALITY_ANALYSIS_PREFIX + row.id) ?? null }));
+    const qualityRecords = visibleQuality.map(row => ({ ...this.qualityView(row), analysis: analyses.get(QUALITY_ANALYSIS_PREFIX + row.id) ?? null }));
     const units = [...new Set(productionReports.map((row) => row.unit))];
     const productionSummary = units.map((unit) => {
       const rows = productionReports.filter((row) => row.unit === unit);
@@ -242,7 +255,7 @@ export class ProcurementOperationsService {
       const defectiveQty = rounded(rows.reduce((n, row) => n + row.defectiveQty, 0));
       return { source, unit, records: rows.length, open: rows.filter((row) => row.status !== 'closed').length, inspectedQty, defectiveQty, defectRate: rate(defectiveQty, inspectedQty) };
     }));
-    return { month, productionReports, qualityRecords, productionSummary, qualitySummary };
+    return { month, productionReports, productionFollowUps, qualityRecords, productionSummary, qualitySummary };
   }
 
   async options(query: ProcurementOperationsQueryDto) {
@@ -266,10 +279,21 @@ export class ProcurementOperationsService {
     const unit = requiredText(dto.unit, '数量单位');
     const data = { productId, treeNodeId, stockPlanId: optionalId(dto.stockPlanId), unit, reportDate: operationDay(dto.reportDate, '报工日期'), shift: requiredText(dto.shift, '班次'), lineName: requiredText(dto.lineName, '产线或工序'), plannedQty: decimal(dto.plannedQty, '计划产量'), actualQty: decimal(dto.actualQty, '实际产量'), goodQty: decimal(dto.goodQty, '良品数量'), workHours: decimal(dto.workHours, '投入工时', 2), capacityQty: dto.capacityQty == null ? null : decimal(dto.capacityQty, '本班产能'), note: optionalId(dto.note) };
     if (data.goodQty.greaterThan(data.actualQty)) throw new BadRequestException('良品数量不能超过实际产量');
+    if (dto.requestId && !/^[A-Za-z0-9_-]{16,128}$/.test(dto.requestId)) throw new BadRequestException('提交标识无效');
+    const requestKey = !id && dto.requestId ? `procurement:production-report:request:${dto.requestId}` : null;
+    const fingerprint = createHash('sha256').update(JSON.stringify([actor.id, data])).digest('hex');
     return this.write(async (db) => {
       const { node, plan } = await this.scope(db, productId, treeNodeId, data.stockPlanId);
       if (!node?.parentId) throw new BadRequestException('请在具体子系统模块中登记报工');
       if (plan && plan.unit !== unit) throw new BadRequestException('报工单位必须与关联备货计划一致');
+      if (requestKey) {
+        const existing = await db.runtimeState.findUnique({ where: { key: requestKey } });
+        if (existing) {
+          const previous = JSON.parse(existing.value) as { fingerprint: string; id: string };
+          if (previous.fingerprint !== fingerprint) throw new ConflictException('提交标识已用于其他内容，请先核对原报工记录');
+          return this.productionView(await db.procProductionReport.findUniqueOrThrow({ where: { id: previous.id }, include: productionInclude }));
+        }
+      }
       if (id) {
         const current = await db.procProductionReport.findUnique({ where: { id } });
         if (!current) throw new NotFoundException('生产报工记录不存在');
@@ -285,7 +309,9 @@ export class ProcurementOperationsService {
         if (changed.count !== 1) throw new ConflictException('记录已被更新，请刷新后重试');
         return this.productionView(await db.procProductionReport.findUniqueOrThrow({ where: { id }, include: productionInclude }));
       }
-      return this.productionView(await db.procProductionReport.create({ data: { ...data, createdBy: actor.id, createdByName: actor.name }, include: productionInclude }));
+      const created = await db.procProductionReport.create({ data: { ...data, createdBy: actor.id, createdByName: actor.name }, include: productionInclude });
+      if (requestKey) await db.runtimeState.create({ data: { key: requestKey, value: JSON.stringify({ fingerprint, id: created.id }) } });
+      return this.productionView(created);
     });
   }
 

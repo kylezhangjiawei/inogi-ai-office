@@ -1,6 +1,6 @@
 import { authFetch, readErrorMessage } from './authSession';
 import type { ExecutionTask } from './productionExecutionApi';
-export interface LifecycleDocument { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string }
+export interface LifecycleDocument { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string; createdAt?: string }
 export interface LifecycleFeedback { id: string; problem: string; reporterId: string; reporterName: string; at: string; ownerId: string; ownerName: string; dueDate: string; status: 'open' | 'processing' | 'resolved'; history: { actorId: string; actorName: string; at: string; status: LifecycleFeedback['status']; ownerId: string; ownerName: string; dueDate: string; reason: string }[] }
 export interface LifecycleVersionRange { id: string; batchId: string; quantity: number; range: string; softwareVersion: string; hardwareVersion: string; serialNumbers: string[]; actorId: string; actorName: string; at: string; evidence: string; supersedesId?: string }
 export interface LifecycleShipmentSerial { number: string; versionRangeId: string; softwareVersion: string; hardwareVersion: string }
@@ -12,7 +12,7 @@ export interface Lifecycle {
   qualityRecords: { id: string; batchNo: string; status: string; issue: string; disposition: string; resolution: string | null }[];
   verificationHistory: { recordId: string; actorName: string; evidence: string; recordedAt: string; kind: string; passedQty: number | null; closed: boolean }[];
   version: number;
-  transfers: { documents?: LifecycleDocument[]; id: string; code: string; type: 'exploration' | 'validation'; sampleTaskId: string; roundId: string; status: 'draft' | 'validated' | 'published'; authorId: string; validatorId?: string; sop: string; sip: string; drawing: string; evidence: string; validation?: string }[];
+  transfers: { documents?: LifecycleDocument[]; id: string; code: string; type: 'exploration' | 'validation'; sampleTaskId: string; roundId: string; status: 'draft' | 'validated' | 'published'; authorId: string; validatorId?: string; sop: string; sip: string; drawing: string; evidence: string; validation?: string; publishedAt?: string }[];
   changes: { previousPackageIds?: string[]; feedback?: LifecycleFeedback[]; id: string; code: string; packageId: string; batchIds: string[]; effectiveDate: string; handling: string; validation: string; status: 'draft' | 'published'; acknowledgments: { actorId: string; actorName: string; at: string }[] }[];
   releases: { id: string; batchId: string; quantity: number; source: string; actorName: string; at: string; evidence: string }[];
   shipments: { id: string; batchId: string; releaseId: string; quantity: number; date: string; order: string; voucher: string; recipient: string; evidence: string; actorName: string; serials?: LifecycleShipmentSerial[]; serialHistory?: LifecycleShipmentSerialHistory[]; linkedSerialQty?: number; pendingSerialQty?: number; reversed?: { actorName: string; at: string; reason: string } }[];

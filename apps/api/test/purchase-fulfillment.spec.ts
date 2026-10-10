@@ -22,6 +22,10 @@ function fixture() {
       updateMany: async ({ where, data }: Row) => { const r = receipts.find((r) => r.id === where.id && r.version === where.version); if (!r) return { count: 0 }; Object.assign(r, data); return { count: 1 }; } },
     procPurchaseReceiptInspection: { findUnique: async () => null, create: async ({ data }: Row) => { const r = receipts.find((r) => r.id === data.receiptId)!; const saved = { ...data, id: `inspection-${data.version}`, createdAt: instant }; r.inspections.unshift(saved); return saved; } },
     runtimeState: { findUnique: async ({ where }: Row) => states.has(where.key) ? { key: where.key, value: states.get(where.key) } : null,
+      create: async ({ data }: Row) => {
+        if (states.has(data.key)) throw new Prisma.PrismaClientKnownRequestError('RuntimeState key already exists', { code: 'P2002', clientVersion: 'test', meta: { target: ['key'] } });
+        states.set(data.key, data.value); return { key: data.key, value: data.value };
+      },
       findMany: async () => [...states].map(([key, value]) => ({ key, value })), upsert: async ({ where, create, update }: Row) => { const value = states.has(where.key) ? update.value : create.value; states.set(where.key, value); return { key: where.key, value }; } },
     procStockPlan: { findMany: async () => [] }, auditLog: { create: async ({ data }: Row) => { if (failAudit) throw new Error('audit unavailable'); audits.push(data); return data; } }, $queryRaw: async () => [],
     $transaction: async (fn: (db: Row) => Promise<unknown>) => { const previous = tail; let release!: () => void; tail = new Promise<void>((resolve) => { release = resolve; }); await previous; const old = new Map(states), oldAudits = [...audits], oldReceipts = receipts.map((r) => ({ ...r, inspections: [...r.inspections] }));

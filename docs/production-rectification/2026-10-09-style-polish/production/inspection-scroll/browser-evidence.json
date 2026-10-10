@@ -1,0 +1,589 @@
+{
+  "origin": "http://127.0.0.1:5198",
+  "fixtureOnly": true,
+  "errors": [],
+  "blockedExternal": [],
+  "interceptedWrites": [
+    {
+      "method": "POST",
+      "path": "/api/procurement/production-execution/plan-b/commands",
+      "body": {
+        "action": "inspect",
+        "version": 1,
+        "data": {
+          "reason": "隔离验收依据：按派工 SIP 检查，当前为浏览器样例，禁止真实提交。",
+          "taskId": "task-old",
+          "date": "2026-10-09",
+          "quantity": 2,
+          "goodQty": 1,
+          "reportId": "report-old",
+          "issue": "隔离样例外观划伤",
+          "kind": "process",
+          "process": "隔离样例阀件装配检验",
+          "sip": ""
+        },
+        "requestId": "8a068577-de1c-4498-8d31-484ae0fcdea0"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/procurement/production-execution/plan-b/commands",
+      "body": {
+        "action": "inspect",
+        "version": 1,
+        "data": {
+          "reason": "隔离验收依据：按派工 SIP 检查，当前为浏览器样例，禁止真实提交。",
+          "taskId": "task-old",
+          "date": "2026-10-09",
+          "quantity": 2,
+          "goodQty": 1,
+          "reportId": "report-old",
+          "issue": "隔离样例外观划伤",
+          "kind": "process",
+          "process": "隔离样例阀件装配检验",
+          "sip": ""
+        },
+        "requestId": "63c8f310-f54e-4c9a-993f-abe52016420e"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/procurement/production-execution/plan-b/commands",
+      "body": {
+        "action": "inspect",
+        "version": 1,
+        "data": {
+          "reason": "隔离验收依据：按派工 SIP 检查，当前为浏览器样例，禁止真实提交。",
+          "taskId": "task-old",
+          "date": "2026-10-09",
+          "quantity": 2,
+          "goodQty": 1,
+          "reportId": "report-old",
+          "issue": "隔离样例外观划伤",
+          "kind": "process",
+          "process": "隔离样例阀件装配检验",
+          "sip": ""
+        },
+        "requestId": "0aaee91c-fd1e-4803-a81b-f4c9f8b87ed8"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "mobile-390",
+      "pass": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "initial": {
+        "dialog": {
+          "x": 16,
+          "y": 25.3203125,
+          "width": 358,
+          "height": 793.359375,
+          "top": 25.3203125,
+          "right": 374,
+          "bottom": 818.6796875,
+          "left": 16
+        },
+        "body": {
+          "x": 17,
+          "y": 119.3203125,
+          "width": 356,
+          "height": 577.359375,
+          "top": 119.3203125,
+          "right": 373,
+          "bottom": 696.6796875,
+          "left": 17
+        },
+        "footer": {
+          "x": 17,
+          "y": 696.6796875,
+          "width": 356,
+          "height": 121,
+          "top": 696.6796875,
+          "right": 373,
+          "bottom": 817.6796875,
+          "left": 17
+        },
+        "scrollHeight": 800,
+        "clientHeight": 577,
+        "scrollTop": 0,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "requiredFields": [
+        {
+          "label": ":r13:",
+          "field": {
+            "x": 33,
+            "y": 157.3203125,
+            "width": 324,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r15:",
+          "field": {
+            "x": 33,
+            "y": 243.3203125,
+            "width": 324,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r16:",
+          "field": {
+            "x": 33,
+            "y": 317.3203125,
+            "width": 324,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r18:",
+          "field": {
+            "x": 33,
+            "y": 403.3203125,
+            "width": 324,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1b:",
+          "field": {
+            "x": 33,
+            "y": 489.3203125,
+            "width": 324,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1c:",
+          "field": {
+            "x": 33,
+            "y": 563.3203125,
+            "width": 324,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1e:",
+          "field": {
+            "x": 33,
+            "y": 616.3203125,
+            "width": 324,
+            "height": 64
+          },
+          "scrollTop": 223
+        }
+      ],
+      "reasonBounds": {
+        "label": ":r1e:",
+        "field": {
+          "x": 33,
+          "y": 616.3203125,
+          "width": 324,
+          "height": 64
+        },
+        "scrollTop": 297
+      },
+      "nativeRequiredBlocked": true,
+      "errorFocusedAndReachable": true,
+      "footerPositionStable": true,
+      "afterError": {
+        "dialog": {
+          "x": 16,
+          "y": 25.3203125,
+          "width": 358,
+          "height": 793.359375,
+          "top": 25.3203125,
+          "right": 374,
+          "bottom": 818.6796875,
+          "left": 16
+        },
+        "body": {
+          "x": 17,
+          "y": 119.3203125,
+          "width": 356,
+          "height": 577.359375,
+          "top": 119.3203125,
+          "right": 373,
+          "bottom": 696.6796875,
+          "left": 17
+        },
+        "footer": {
+          "x": 17,
+          "y": 696.6796875,
+          "width": 356,
+          "height": 121,
+          "top": 696.6796875,
+          "right": 373,
+          "bottom": 817.6796875,
+          "left": 17
+        },
+        "scrollHeight": 976,
+        "clientHeight": 577,
+        "scrollTop": 399,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "screenshots": [
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-390-initial.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-390-required-reason.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-390-error-visible.png"
+      ]
+    },
+    {
+      "name": "mobile-320",
+      "pass": true,
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "initial": {
+        "dialog": {
+          "x": 16,
+          "y": 25.3203125,
+          "width": 288,
+          "height": 793.359375,
+          "top": 25.3203125,
+          "right": 304,
+          "bottom": 818.6796875,
+          "left": 16
+        },
+        "body": {
+          "x": 17,
+          "y": 143.3203125,
+          "width": 286,
+          "height": 553.359375,
+          "top": 143.3203125,
+          "right": 303,
+          "bottom": 696.6796875,
+          "left": 17
+        },
+        "footer": {
+          "x": 17,
+          "y": 696.6796875,
+          "width": 286,
+          "height": 121,
+          "top": 696.6796875,
+          "right": 303,
+          "bottom": 817.6796875,
+          "left": 17
+        },
+        "scrollHeight": 840,
+        "clientHeight": 553,
+        "scrollTop": 0,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "requiredFields": [
+        {
+          "label": ":r13:",
+          "field": {
+            "x": 33,
+            "y": 181.3203125,
+            "width": 254,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r15:",
+          "field": {
+            "x": 33,
+            "y": 267.3203125,
+            "width": 254,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r16:",
+          "field": {
+            "x": 33,
+            "y": 341.3203125,
+            "width": 254,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r18:",
+          "field": {
+            "x": 33,
+            "y": 427.3203125,
+            "width": 254,
+            "height": 40
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1b:",
+          "field": {
+            "x": 33,
+            "y": 513.3203125,
+            "width": 254,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1c:",
+          "field": {
+            "x": 33,
+            "y": 587.3203125,
+            "width": 254,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1e:",
+          "field": {
+            "x": 33,
+            "y": 616.3203125,
+            "width": 254,
+            "height": 64
+          },
+          "scrollTop": 287
+        }
+      ],
+      "reasonBounds": {
+        "label": ":r1e:",
+        "field": {
+          "x": 33,
+          "y": 633.3203125,
+          "width": 254,
+          "height": 64
+        },
+        "scrollTop": 344
+      },
+      "nativeRequiredBlocked": true,
+      "errorFocusedAndReachable": true,
+      "footerPositionStable": true,
+      "afterError": {
+        "dialog": {
+          "x": 16,
+          "y": 25.3203125,
+          "width": 288,
+          "height": 793.359375,
+          "top": 25.3203125,
+          "right": 304,
+          "bottom": 818.6796875,
+          "left": 16
+        },
+        "body": {
+          "x": 17,
+          "y": 143.3203125,
+          "width": 286,
+          "height": 553.359375,
+          "top": 143.3203125,
+          "right": 303,
+          "bottom": 696.6796875,
+          "left": 17
+        },
+        "footer": {
+          "x": 17,
+          "y": 696.6796875,
+          "width": 286,
+          "height": 121,
+          "top": 696.6796875,
+          "right": 303,
+          "bottom": 817.6796875,
+          "left": 17
+        },
+        "scrollHeight": 1060,
+        "clientHeight": 553,
+        "scrollTop": 507,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "screenshots": [
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-320-initial.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-320-required-reason.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-mobile-320-error-visible.png"
+      ]
+    },
+    {
+      "name": "desktop",
+      "pass": true,
+      "viewport": {
+        "width": 1586,
+        "height": 992
+      },
+      "initial": {
+        "dialog": {
+          "x": 409,
+          "y": 149,
+          "width": 768,
+          "height": 694,
+          "top": 149,
+          "right": 1177,
+          "bottom": 843,
+          "left": 409
+        },
+        "body": {
+          "x": 410,
+          "y": 243,
+          "width": 766,
+          "height": 526,
+          "top": 243,
+          "right": 1176,
+          "bottom": 769,
+          "left": 410
+        },
+        "footer": {
+          "x": 410,
+          "y": 769,
+          "width": 766,
+          "height": 73,
+          "top": 769,
+          "right": 1176,
+          "bottom": 842,
+          "left": 410
+        },
+        "scrollHeight": 526,
+        "clientHeight": 526,
+        "scrollTop": 0,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "requiredFields": [
+        {
+          "label": ":r13:",
+          "field": {
+            "x": 430,
+            "y": 285,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r15:",
+          "field": {
+            "x": 801,
+            "y": 285,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r16:",
+          "field": {
+            "x": 430,
+            "y": 367,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r18:",
+          "field": {
+            "x": 801,
+            "y": 367,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1b:",
+          "field": {
+            "x": 430,
+            "y": 449,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1c:",
+          "field": {
+            "x": 801,
+            "y": 449,
+            "width": 355,
+            "height": 36
+          },
+          "scrollTop": 0
+        },
+        {
+          "label": ":r1e:",
+          "field": {
+            "x": 430,
+            "y": 685,
+            "width": 726,
+            "height": 64
+          },
+          "scrollTop": 0
+        }
+      ],
+      "reasonBounds": {
+        "label": ":r1e:",
+        "field": {
+          "x": 430,
+          "y": 685,
+          "width": 726,
+          "height": 64
+        },
+        "scrollTop": 0
+      },
+      "nativeRequiredBlocked": true,
+      "errorFocusedAndReachable": true,
+      "footerPositionStable": true,
+      "afterError": {
+        "dialog": {
+          "x": 409,
+          "y": 109,
+          "width": 768,
+          "height": 774,
+          "top": 109,
+          "right": 1177,
+          "bottom": 883,
+          "left": 409
+        },
+        "body": {
+          "x": 410,
+          "y": 203,
+          "width": 766,
+          "height": 606,
+          "top": 203,
+          "right": 1176,
+          "bottom": 809,
+          "left": 410
+        },
+        "footer": {
+          "x": 410,
+          "y": 809,
+          "width": 766,
+          "height": 73,
+          "top": 809,
+          "right": 1176,
+          "bottom": 882,
+          "left": 410
+        },
+        "scrollHeight": 606,
+        "clientHeight": 606,
+        "scrollTop": 0,
+        "bodyOverflow": "auto",
+        "footerBackground": "rgb(255, 255, 255)"
+      },
+      "screenshots": [
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-desktop-initial.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-desktop-required-reason.png",
+        "docs\\production-rectification\\2026-10-09-style-polish\\production\\inspection-scroll\\P03-desktop-error-visible.png"
+      ]
+    }
+  ]
+}

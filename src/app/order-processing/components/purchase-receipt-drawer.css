@@ -1,4 +1,12 @@
 .purchase-receipt-drawer[data-state] {
+  --primary: #1554e8;
+  --primary-hover: #1046c8;
+  --primary-rgb: 21, 84, 232;
+  --primary-foreground: #fff;
+  --ring: #1554e8;
+  --accent: #edf3ff;
+  --accent-foreground: #1545af;
+  --shadow-primary: 0 1px 2px rgba(21, 84, 232, .12);
   animation: none;
   transition: none;
   padding-top: env(safe-area-inset-top);
@@ -19,8 +27,22 @@
   }
 }
 
-@media (max-width: 767px) {
-  .purchase-receipt-layout:has(form) .purchase-receipt-aside {
-    grid-row: 1;
-  }
-}
+.purchase-receipt-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; padding: 1rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--card); }
+.purchase-receipt-steps li { display: flex; align-items: center; gap: .5rem; font-size: .75rem; line-height: 1.5; }
+.purchase-receipt-steps li > span { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; flex-shrink: 0; border-radius: 50%; background: var(--muted); color: var(--primary); font-weight: 600; }
+.purchase-receipt-stages { display: grid; gap: .75rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 1rem; }
+.purchase-receipt-stages > section { padding: .875rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--card); }
+.purchase-receipt-stages h5, .purchase-receipt-panel h3 { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; font-size: .875rem; font-weight: 600; text-wrap: balance; }
+.purchase-receipt-stages dl > div { display: flex; justify-content: space-between; gap: .5rem; }
+.purchase-receipt-stages dt { color: var(--muted-foreground); }
+.purchase-receipt-stages dd { overflow-wrap: anywhere; text-align: right; }
+.purchase-receipt-panel { padding: 1rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--card); }
+.purchase-receipt-file { display: flex; align-items: center; gap: .5rem; height: auto; min-height: 2.5rem; margin-top: .5rem; font-size: .75rem; }
+.purchase-receipt-file > span { min-width: 0; flex: 1; text-align: left; overflow-wrap: anywhere; white-space: normal; }
+.purchase-receipt-file small { display: block; color: var(--muted-foreground); }
+.purchase-receipt-activity > div { padding: .75rem 0 .75rem .75rem; border-left: 2px solid var(--border); font-size: .75rem; line-height: 1.6; }
+.purchase-receipt-activity p:first-child { display: flex; flex-wrap: wrap; gap: .25rem .75rem; }
+.purchase-receipt-activity span, .purchase-receipt-activity small { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.purchase-receipt-form > .space-y-3 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.purchase-receipt-form > .space-y-3 > .grid, .purchase-receipt-form > .space-y-3 > div:has(textarea) { grid-column: 1 / -1; }
+@media (max-width: 767px) { .purchase-receipt-stages { grid-template-columns: 1fr; } .purchase-receipt-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; } .purchase-receipt-form > .space-y-3 { grid-template-columns: 1fr; } .purchase-receipt-layout:has(form) .purchase-receipt-aside { grid-row: auto; } }
