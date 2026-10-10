@@ -21,6 +21,9 @@ export class PurchaseReceiptsController {
   @Permissions('page:purchase-order-detail')
   list(@Param('lineId') lineId: string, @Request() req: AuthedRequest) { return this.service.list(lineId, this.actor(req)); }
 
+  @Get(':receiptId/files/:fileId') @Permissions('page:purchase-order-detail')
+  attachment(@Param('lineId') lineId: string, @Param('receiptId') receiptId: string, @Param('fileId') fileId: string, @Request() req: AuthedRequest) { return this.service.attachment(lineId, receiptId, fileId, this.actor(req)); }
+
   @Post()
   @Permissions('proc-purchase-order:receive')
   receive(@Param('lineId') lineId: string, @Body() input: CreatePurchaseReceiptDto, @Request() req: AuthedRequest) {

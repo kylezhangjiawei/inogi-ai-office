@@ -20,9 +20,9 @@ function compile(path, dependencies = {}) {
 }
 const state = compile('src/app/production/execution/productionViewState.ts');
 const task = (id, fields = {}) => ({ id, batchId: 'batch-1', name: `作业 ${id}`, date: '2026-09-20', line: '装配一线', ownerId: 'owner-1', ownerName: '张工', quantity: 20, unit: '件', status: 'dispatched', reports: [], inspections: [], ...fields });
-const plan = tasks => ({ id: 'plan-1', month: '2026-09', tasks, batches: [{ id: 'batch-1', code: '九月首批' }, { id: 'batch-2', code: '九月次批' }] });
+const plan = tasks => ({ id: 'plan-1', month: '2026-09', productLine: 'Q7', summary: { batchQty: 300 }, events: [], tasks, batches: [{ id: 'batch-1', code: '九月首批' }, { id: 'batch-2', code: '九月次批' }] });
 
-function fixture(selectedPlan, query = '') {
+function fixture(selectedPlan, query = '', prototype = false) {
   let params = new URLSearchParams(query), tree;
   const controls = names => Object.fromEntries(names.map(name => [name, name]));
   const { ProductionSchedule } = compile('src/app/production/execution/ProductionSchedule.tsx', {
@@ -35,7 +35,7 @@ function fixture(selectedPlan, query = '') {
     './ProductionView': controls(['ProductionEmpty', 'ProductionPagination', 'ProductionStatus']),
     './productionViewState': state,
   });
-  const render = () => { tree = ProductionSchedule({ plan: selectedPlan }); return tree; };
+  const render = () => { tree = ProductionSchedule({ plan: selectedPlan, prototype }); return tree; };
   const find = predicate => nodes(tree).find(predicate);
   render();
   return {
@@ -179,4 +179,57 @@ test('未知筛选保持空态，缺少日期显式提示，未填产线仍可�
   assert.match(view.text(), /产线 \/ 工位待确认/);
   const empty = fixture(plan([]));
   assert.equal(empty.find(row => row.type === 'ProductionEmpty').props.title, '还没有排期作业');
+});
+
+
+test('P07 日计划项逐项标工序和实际单位，选择工序联动三块详情并保留原任务链接', () => {
+  const view = fixture(plan([
+    task('parts', { name: '阀组件装配', quantity: 200, unit: '件', reports: [{ quantity: 160, goodQty: 154 }] }),
+    task('kits', { name: '筛筒组件', quantity: 80, unit: '套', line: '二线', reports: [{ quantity: 20, goodQty: 18 }] }),
+    task('whole', { name: '整机总装', quantity: 100, unit: '台', date: '2026-09-21' }),
+  ]), 'scheduleStart=2026-09-20&scheduleSpan=3&qualityStatus=open', true);
+  const entries = nodes(view.tree()).filter(row => row.props.className === 'pp-schedule-entry');
+  assert.equal(entries.length, 3);
+  for (const [name, count, unit] of [['阀组件装配', 200, '件'], ['筛筒组件', 80, '套'], ['整机总装', 100, '台']]) {
+    const entry = entries.find(row => text(row).includes(name));
+    assert.ok(entry, name);
+    assert.match(text(entry), new RegExp(`${count} ${unit}`));
+  }
+  assert.ok(view.find(row => row.props.className === 'pp-schedule-day-detail'));
+  assert.ok(view.find(row => row.props.className === 'pp-schedule-operation-detail'));
+  assert.ok(view.find(row => row.props.className === 'pp-schedule-change-detail'));
+  assert.equal(view.find(row => row.props['aria-label'] === '排程明细视图'), undefined, '原型三块同时可见，不改成标签页');
+  entries.find(row => text(row).includes('筛筒组件')).props.onClick(); view.render();
+  assert.equal(view.params().get('scheduleTask'), 'kits');
+  assert.equal(view.params().get('scheduleDate'), '2026-09-20');
+  assert.equal(view.params().get('qualityStatus'), 'open');
+  const metrics = view.find(row => row.props.className === 'pp-schedule-day-metrics');
+  assert.match(text(metrics), /计划数量80套已报工20套报工良品18套待报工60套待终检20套/);
+  assert.doesNotMatch(text(metrics), /合格完成|返工待复验|154|200/);
+  const original = view.links().find(row => text(row) === '进入原任务');
+  const target = new URLSearchParams(original.props.to.slice(1));
+  assert.equal(target.get('task'), 'kits'); assert.equal(target.get('taskFrom'), 'schedule');
+  assert.equal(target.get('scheduleTask'), 'kits'); assert.equal(target.get('scheduleStart'), '2026-09-20');
+  view.find(row => row.props['aria-label'] === '查看 2026-09-22 日计划').props.onClick(); view.render();
+  assert.equal(view.params().get('scheduleDate'), '2026-09-22');
+  assert.equal(view.find(row => row.props.className === 'pp-schedule-day-metrics'), undefined);
+  assert.ok(nodes(view.tree()).some(row => row.type === 'ProductionEmpty' && row.props.title === '当天没有安排工序'));
+});
+
+test('P07 变更日志使用真实事件前后值，保留改期前历史并按生产单隔离', () => {
+  const tasks = [task('one', { name: '阀组件装配', quantity: 120 }), task('two', { name: '另一生产单工序', batchId: 'batch-2' })];
+  const selected = { ...plan(tasks), events: [
+    { id: 'event-one', action: 'adjust', subjectId: 'one', actorName: '计划员', at: '2026-09-19T02:00:00Z', reason: '按到料日期调整', adjustment: { before: { date: '2026-09-01', line: '一线', ownerId: 'old', ownerName: '李工', quantity: 100 }, after: { date: '2026-09-20', line: '装配一线', ownerId: 'owner-1', ownerName: '张工', quantity: 120 } } },
+    { id: 'event-other', action: 'dispatch', subjectId: 'two', actorName: '主管', at: '2026-09-19T03:00:00Z', reason: '其他生产单确认' },
+    { id: 'event-report', action: 'report', subjectId: 'one', actorName: '现场人', at: '2026-09-20T03:00:00Z', reason: '现场报工说明' },
+  ] };
+  const view = fixture(selected, 'scheduleStart=2026-09-20&scheduleSpan=3&scheduleBatch=batch-1', true);
+  const history = view.find(row => row.props.className === 'pp-schedule-history');
+  assert.match(text(history), /2026-09-01 → 2026-09-20/);
+  assert.match(text(history), /数量：100 → 120 件/);
+  assert.match(text(history), /负责人：李工 → 张工/);
+  assert.match(text(history), /按到料日期调整/);
+  assert.doesNotMatch(text(history), /其他生产单确认|现场报工说明/);
+  assert.equal(nodes(history).filter(row => row.type === 'Link').length, 1);
+  assert.equal(new URLSearchParams(nodes(history).find(row => row.type === 'Link').props.to.slice(1)).get('task'), 'one');
 });

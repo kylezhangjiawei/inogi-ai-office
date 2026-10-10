@@ -1,0 +1,2078 @@
+[
+  {
+    "size": "desktop",
+    "name": "filters-detail-return",
+    "pass": true,
+    "evidence": {
+      "before": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high&status=in_progress",
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high&status=in_progress"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "all-filters-url-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E8%A3%85%E9%85%8D&priority=medium&status=in_progress&due=7d&role=primary&scope=preview"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "discussion-direct-return",
+    "pass": true,
+    "evidence": {
+      "before": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high",
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "keyboard-更新进度",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 800,
+        "y": 0,
+        "width": 640,
+        "height": 992
+      }
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "keyboard-移交协作",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 800,
+        "y": 0,
+        "width": 640,
+        "height": 992
+      }
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "keyboard-标记完成",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 800,
+        "y": 0,
+        "width": 640,
+        "height": 992
+      }
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "settings-detail-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "collaborator-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?role=collaborator"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "completed-restrictions",
+    "pass": true,
+    "evidence": {
+      "controls": [
+        "",
+        "技术资料与任务详情"
+      ]
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "legacy-collaboration-workitems",
+    "pass": true,
+    "evidence": {
+      "checks": [
+        "checked",
+        "unchecked"
+      ]
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "sample-close-retains-filters",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high"
+    }
+  },
+  {
+    "size": "desktop",
+    "name": "workspace-layout",
+    "pass": true,
+    "evidence": {
+      "viewport": 1440,
+      "page": 1440,
+      "actions": [
+        {
+          "label": "更多操作",
+          "x": 1010,
+          "right": 1038,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "更新进度",
+          "x": 34,
+          "right": 122,
+          "width": 88,
+          "height": 32
+        },
+        {
+          "label": "移交协作",
+          "x": 128,
+          "right": 214,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "标记完成",
+          "x": 220,
+          "right": 306,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "讨论",
+          "x": 312,
+          "right": 374,
+          "width": 62,
+          "height": 32
+        },
+        {
+          "label": "更多操作",
+          "x": 1010,
+          "right": 1038,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "更新进度",
+          "x": 34,
+          "right": 122,
+          "width": 88,
+          "height": 32
+        },
+        {
+          "label": "移交协作",
+          "x": 128,
+          "right": 214,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "标记完成",
+          "x": 220,
+          "right": 306,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "讨论",
+          "x": 312,
+          "right": 374,
+          "width": 62,
+          "height": 32
+        },
+        {
+          "label": "更多操作",
+          "x": 1010,
+          "right": 1038,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "讨论",
+          "x": 34,
+          "right": 96,
+          "width": 62,
+          "height": 32
+        }
+      ]
+    }
+  },
+  {
+    "size": "desktop",
+    "pageErrors": [],
+    "requests": [
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-SECOND",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-SECOND",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-SECOND/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-COLLAB",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-COLLAB",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COLLAB/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COMPLETE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COMPLETE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-US-WORKITEM/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-US-WORKITEM",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks/PREVIEW-SAMPLE/sample-test",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      }
+    ],
+    "writesAllBlocked": true
+  },
+  {
+    "size": "mobile",
+    "name": "filters-detail-return",
+    "pass": true,
+    "evidence": {
+      "before": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high&status=in_progress",
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high&status=in_progress"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "all-filters-url-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E8%A3%85%E9%85%8D&priority=medium&status=in_progress&due=7d&role=primary&scope=preview"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "discussion-direct-return",
+    "pass": true,
+    "evidence": {
+      "before": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high",
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "keyboard-更新进度",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844
+      }
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "keyboard-移交协作",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844
+      }
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "keyboard-标记完成",
+    "pass": true,
+    "evidence": {
+      "route": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0",
+      "dialog": {
+        "x": 0,
+        "y": 0,
+        "width": 390,
+        "height": 844
+      }
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "settings-detail-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "collaborator-return",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?role=collaborator"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "completed-restrictions",
+    "pass": true,
+    "evidence": {
+      "controls": [
+        "",
+        "技术资料与任务详情"
+      ]
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "legacy-collaboration-workitems",
+    "pass": true,
+    "evidence": {
+      "checks": [
+        "checked",
+        "unchecked"
+      ]
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "sample-close-retains-filters",
+    "pass": true,
+    "evidence": {
+      "returned": "/rd-my-workspace?keyword=%E7%94%B5%E6%B1%A0&priority=high"
+    }
+  },
+  {
+    "size": "mobile",
+    "name": "workspace-layout",
+    "pass": true,
+    "evidence": {
+      "viewport": 390,
+      "page": 390,
+      "actions": [
+        {
+          "label": "更多操作",
+          "x": 332,
+          "right": 360,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "更新进度",
+          "x": 30,
+          "right": 118,
+          "width": 88,
+          "height": 32
+        },
+        {
+          "label": "移交协作",
+          "x": 124,
+          "right": 210,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "标记完成",
+          "x": 216,
+          "right": 302,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "讨论",
+          "x": 30,
+          "right": 92,
+          "width": 62,
+          "height": 32
+        },
+        {
+          "label": "更多操作",
+          "x": 332,
+          "right": 360,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "更新进度",
+          "x": 30,
+          "right": 118,
+          "width": 88,
+          "height": 32
+        },
+        {
+          "label": "移交协作",
+          "x": 124,
+          "right": 210,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "标记完成",
+          "x": 216,
+          "right": 302,
+          "width": 86,
+          "height": 32
+        },
+        {
+          "label": "讨论",
+          "x": 30,
+          "right": 92,
+          "width": 62,
+          "height": 32
+        },
+        {
+          "label": "更多操作",
+          "x": 332,
+          "right": 360,
+          "width": 28,
+          "height": 28
+        },
+        {
+          "label": "讨论",
+          "x": 30,
+          "right": 92,
+          "width": 62,
+          "height": 32
+        }
+      ]
+    }
+  },
+  {
+    "size": "mobile",
+    "pageErrors": [],
+    "requests": [
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-SECOND",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-SECOND",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-SECOND/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-ACTIVE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-ACTIVE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/merged-task-categories",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/production-task-syncs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-COLLAB",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-discussions/PREVIEW-RD-COLLAB",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/auth/avatars",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COLLAB/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COMPLETE/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COMPLETE",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-US-WORKITEM/read",
+        "method": "POST",
+        "status": 405
+      },
+      {
+        "path": "/api/research-development/audit-logs",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-progress-notes/PREVIEW-US-WORKITEM",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/people",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks/PREVIEW-SAMPLE/sample-test",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/chat/me/streak",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/workspace/combined",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/note-unread-summary",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/procurement/tasks",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/research-development/task-attachment-previews",
+        "method": "GET",
+        "status": 200
+      }
+    ],
+    "writesAllBlocked": true
+  },
+  {
+    "size": "reader",
+    "name": "permission-detail",
+    "pass": true,
+    "evidence": {
+      "text": "隔离验收 · 虚构研发数据 · 业务写入已禁用\n返回\n1 / 5\nPREVIEW-RD-ACTIVE\n电池安全测试与壳体配合验证\n进行中\n高优先\n任务描述\n\n本地虚构任务，用于核对工作台与详情职责分工，不连接真实业务。\n\n主题归属\n电池组件\n研发验收\n\n电源系统 / 电池组件 / 研发验收\n\n完成进度\n55%\n进行中\n截止与风险\n2026-10-20\n正常\n事实留痕\n1 条 · 0 个附件\n包含合并任务范围\n任务操作\n标记完成\n生成问题\n进展留痕\n1\n讨论\n操作记录\n1\n合并关系\n技术资料\n今天\n10-10\n进度更新\n研\n研发验收员\n研发成员\n55%\n09:00:00\n\n已完成尺寸初测，待复核密封测试结果。虚构进展记录。\n\n讨论\n留言\n最新进展依据\n查看进展留痕\n\n已完成尺寸初测，待复核密封测试结果。虚构进展记录。\n\n研发验收员 · 2026/10/10 09:00:00 · 0 个附件\n\n任务协作\n主责人\n研\n研发验收员\n协作人\n协\n协助工程师\n协助\n任务信息\n优先级\n高优先\n任务状态\n进行中\n开始日期\n2026-10-01\n任务类型\n研发验收\n子任务\n\n暂无子任务\n\nMateChat 任务助手\n问 MateChat\n检查结项资料"
+    }
+  },
+  {
+    "size": "reader",
+    "name": "procurement-action-hidden",
+    "pass": true,
+    "evidence": {
+      "menu": "查看任务\n任务设置\n申请放弃"
+    }
+  },
+  {
+    "size": "none",
+    "name": "permission-detail",
+    "pass": true,
+    "evidence": {
+      "text": "隔离验收 · 虚构研发数据 · 业务写入已禁用\n无法查看任务详情\n\n当前账号没有此工作区的任务访问权限。"
+    }
+  }
+]

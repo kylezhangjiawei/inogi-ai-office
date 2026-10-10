@@ -129,7 +129,7 @@ test("returning from a member-scoped task restores the selected cockpit member",
   assert.match(managementSource, /setActiveTab\(restoredTab\)/);
   assert.match(managementSource, /initialActivityActor=\{initialActivityActor\}/);
   assert.match(detailSource, /const procurementReturnPath = researchWorkspace \? procurementWorkspaceReturnPath\(location\.state\) : null/);
-  assert.match(detailSource, /const detailReturnPath = procurementReturnPath \?\? cockpitReturnPath/);
+  assert.match(detailSource, /const detailReturnPath = procurementReturnPath \?\? workspaceReturnPath \?\? cockpitReturnPath/);
   assert.match(detailSource, /onClick=\{\(\) => navigate\(detailReturnPath\)\}/);
 });
 

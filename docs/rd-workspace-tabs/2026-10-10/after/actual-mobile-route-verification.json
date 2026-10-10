@@ -1,0 +1,193 @@
+{
+  "checks": [
+    {
+      "name": "workbench discussion redirects to actual MobileRDCockpit",
+      "url": "http://127.0.0.1:5201/m/task/PREVIEW-RD-COLLAB?tab=conversation",
+      "visibleTab": {
+        "x": 159.1875,
+        "y": 67,
+        "width": 71.609375,
+        "height": 56
+      },
+      "pass": true
+    },
+    {
+      "name": "discussion return preserves role and filters",
+      "returned": "http://127.0.0.1:5201/rd-my-workspace?role=collaborator&keyword=%E5%AF%86%E5%B0%81&priority=medium&status=in_progress",
+      "pass": true
+    },
+    {
+      "name": "normal card opens actual mobile progress view",
+      "url": "http://127.0.0.1:5201/m/task/PREVIEW-RD-COLLAB",
+      "pass": true
+    },
+    {
+      "name": "normal detail return preserves role and filters",
+      "returned": "http://127.0.0.1:5201/rd-my-workspace?role=collaborator&keyword=%E5%AF%86%E5%B0%81&priority=medium&status=in_progress",
+      "pass": true
+    }
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "path": "/api/chat/me/streak",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/workspace/combined",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/procurement/tasks",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-attachment-previews",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/merged-task-categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/people",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-discussions/PREVIEW-RD-COLLAB",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/people",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/audit-logs",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/procurement/tasks",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-COLLAB",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COLLAB/read",
+      "method": "POST",
+      "status": 405
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/workspace/combined",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/procurement/tasks",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/merged-task-categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/people",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-discussions/PREVIEW-RD-COLLAB",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/audit-logs",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/people",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/procurement/tasks",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-progress-note-groups/PREVIEW-RD-COLLAB",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/task-progress-notes/PREVIEW-RD-COLLAB/read",
+      "method": "POST",
+      "status": 405
+    },
+    {
+      "path": "/api/auth/avatars",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/workspace/combined",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/research-development/note-unread-summary",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/procurement/tasks",
+      "method": "GET",
+      "status": 200
+    }
+  ]
+}

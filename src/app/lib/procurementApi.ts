@@ -306,6 +306,7 @@ export interface Q5PackagingInventoryData {
 }
 
 export interface InventoryReadinessResponse {
+  componentStocks?: ComponentInventory[];
   stockScope?: { kind: string; warehouses?: string[] }; stockReadAt?: string;
   stockRows?: { code: string; warehouse: string; available: number | null; syncedAt: string | null; unit: string }[];
   bomBasis?: { kind: 'draft' } | { kind: 'published'; revisionId: string; version: number; retiredAt: string | null };
@@ -651,6 +652,28 @@ export function getProcWorkspaceArrivalDates(refIds: readonly string[], signal?:
 
 export function generateProcStockPlanTasks(id: string): Promise<{plan: ProcStockPlan; createdCount: number; existingCount: number}> {
   return request(`/stock-plans/${encodeURIComponent(id)}/generate-tasks`, {method: "POST"});
+}
+
+export interface StockExecutionTask {
+  id: string; code: string; materialId: string | null; materialName: string; inventoryCode: string | null; unit: string; quantity: number;
+  status: string; stage: string; orderedQty: number | null; signedQty: number | null; inTransitQty: number | null;
+  orders: Array<{ orderNo: string; lineId: string | null; lineNo: string | null; orderedQty: number | null; signedQty: number | null; source: string; issues: string[]; erpReceivedQty: number | null }>;
+}
+export function getStockPlanExecution(id: string, signal?: AbortSignal): Promise<{ planId: string; tasks: StockExecutionTask[] }> {
+  return request(`/stock-plans/${encodeURIComponent(id)}/execution`, { signal });
+}
+export interface ComponentInventory {
+  materialId: string; materialName: string; code: string | null; unit: string; source: 'erp' | 'manual';
+  quantity: number | null; available: number | null; unavailable: number | null; countedAt: string | null;
+  updatedBy: string | null; note: string; version: number; issues: string[];
+}
+export async function listComponentInventory(materialIds: string[], signal?: AbortSignal): Promise<ComponentInventory[]> {
+  const ids = [...new Set(materialIds)];
+  const chunks = Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
+  return (await Promise.all(chunks.map(ids => request<ComponentInventory[]>(`/component-inventory?${new URLSearchParams({ materialIds: ids.join(',') })}`, { signal })))).flat();
+}
+export function saveComponentInventory(id: string, input: { source: 'erp' | 'manual'; quantity?: number; unavailable?: number; unit: string; countedAt?: string; note?: string; expectedVersion: number }): Promise<ComponentInventory> {
+  return request(`/component-inventory/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
 }
 
 export async function createProcStockPlan(input: ProcStockPlanInput): Promise<ProcStockPlan> {
@@ -1156,6 +1179,8 @@ export async function linkPurchaseOrder(
 }
 
 export interface PurchaseOrderLinkInput {
+  tpOrderId?: string;
+  tpLineNo?: string;
   /** 免费样品来货时留空，须同时置 isFreeSample。 */
   tpOrderNo?: string;
   isFreeSample?: boolean;

@@ -1,0 +1,109 @@
+{
+  "errors": [],
+  "checks": [
+    {
+      "name": "P00-four-metrics-two-charts-two-operational-panels",
+      "pass": true
+    },
+    {
+      "name": "01-desktop",
+      "viewport": 1440,
+      "document": 1440,
+      "main": 1176,
+      "mainWidth": 1176
+    },
+    {
+      "name": "keyboard-metric-definition",
+      "pass": true
+    },
+    {
+      "name": "02-desktop-lower",
+      "viewport": 1440,
+      "document": 1440,
+      "main": 1176,
+      "mainWidth": 1176
+    },
+    {
+      "name": "line-model-filter-original-task-link",
+      "pass": true
+    },
+    {
+      "name": "risk-pagination-original-ecn-link",
+      "pass": true
+    },
+    {
+      "name": "readiness-unknown-and-original-batch-link",
+      "pass": true
+    },
+    {
+      "name": "carryover-risk-filter",
+      "pass": true
+    },
+    {
+      "name": "quality-original-record-dialog",
+      "pass": true
+    },
+    {
+      "name": "03-laptop",
+      "viewport": 1366,
+      "document": 1366,
+      "main": 1102,
+      "mainWidth": 1102
+    },
+    {
+      "name": "03-laptop-lower",
+      "viewport": 1366,
+      "document": 1366,
+      "main": 1102,
+      "mainWidth": 1102
+    },
+    {
+      "name": "04-tablet",
+      "viewport": 1024,
+      "document": 1024,
+      "main": 760,
+      "mainWidth": 760
+    },
+    {
+      "name": "04-tablet-lower",
+      "viewport": 1024,
+      "document": 1024,
+      "main": 760,
+      "mainWidth": 760
+    },
+    {
+      "name": "05-mobile",
+      "viewport": 390,
+      "document": 390,
+      "main": 366,
+      "mainWidth": 366
+    },
+    {
+      "name": "05-mobile-lower",
+      "viewport": 390,
+      "document": 390,
+      "main": 366,
+      "mainWidth": 366
+    },
+    {
+      "name": "month-navigation-and-return",
+      "pass": true
+    },
+    {
+      "name": "overview-failure-preserves-risks-and-no-false-zero",
+      "pass": true
+    },
+    {
+      "name": "assigned-scope-does-not-claim-no-shipments",
+      "pass": true
+    },
+    {
+      "name": "older-api-missing-projection-is-not-zero",
+      "pass": true
+    },
+    {
+      "name": "genuine-empty-state",
+      "pass": true
+    }
+  ]
+}

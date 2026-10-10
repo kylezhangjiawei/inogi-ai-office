@@ -52,6 +52,8 @@ import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
 import { DEFAULT_PROCUREMENT_PRODUCT_ID, useProcurementProducts } from "../data";
 import { ProcurementModuleDetail } from "./ProcurementModuleDetail";
+import { ComponentInventoryValue } from "./ComponentInventory";
+import { listComponentInventory, type ComponentInventory } from "../../lib/procurementApi";
 import {
   createProcTaskTreeNode,
   deleteProcTaskTreeNode,
@@ -120,7 +122,6 @@ const NODE_HEALTH_STYLE: Record<NodeHealth, { label: string; dot: string; badge:
   },
 };
 
-const STOCK_QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
 
 function getNodeMetrics(node: ProcTaskTreeNode, tasksById: Map<string, ProcurementTask>) {
   const nodeTasks = node.taskIds.flatMap((id) => {
@@ -168,25 +169,6 @@ function getTaskDescription(task: ProcurementTask) {
   return [task.materialName, detail].filter(Boolean).join(" · ");
 }
 
-function getNodeInventory(node: ProcTaskTreeNode, materialsById: Map<string, Material>) {
-  const materialIds = new Set<string>();
-  const collectMaterialIds = (current: ProcTaskTreeNode) => {
-    if (current.materialId) materialIds.add(current.materialId);
-    current.children.forEach(collectMaterialIds);
-  };
-  collectMaterialIds(node);
-
-  let stockQty = 0;
-  materialIds.forEach((materialId) => {
-    stockQty += materialsById.get(materialId)?.stockQty ?? 0;
-  });
-  return stockQty;
-}
-
-function formatStockQuantity(value: number) {
-  return STOCK_QUANTITY_FORMATTER.format(value);
-}
-
 function PanoramaNodeCard({
   isRoot,
   isSelected,
@@ -197,7 +179,8 @@ function PanoramaNodeCard({
   onDelete,
   onEdit,
   onSelect,
-  materialsById,
+  stock,
+  stockError,
 }: {
   isRoot: boolean;
   isSelected: boolean;
@@ -208,12 +191,12 @@ function PanoramaNodeCard({
   onDelete?: () => void;
   onEdit?: () => void;
   onSelect: () => void;
-  materialsById: Map<string, Material>;
+  stock?: ComponentInventory;
+  stockError?: string;
 }) {
   const { t } = useI18n();
   const health = NODE_HEALTH_STYLE[metrics.health];
   const locked = node.taskCount > 0;
-  const stockQty = getNodeInventory(node, materialsById);
   const isIdle = metrics.total === 0;
 
   return (
@@ -256,11 +239,6 @@ function PanoramaNodeCard({
 
         {isIdle ? (
           <span className="mt-auto flex w-full flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-            <span className="flex items-center gap-2 text-xs text-slate-500">
-              <Package className="size-3.5 text-muted-foreground" />
-              {t("库存")}
-              <strong className="font-semibold tabular-nums text-slate-800">{formatStockQuantity(stockQty)}</strong>
-            </span>
             <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">{t(isRoot ? "查看名称节点" : "查看模块")}<ChevronRight aria-hidden="true" className="size-3.5" /></span>
           </span>
         ) : (
@@ -276,11 +254,6 @@ function PanoramaNodeCard({
                     {metrics.overdue}
                   </span>
                 )}
-                <span className="inline-flex items-center gap-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
-                  <Package className="size-3 text-muted-foreground" />
-                  <span>{t("库存")}</span>
-                  <strong className="font-semibold tabular-nums text-slate-700">{formatStockQuantity(stockQty)}</strong>
-                </span>
               </span>
             </span>
 
@@ -311,6 +284,8 @@ function PanoramaNodeCard({
           </>
         )}
       </Button>
+
+      <div className="border-t border-slate-100 px-4 py-2 text-slate-600"><ComponentInventoryValue stock={stock} error={stockError} grouped={isRoot} /></div>
 
       {manageMode && (
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
@@ -378,6 +353,17 @@ export function ProcurementSystemTree({
   const canDelete = usePermission("proc-task:delete");
   const canManage = canEdit || canDelete;
   const [roots, setRoots] = useState<ProcTaskTreeNode[]>([]);
+  const [componentStocks, setComponentStocks] = useState<ComponentInventory[]>([]);
+  const [stockError, setStockError] = useState('');
+  const [stockRevision, setStockRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const collect = (nodes: ProcTaskTreeNode[]): string[] => nodes.flatMap(node => [...(node.materialId ? [node.materialId] : []), ...collect(node.children)]);
+    setComponentStocks([]); setStockError('');
+    void listComponentInventory(collect(roots), controller.signal).then(rows => { if (!controller.signal.aborted) setComponentStocks(rows); })
+      .catch(error => { if (!controller.signal.aborted) setStockError(error instanceof Error ? error.message : '组件库存读取失败'); });
+    return () => controller.abort();
+  }, [roots, stockRevision]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
@@ -450,10 +436,6 @@ export function ProcurementSystemTree({
   const tasksById = useMemo(
     () => new Map(tasks.filter((task) => task.productId === activeProductId).map((task) => [task.id, task])),
     [activeProductId, tasks],
-  );
-  const materialsById = useMemo(
-    () => new Map(materials.map((material) => [material.id, material])),
-    [materials],
   );
   const visibleRoots = useMemo(() => {
     if (!normalizedKeyword) return roots;
@@ -568,6 +550,9 @@ export function ProcurementSystemTree({
           parentName={detailParent?.name}
           productName={activeProduct?.name ?? activeProductId}
           tasks={tasks}
+          componentStock={componentStocks.find(stock => stock.materialId === detailNode.materialId)}
+          stockError={stockError}
+          onStockSaved={() => setStockRevision(version => version + 1)}
           onBack={() => onCloseModule?.()}
         />
       );
@@ -859,7 +844,8 @@ export function ProcurementSystemTree({
                   isRoot={!activeRoot}
                   isSelected={selected?.id === node.id}
                   manageMode={canManage && manageMode}
-                  materialsById={materialsById}
+                  stock={componentStocks.find(stock => stock.materialId === node.materialId)}
+                  stockError={stockError}
                   onSelect={() => selectNode(node)}
                   onAddChild={canEdit && !activeRoot ? () => setEditor({ mode: "add-child", parent: node }) : undefined}
                   onEdit={canEdit ? () => node.taskCount === 0 && setEditor({ mode: "edit", node }) : undefined}

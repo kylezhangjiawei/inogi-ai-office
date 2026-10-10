@@ -56,14 +56,14 @@ const DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "
 const PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");
 const ManualPage = lazyNamed(() => import("./ManualPage"), "ManualPage");
 const ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage");
-const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");
+const EBPRPage = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionBatchRecordEntry");
 const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");
 const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");
 const ApplicantFormsPage = lazyNamed(() => import("./ApplicantFormsPage"), "ApplicantFormsPage");
 const PublicApplicantFormPage = lazyNamed(() => import("./applicant-forms/PublicApplicantFormPage"), "PublicApplicantFormPage");
 const ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");
 const ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");
-const InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");
+const InspectionReleasePage = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionInspectionEntry");
 const InquiryPage = lazyNamed(() => import("./InquiryPage"), "InquiryPage");
 const MailboxManagementPage = lazyNamed(() => import("./MailboxManagementPage"), "MailboxManagementPage");
 const MeetingMinutes = lazyNamed(() => import("./MeetingMinutes"), "MeetingMinutes");
@@ -149,7 +149,7 @@ const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcP
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
-const QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");
+const QATraceability = lazyNamed(() => import("./production/execution/ProductionModuleEntry"), "ProductionTraceabilityEntry");
 const AttendancePage = lazyNamed(() => import("./AttendancePage"), "AttendancePage");
 const RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");
 const RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");
@@ -358,7 +358,7 @@ function ResponsiveMobileLayout() {
       location.search,
       location.hash,
     );
-    return <Navigate to={desktopTarget} replace />;
+    return <Navigate to={desktopTarget} replace state={location.state} />;
   }
 
   return <MobileLayout />;
@@ -402,6 +402,9 @@ function ProtectedLayout() {
     || location.pathname === subRoutePath("page:proc-materials", "/proc-materials", "bom")
     || location.pathname === routePath("page:proc-key-materials", "/proc-key-materials")
     || location.pathname === routePath("page:production-execution", "/production-execution")
+    || location.pathname === routePath("page:ebpr", "/ebpr")
+    || location.pathname === routePath("page:inspection-release", "/inspection-release")
+    || location.pathname === routePath("page:qa-traceability", "/qa-traceability")
     || location.pathname === "/production-dashboard"
     || location.pathname === "/rd-director-dashboard"
     || location.pathname === routePath("page:warehouse-flow", "/warehouse-flow")
@@ -417,6 +420,9 @@ function ProtectedLayout() {
   if (isMobile && location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace") && sampleTestId) {
     return makeLazyProtected(<MobileProcSampleTestPage key={`${user.id}:${sampleTestId}`} taskId={sampleTestId} />, "page:rd-my-workspace");
   }
+
+  // 个人工作台已有窄屏布局；保留快捷操作和详情返回的筛选，样品测试仍优先使用专用页。
+  if (location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace")) return <Root />;
 
   // L2 自动跳：移动视口直接进入移动只读视图。
   // 已移除「切换到电脑版」偏好开关——领导用手机即看移动版；如需桌面版改用宽屏访问。
@@ -444,7 +450,7 @@ function ProtectedLayout() {
         : location.pathname === routePath("page:chat-analytics", "/chat-analytics")
           ? `/m${routePath("page:chat-analytics", "/chat-analytics")}${suffix}`
           : `${workspaceMobileBase}${suffix}`;
-    return <Navigate to={target} replace />;
+    return <Navigate to={target} replace state={location.state} />;
   }
 
   return <Root />;

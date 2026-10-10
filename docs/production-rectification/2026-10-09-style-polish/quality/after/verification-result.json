@@ -1,0 +1,41 @@
+{
+  "checkedAt": "2026-10-09T17:19:03.9626812+08:00",
+  "viewports": [
+    "1586x992",
+    "390x844"
+  ],
+  "baseline": "baseline/",
+  "screenshots": "after/",
+  "browser": {
+    "states": 28,
+    "pageErrors": 0,
+    "writeRequests": 0,
+    "horizontalOverflow": 0,
+    "oneFileInputInActiveForm": true,
+    "uploadButtonOpensFileChooserWithoutSubmitting": true,
+    "receiptAndQualityDiscardButtonsBlue": true,
+    "returnActionsBlue": true,
+    "floatingThemeChecks": 4,
+    "minimumMobileThemedControlHeight": 40,
+    "returnDialogThemeOnlyForReturnWorkspace": true
+  },
+  "tests": {
+    "total": 91,
+    "passed": 91,
+    "failed": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "exitCode": 0,
+    "phase": "91 checks passed before final className integration; not rerun per scoped validation instruction"
+  },
+  "typecheckExitCode": 0,
+  "diffCheckExitCode": 0,
+  "sourceFiles": [
+    "src/app/order-processing/components/PurchaseReceiptDrawer.tsx",
+    "src/app/procurement/warehouse-flow/WarehouseReturnWorkspace.tsx",
+    "src/app/procurement/quality/QualityAnalysisDialog.tsx",
+    "src/app/procurement/quality/QualityRecordsPanel.tsx",
+    "src/app/procurement/WarehouseRecordsPanel.tsx"
+  ],
+  "noDatabaseOrErpWrites": true
+}

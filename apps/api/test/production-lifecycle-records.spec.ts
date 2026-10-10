@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ProductionLifecycleService, lifecycleKey, productionBasis } from '../src/modules/procurement/production-lifecycle.service';
-import { activeVersionRanges, versionRangeValues } from '../src/modules/procurement/production-lifecycle-records';
+import { activeVersionRanges, documentOptions, versionRangeValues } from '../src/modules/procurement/production-lifecycle-records';
 import { executionToday, type ExecutionPlan } from '../src/modules/procurement/production-execution.model';
 
 const today = executionToday(), author = { id: 'author', name: '编制', permissions: ['*'] }, checker = { id: 'checker', name: '验证', permissions: ['*'] }, worker = { id: 'worker', name: '现场', permissions: ['page:production-execution'] }, stranger = { ...worker, id: 'stranger' };
@@ -62,6 +62,17 @@ test('旧自由文字历史保持可读，但不能新发布；探索记录仍�
   await assert.rejects(f.command('publish-transfer', { id: 'old' }), /受控文件/);
   await f.command('transfer', { type: 'exploration', code: 'EXP', sampleTaskId: 'sample', roundId: 'round', sop: '不适用，探索', sip: '不适用，探索', drawing: '试制图' });
   await assert.rejects(f.command('validate-transfer', { id: f.read().transfers[1].id, documentsChecked: true, productionValidated: true }, checker), /探索/);
+});
+
+test('受控资料日期来自正式版本，历史缺失保持未知，客户端日期不成为派工依据', async () => {
+  const f = fixture();
+  Object.assign(f.versions[0], { createdAt: new Date('2026-09-28T02:00:00Z') });
+  const options = await documentOptions(f.db as never, f.sample.metadata);
+  assert.equal(options[0].createdAt, '2026-09-28T02:00:00.000Z');
+  assert.equal(options[1].createdAt, undefined);
+  await f.command('transfer', { type: 'validation', code: 'TP-DATE', sampleTaskId: 'sample', roundId: 'round', documents: f.documents.map(row => ({ ...row, createdAt: '2099-01-01T00:00:00Z' })) });
+  assert.equal(f.read().transfers[0].documents[0].createdAt, options[0].createdAt);
+  assert.equal(f.read().transfers[0].documents[1].createdAt, undefined);
 });
 
 test('ECN执行反馈按原编号处理，校验经办/权限/期限，未解决阻止新派工；已读不等于解决', async () => {

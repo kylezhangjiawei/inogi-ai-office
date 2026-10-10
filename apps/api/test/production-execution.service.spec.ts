@@ -148,6 +148,27 @@ test('F07 同报工不能重建现场异常，超件数、跨作业批号/附件
   assert.equal((await f.current()).tasks[0].fieldIssues[0].materialBatches[0].batchNo,null);
   await assert.rejects(f.command('field-issue',f.data),/已有现场异常/);assert.equal(f.qualities.size,1);
 });
+test('现场原因与跨部门建议沿原异常留存，不能冒充已认定或正式协同，负责人办理后才转交',async()=>{
+  const f=await fieldPrepared();
+  const request={department:'研发部',ownerId:'worker-2',ownerName:'伪造姓名'};
+  await assert.rejects(f.command('field-issue',{...f.data,initialCause:'invalid'}),/初步原因/);
+  await assert.rejects(f.command('field-issue',{...f.data,requestedCollaboration:{...request,department:'质量部'}}),/部门已变化/);
+  await assert.rejects(f.command('field-issue',{...f.data,requestedCollaboration:{...request,ownerId:'missing'}}),/建议接收人/);
+  assert.equal(f.qualities.size,0);
+  await f.command('field-issue',{...f.data,initialCause:'software',requestedCollaboration:request});
+  const field=(await f.current()).tasks[0].fieldIssues[0];
+  assert.equal(field.initialCause,'software');assert.deepEqual(field.requestedCollaboration,{department:'研发部',ownerId:'worker-2',ownerName:'另一现场人'});
+  assert.equal(field.quality!.status,'open');assert.equal(field.quality!.analysis!.state,'pending');assert.equal(field.quality!.analysis!.category,'unknown');
+  assert.equal(f.state.has(`${EXECUTION_PREFIX}collaboration:${field.qualityId}`),false);
+  const input={qualityId:field.qualityId,baseUpdatedAt:field.quality!.updatedAt,ownerId:'worker-2',department:'研发部',priority:'high',dueDate:'2099-09-30',requiredInfo:'软件复核',verificationPlan:'原批次验证',reason:'负责人初判后转交'};
+  await assert.rejects(f.command('assign-quality',input,{id:'worker',name:'现场',permissions:['page:production-execution','proc-production:report']}),/权限/);
+  const manager={...actor,permissions:[...actor.permissions,'proc-quality:manage']};
+  await assert.rejects(f.command('assign-quality',{...input,department:'其他部门'},manager),/部门已变化/);
+  await assert.rejects(f.command('assign-quality',{...input,priority:'invalid'},manager),/优先级/);
+  await f.command('assign-quality',input,manager);
+  const assigned=(await f.current()).tasks[0].fieldIssues[0].quality!.collaboration;
+  assert.equal(assigned.department,'研发部');assert.equal(assigned.priority,'high');assert.equal(assigned.ownerId,'worker-2');assert.equal(assigned.phase,'waiting_reply');assert.equal(f.qualities.size,1);
+});
 test('F07 原现场异常必须经QC衔接才复验，质检数量不一致及跨报工ID不能绑错异常',async()=>{
   const f=await fieldPrepared();await f.command('field-issue',f.data);
   let field=(await f.current()).tasks[0].fieldIssues[0];
@@ -201,7 +222,7 @@ function fixture() {
       updateMany: async ({ where, data }: any) => { const row = state.get(where.key); if (!row || row.value !== where.value) return { count: 0 }; state.set(where.key, { ...row, ...data }); return { count: 1 }; },
     },
     procTaskTreeNode: { findMany: async ({ where }: any) => where.productId === 'product' ? [{ id: 'root', name: '制氧机', parentId: null, productId: 'product' }] : [{ id: 'other-root', name: '其他设备', parentId: null, productId: where.productId }], findFirst: async () => ({ id: 'root', name: '制氧机' }), findUnique: async ({ where }: any) => where.id === 'subsystem' ? { id: 'subsystem', parentId: 'root', productId: 'product' } : where.id === 'root' ? { id: 'root', parentId: null, productId: 'product' } : null },
-    user: { findFirst: async ({ where }: any) => ['worker', 'worker-2'].includes(where.id) ? { id: where.id, name: where.id === 'worker' ? '现场人' : '另一现场人', role: { permissions: ['page:production-execution', 'proc-production:report', 'proc-quality:collaborate'] } } : null },
+    user: { findFirst: async ({ where }: any) => ['worker', 'worker-2'].includes(where.id) ? { id: where.id, name: where.id === 'worker' ? '现场人' : '另一现场人', department: where.id === 'worker' ? '生产部' : '研发部', role: { permissions: ['page:production-execution', 'proc-production:report', 'proc-quality:collaborate'] } } : null },
     fileAsset: { findMany: async ({ where }: any) => where.id.in.includes('evidence-1') ? [{ id: 'evidence-1', uploadedBy: 'planner', businessType: 'assets', status: 'active', fileName: '现场照片.png', mimeType: 'image/png', fileSize: 100 }] : [] },
     procInventoryBalance: { findUnique: async () => ({ availableQty: new Prisma.Decimal(10000), unit: '件', syncedAt: new Date('2026-09-01') }) },
     procQualityRecord: {

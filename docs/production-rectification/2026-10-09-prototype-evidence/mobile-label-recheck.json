@@ -1,0 +1,12 @@
+{
+  "checks": [
+    {
+      "name": "P05-mobile-selected-label-visible",
+      "pass": true
+    },
+    {
+      "name": "P10-mobile-selected-label-visible",
+      "pass": true
+    }
+  ]
+}

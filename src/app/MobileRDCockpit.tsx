@@ -10,6 +10,8 @@ import { t, useI18n } from "./lib/i18n";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import { daysUntilDue } from "./lib/taskDue";
 import { memberIdentityKey } from "./lib/rdMemberIdentity";
+import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
+import { rdWorkspaceReturnPath } from "./lib/rdWorkspaceNavigation";
 import {
   fetchRdNoteUnreadSummary,
   currentRdWorkspace,
@@ -486,6 +488,14 @@ export function MobileRDCockpit() {
   const { taskId: routeTaskId } = useParams<{ taskId: string }>();
   const { categories, loading, error, reload, risks, allTasks, personLoads } = useRDCockpitData();
   const workspaceBase = mobileWorkspaceBase(location.pathname);
+  const procurementReturnPath = workspaceBase === "/m" ? procurementWorkspaceReturnPath(location.state) : null;
+  const workspaceReturnPath = workspaceBase === "/m" ? rdWorkspaceReturnPath(location.state) : null;
+  const detailReturnPath = procurementReturnPath ?? workspaceReturnPath ?? workspaceBase;
+  const detailReturnLabel = procurementReturnPath ? t("返回采购工作台") : workspaceReturnPath ? t("返回工作台") : t("返回驾驶舱");
+  const taskReturnState = useMemo(() => procurementReturnPath || workspaceReturnPath ? {
+    ...(procurementReturnPath ? { procurementWorkspaceReturn: procurementReturnPath } : {}),
+    ...(workspaceReturnPath ? { rdWorkspaceReturn: workspaceReturnPath } : {}),
+  } : undefined, [procurementReturnPath, workspaceReturnPath]);
   const workspaceMeta = workspaceBase === "/us-collab-m"
     ? {
         eyebrow: t("中美协同工作区"),
@@ -638,7 +648,7 @@ export function MobileRDCockpit() {
   }, [filteredTasks.length]);
 
   const dismissLightbox = useCallback(() => setLightbox(null), []);
-  const closeActiveTask = useCallback(() => navigate(workspaceBase), [navigate, workspaceBase]);
+  const closeActiveTask = useCallback(() => navigate(detailReturnPath), [detailReturnPath, navigate]);
   useMobileOverlayBack(Boolean(lightbox), CARD_IMAGE_OVERLAY, dismissLightbox);
 
   const shownTasks = filteredTasks.slice(0, visible);
@@ -690,18 +700,18 @@ export function MobileRDCockpit() {
 
   const openTask = useCallback((task: RdTask) => {
     void reload();
-    navigate(`${workspaceBase}/task/${encodeURIComponent(task.task_id)}`);
+    navigate(`${workspaceBase}/task/${encodeURIComponent(task.task_id)}`, { state: taskReturnState });
     // Formal progress is displayed for the full relation group. The API marks
     // that same group read; discussion threads retain their own read receipts.
     void markRdTaskNotesRead(task.task_id)
       .catch(() => {})
       .finally(() => { void refreshNoteUnread(); });
-  }, [navigate, refreshNoteUnread, reload, workspaceBase]);
+  }, [navigate, refreshNoteUnread, reload, taskReturnState, workspaceBase]);
 
   const openTaskById = useCallback((taskId: string) => {
     void reload();
-    navigate(`${workspaceBase}/task/${encodeURIComponent(taskId)}`);
-  }, [navigate, reload, workspaceBase]);
+    navigate(`${workspaceBase}/task/${encodeURIComponent(taskId)}${workspaceBase === "/m" ? location.search : ""}`, { state: taskReturnState });
+  }, [location.search, navigate, reload, taskReturnState, workspaceBase]);
 
   // 首屏加载 / 错误（仅当还没有任何数据时占满）
   if (loading && allTasks.length === 0) {
@@ -956,12 +966,13 @@ export function MobileRDCockpit() {
           key={activeTask.task_id}
           isRisk={riskTaskIds.has(activeTask.task_id)}
           onClose={closeActiveTask}
+          returnLabel={detailReturnLabel}
           onOpenTask={openTaskById}
           onDiscussionActivity={handleDiscussionActivity}
         />
       )}
       {routeTaskId && !activeTask && !loading && (
-        <MissingTaskDialog taskId={routeTaskId} onClose={closeActiveTask} />
+        <MissingTaskDialog taskId={routeTaskId} onClose={closeActiveTask} returnLabel={detailReturnLabel} />
       )}
 
       {/* ── 封面缩略图点击放大 —— 页面级灯箱（层级高于详情）── */}
@@ -980,7 +991,7 @@ export function MobileRDCockpit() {
   );
 }
 
-function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+function MissingTaskDialog({ taskId, onClose, returnLabel }: { taskId: string; onClose: () => void; returnLabel: string }) {
   useBodyScrollLock(true);
   const dialogRef = useModalFocus<HTMLDivElement>(true, onClose);
 
@@ -1009,7 +1020,7 @@ function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () =>
         data-dialog-autofocus
         className="inline-flex min-h-11 items-center justify-center rounded-xl px-6 text-sm font-semibold active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
-        {t("返回驾驶舱")}
+        {returnLabel}
       </Button>
     </div>
   );
@@ -1020,15 +1031,18 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   task,
   isRisk,
   onClose,
+  returnLabel,
   onOpenTask,
   onDiscussionActivity,
 }: {
   task: RdTask;
   isRisk: boolean;
   onClose: () => void;
+  returnLabel: string;
   onOpenTask: (taskId: string) => void;
   onDiscussionActivity?: () => void;
 }) {
+  const location = useLocation();
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
   const technicalDocumentsEnabled = currentRdWorkspace() === null;
   const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
@@ -1036,7 +1050,10 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const noteRequestRef = useRef<AbortController | null>(null);
-  const [detailTab, setDetailTab] = useState<"overview" | "progress" | "conversation" | "attachments" | "activity">("progress");
+  const [detailTab, setDetailTab] = useState<"overview" | "progress" | "conversation" | "attachments" | "activity">(() => technicalDocumentsEnabled && new URLSearchParams(location.search).get("tab") === "conversation" ? "conversation" : "progress");
+  useEffect(() => {
+    if (technicalDocumentsEnabled) setDetailTab(new URLSearchParams(location.search).get("tab") === "conversation" ? "conversation" : "progress");
+  }, [location.search, task.task_id, technicalDocumentsEnabled]);
   const allTaskAuditLogs = useAuditLogs({ resourceType: "task" });
   const { task: procurementTask } = useProcurementTaskLink(task.task_id);
   const dialogRef = useModalFocus<HTMLDivElement>(true, onClose);
@@ -1125,7 +1142,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
         <Button variant="unstyled"
           type="button"
           onClick={onClose}
-          aria-label="返回"
+          aria-label={returnLabel}
           data-dialog-autofocus
           className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-accent active:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >

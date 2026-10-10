@@ -1,0 +1,729 @@
+{
+  "origin": "http://127.0.0.1:5198",
+  "fixtureOnly": true,
+  "errors": [],
+  "blockedExternal": [],
+  "interceptedWrites": [
+    {
+      "method": "POST",
+      "path": "/api/procurement/production-execution/plan-a/commands",
+      "body": {
+        "action": "field-issue",
+        "version": 1,
+        "requestId": "5a564e55-1b71-493c-b5fb-21b97460b859",
+        "data": {
+          "taskId": "task-valve",
+          "reportId": "report-valve",
+          "defectiveQty": 6,
+          "issue": "外观不良",
+          "initialCause": "software",
+          "requestedCollaboration": {
+            "department": "质量部",
+            "ownerId": "preview-quality"
+          },
+          "reason": "隔离验收：阀体表面划伤，建议质量协助。",
+          "phenomena": [
+            {
+              "name": "外观不良",
+              "count": 1
+            }
+          ],
+          "fileIds": [],
+          "materialBatches": [
+            {
+              "code": "VAL-310",
+              "batchNo": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/procurement/production-execution/plan-a/commands",
+      "body": {
+        "action": "field-issue",
+        "version": 1,
+        "requestId": "8cdaddd6-55cb-41af-a1d4-ff6b699d6758",
+        "data": {
+          "taskId": "task-valve",
+          "reportId": "report-valve",
+          "defectiveQty": 6,
+          "issue": "外观不良",
+          "initialCause": "software",
+          "requestedCollaboration": {
+            "department": "质量部",
+            "ownerId": "preview-quality"
+          },
+          "reason": "隔离验收：阀体表面划伤，建议质量协助。",
+          "phenomena": [
+            {
+              "name": "外观不良",
+              "count": 1
+            }
+          ],
+          "fileIds": [],
+          "materialBatches": [
+            {
+              "code": "VAL-310",
+              "batchNo": null
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "quality-verify-mobile-flow",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "现场提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 466.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人初判",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 466.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同处置",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 518.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "4独立复验",
+          "current": "step",
+          "state": "current",
+          "x": 199,
+          "y": 518.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": null,
+          "state": "pending",
+          "x": 24,
+          "y": 570.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-verify-390.png"
+    },
+    {
+      "name": "quality-verify-mobile-flow",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "现场提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 466.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人初判",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 466.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同处置",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 518.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "4独立复验",
+          "current": "step",
+          "state": "current",
+          "x": 164,
+          "y": 518.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": null,
+          "state": "pending",
+          "x": 24,
+          "y": 570.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-verify-320.png"
+    },
+    {
+      "name": "quality-closed-mobile-flow",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "现场提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 466.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人初判",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 466.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同处置",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 518.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "独立复验",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 518.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": "step",
+          "state": "current",
+          "x": 24,
+          "y": 570.984375,
+          "width": 167,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-closed-390.png"
+    },
+    {
+      "name": "quality-closed-mobile-flow",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "现场提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 466.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人初判",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 466.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同处置",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 518.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "独立复验",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 518.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": "step",
+          "state": "current",
+          "x": 24,
+          "y": 570.984375,
+          "width": 132,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-closed-320.png"
+    },
+    {
+      "name": "collaboration-verify-mobile-flow",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "生产提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 488.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人分派",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 488.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同回复",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 540.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "4独立复验",
+          "current": "step",
+          "state": "current",
+          "x": 199,
+          "y": 540.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": null,
+          "state": "pending",
+          "x": 24,
+          "y": 592.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-verify-390.png"
+    },
+    {
+      "name": "collaboration-verify-mobile-flow",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "生产提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 488.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人分派",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 488.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同回复",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 540.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "4独立复验",
+          "current": "step",
+          "state": "current",
+          "x": 164,
+          "y": 540.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": null,
+          "state": "pending",
+          "x": 24,
+          "y": 592.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-verify-320.png"
+    },
+    {
+      "name": "collaboration-closed-mobile-flow",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "生产提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 488.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人分派",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 488.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同回复",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 540.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "独立复验",
+          "current": null,
+          "state": "complete",
+          "x": 199,
+          "y": 540.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": "step",
+          "state": "current",
+          "x": 24,
+          "y": 592.421875,
+          "width": 167,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-closed-390.png"
+    },
+    {
+      "name": "collaboration-closed-mobile-flow",
+      "viewport": {
+        "width": 320,
+        "height": 844
+      },
+      "pass": true,
+      "steps": [
+        {
+          "text": "生产提报",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 488.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "负责人分派",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 488.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "协同回复",
+          "current": null,
+          "state": "complete",
+          "x": 24,
+          "y": 540.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "独立复验",
+          "current": null,
+          "state": "complete",
+          "x": 164,
+          "y": 540.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgba(0, 0, 0, 0)",
+          "shadow": "none",
+          "visible": true
+        },
+        {
+          "text": "5确认关闭",
+          "current": "step",
+          "state": "current",
+          "x": 24,
+          "y": 592.421875,
+          "width": 132,
+          "height": 44,
+          "background": "rgb(237, 244, 255)",
+          "shadow": "rgb(156, 188, 251) 0px 0px 0px 1px inset",
+          "visible": true
+        }
+      ],
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-closed-320.png"
+    },
+    {
+      "name": "P06-ECN-opens-original-record",
+      "pass": true,
+      "url": "http://127.0.0.1:5198/production-execution?plan=plan-a&view=ecn&allKind=ecn&record=ecn-preview&recordType=ecn",
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-ECN-original.png"
+    },
+    {
+      "name": "P06-transfer-validation-opens-original-record",
+      "pass": true,
+      "url": "http://127.0.0.1:5198/production-execution?plan=plan-a&view=transfer&allKind=transfer&record=preview-plan-a-package-draft&recordType=transfer",
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-transfer-validate.png"
+    },
+    {
+      "name": "P06-transfer-publication-opens-original-record",
+      "pass": true,
+      "url": "http://127.0.0.1:5198/production-execution?plan=plan-a&view=transfer&allKind=transfer&allSelected=transfer%2Fqa-ready-package&record=qa-ready-package&recordType=transfer",
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-transfer-publish.png"
+    },
+    {
+      "name": "P02-department-change-clears-recipient-and-submits-suggestion",
+      "pass": true,
+      "before": "李晨",
+      "cleared": "请选择接收人",
+      "localErrorClearedAfterCorrection": true,
+      "payload": {
+        "action": "field-issue",
+        "version": 1,
+        "requestId": "8cdaddd6-55cb-41af-a1d4-ff6b699d6758",
+        "data": {
+          "taskId": "task-valve",
+          "reportId": "report-valve",
+          "defectiveQty": 6,
+          "issue": "外观不良",
+          "initialCause": "software",
+          "requestedCollaboration": {
+            "department": "质量部",
+            "ownerId": "preview-quality"
+          },
+          "reason": "隔离验收：阀体表面划伤，建议质量协助。",
+          "phenomena": [
+            {
+              "name": "外观不良",
+              "count": 1
+            }
+          ],
+          "fileIds": [],
+          "materialBatches": [
+            {
+              "code": "VAL-310",
+              "batchNo": null
+            }
+          ]
+        }
+      },
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P02-collaboration-selection.png"
+    },
+    {
+      "name": "P05-field-only-quality-in-batch-archive",
+      "pass": true,
+      "qualityId": "qa-field-only-virtual",
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P05-field-only-quality.png"
+    },
+    {
+      "name": "P05-field-event-version-range-and-plan-history",
+      "pass": true,
+      "screenshot": "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P05-complete-batch-history.png"
+    }
+  ],
+  "screenshots": [
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-verify-390.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-verify-320.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-closed-390.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P08-closed-320.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-verify-390.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-verify-320.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-closed-390.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P04-closed-320.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P02-collaboration-selection.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-ECN-original.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-transfer-validate.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P06-transfer-publish.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P05-field-only-quality.png",
+    "docs\\production-rectification\\2026-10-09-prototype-evidence\\deep-interactions\\P05-complete-batch-history.png"
+  ]
+}

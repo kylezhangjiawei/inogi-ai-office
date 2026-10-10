@@ -1,0 +1,38 @@
+{
+  "errors": [],
+  "writes": [],
+  "checks": [
+    {
+      "page": "S11",
+      "width": 390,
+      "geometry": {
+        "left": 53,
+        "right": 337,
+        "width": 390,
+        "bodyWidth": 390
+      },
+      "detailTop": 16.28125,
+      "selection": "RET-PREVIEW-03",
+      "focused": true
+    },
+    {
+      "page": "S11",
+      "width": 320,
+      "geometry": {
+        "left": 53,
+        "right": 267,
+        "width": 320,
+        "bodyWidth": 320
+      },
+      "detailTop": 16.484375,
+      "selection": "RET-PREVIEW-03",
+      "focused": true
+    },
+    {
+      "page": "S10",
+      "width": 390,
+      "supplierSourceReadOnly": true,
+      "receiptInputs": 2
+    }
+  ]
+}

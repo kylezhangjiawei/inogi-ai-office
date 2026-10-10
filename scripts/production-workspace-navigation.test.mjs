@@ -22,6 +22,7 @@ function component(path, query) {
   const module = compile(path, name => {
     if (name === 'react/jsx-runtime') return { jsx: element, jsxs: element, Fragment: 'Fragment' };
     if (name === 'react-router') return { Link: 'Link', useSearchParams: () => [params, update => { params = typeof update === 'function' ? update(params) : update; }] };
+    if (name === '../../auth') return { useAuth: () => ({ user: { id: 'owner' } }) };
     if (name === 'lucide-react') return { ArrowLeft: 'ArrowLeft' };
     if (name.includes('productionViewState')) return state;
     if (name.includes('productionInspectionModel')) return inspections;
@@ -32,6 +33,54 @@ function component(path, query) {
 }
 const plan = { id: 'plan-1', month: '2026-09', productName: '制氧机', productLine: 'Q7', batches: [{ id: 'b1', code: '九月首批', dueDate: '2026-09-30', quantity: 20 }], tasks: [], events: [] };
 const task = { id: 'task-1', batchId: 'b1', name: '阀体装配', line: '一线', date: '2026-09-20', ownerId: 'owner', ownerName: '现场甲', output: 'component', unit: '件', quantity: 20, status: 'dispatched', reports: [], inspections: [], materials: [] };
+
+function productionEntry(query, allowed = true) {
+  const params = new URLSearchParams(query);
+  const module = compile('src/app/production/execution/ProductionModuleEntry.tsx', name => {
+    if (name === 'react/jsx-runtime') return { jsx: element, jsxs: element };
+    if (name === 'react-router') return { Navigate: 'Navigate', useSearchParams: () => [params] };
+    if (name.includes('usePermission')) return { usePermission: permission => { assert.equal(permission, 'page:production-execution'); return allowed; } };
+    if (name.includes('routePaths')) return { routePath: (_, fallback) => fallback };
+    return { ProductionEmpty: 'ProductionEmpty', ProductionExecutionPage: 'ProductionExecutionPage' };
+  });
+  return { module, params };
+}
+
+test('三个生产侧栏入口原地挂载正式页面，保留真实详情查询而不跳走侧栏路径', () => {
+  for (const [name, view] of [['ProductionBatchRecordEntry', 'archive'], ['ProductionInspectionEntry', 'inspections'], ['ProductionTraceabilityEntry', 'archive']]) {
+    const query = 'month=2026-09&plan=real-plan&batch=real-batch&record=record-1&recordType=batch&archivesPage=3';
+    const f = productionEntry(query);
+    const wrapper = f.module[name]();
+    assert.equal(wrapper.props.view, view);
+    const tree = f.module.ProductionModuleEntry(wrapper.props);
+    assert.equal(tree.type, 'ProductionExecutionPage');
+    assert.deepEqual(tree.props.entry, { title: wrapper.props.title, view });
+    assert.equal(nodes(tree).some(node => node.type === 'Navigate'), false);
+    assert.equal(f.params.toString(), query);
+  }
+});
+
+test('旧样例链接仅原路径替换查询，保留月度及原计划，不把示例批号带入', () => {
+  for (const [pathname, view] of [['/ebpr', 'archive'], ['/inspection-release', 'inspections'], ['/qa-traceability', 'archive']]) {
+    const f = productionEntry('month=2026-09&plan=real-plan&batch=DEMO&view=legacy&record=DEMO');
+    const tree = f.module.ProductionModuleEntry({ title: '正式入口', view });
+    assert.equal(tree.type, 'Navigate');
+    assert.match(tree.props.to, /^\?/);
+    const url = new URL(tree.props.to, `http://local${pathname}`);
+    assert.equal(url.pathname, pathname);
+    assert.deepEqual(Object.fromEntries(url.searchParams), { view, month: '2026-09', plan: 'real-plan' });
+    assert.equal(tree.props.replace, true);
+  }
+});
+
+test('缺少生产数据权限时所有入口都不挂载业务页面，也不进行旧样例重定向', () => {
+  for (const query of ['month=2026-09', 'month=2026-09&view=legacy&batch=DEMO']) {
+    const f = productionEntry(query, false);
+    const tree = f.module.ProductionModuleEntry({ title: '电子批记录', view: 'archive' });
+    assert.equal(nodes(tree).some(node => ['Navigate', 'ProductionExecutionPage'].includes(node.type)), false);
+    assert.equal(nodes(tree).find(node => node.type === 'ProductionEmpty').props.title, '需要生产工作台访问权限');
+  }
+});
 
 test('过程检和复验不会改变首次终检分母；历史未分类明确保留', () => {
   const rows = [{kind:'process',quantity:100,goodQty:99}, {kind:'final',quantity:50,goodQty:47,verifiedGoodQty:2,date:'2026-09-20'}, {quantity:500,goodQty:500}];
@@ -88,6 +137,38 @@ test('作业提示优先未闭环异常与待检，不把报工已齐伪装为�
   assert.equal(state.productionTaskState({ ...task, reports: [{ quantity: 20 }], inspections: [{ quantity: 20, quality: { status: 'open' } }] }).key, 'quality');
   assert.equal(state.productionTaskState({ ...task, reports: [{ quantity: 20 }], inspections: [{ quantity: 20, quality: { status: 'closed' } }] }).label, '报工已齐');
   assert.equal(state.productionTaskState({ ...task, status: 'cancelled' }).key, 'cancelled');
+  assert.equal(state.productionTaskState({ ...task, reports: [{ quantity: 20 }], fieldIssues: [{ quality: { status: 'open' } }] }).key, 'quality', '未衔接检验的现场异常也必须提示');
+  assert.equal(state.productionPendingInspection({ reports: [{ quantity: .1 }, { quantity: .2 }], inspections: [{ quantity: .3, kind: 'final' }] }), 0, '避免浮点尾数制造待检任务');
+});
+
+test('型号筛选保留计划范围，档案入口进入原计划档案，变更筛选重置分页', () => {
+  const f = component('src/app/production/execution/ProductionLists.tsx', 'month=2026-10&planModel=Q7&planPage=3&planScope=carryover');
+  const original = { ...plan, carryover: true, targetQty: 20, shipmentTargetQty: 20, summary: { completedQty: 10 } };
+  const data = [original, { ...original, id: 'other', productLine: 'Q9' }];
+  const tree = f.module.ProductionPlanList({ plans: data, destinationView: 'archive' });
+  const links = nodes(tree).filter(row => row.type === 'Link' && text(row) === '查看计划');
+  assert.equal(links.length, 1);
+  const target = new URLSearchParams(links[0].props.to.slice(1));
+  assert.equal(target.get('plan'), 'plan-1'); assert.equal(target.get('view'), 'archive');
+  nodes(tree).find(row => row.props['aria-label'] === '计划产品型号').props.onChange({ target: { value: 'Q9' } });
+  assert.equal(f.params().get('planScope'), 'carryover'); assert.equal(f.params().has('planPage'), false);
+});
+
+test('待终检队列排除取消和已检任务，过程检不抵终检，保持原计划关联和批次筛选', () => {
+  const f = component('src/app/production/execution/ProductionWorkQueue.tsx', 'month=2026-10&view=inspections&batch=b1');
+  const data = { ...plan, carryover: true, tasks: [
+    { ...task, reports: [{ quantity: 20 }], inspections: [{ quantity: 20, kind: 'process' }, { quantity: 5, kind: 'final' }] },
+    { ...task, id: 'cancelled', status: 'cancelled', reports: [{ quantity: 20 }] },
+    { ...task, id: 'done', reports: [{ quantity: 20 }], inspections: [{ quantity: 20, kind: 'final' }] },
+    { ...task, id: 'different-batch', batchId: 'b2', reports: [{ quantity: 20 }] },
+  ] };
+  const tree = f.module.ProductionWorkQueue({ plans: [data], inspection: true });
+  const links = nodes(tree).filter(row => row.type === 'Link' && text(row).includes('进入检验'));
+  assert.equal(links.length, 1); assert.match(text(tree), /15/);
+  const target = new URLSearchParams(links[0].props.to.slice(1));
+  assert.equal(target.get('plan'), 'plan-1'); assert.equal(target.get('task'), 'task-1'); assert.equal(target.get('workbench'), 'inspections'); assert.equal(target.get('month'), '2026-10');
+  nodes(tree).find(row => row.props['aria-label'] === '队列产线').props.onChange({ target: { value: '二线' } });
+  assert.equal(f.params().get('batch'), 'b1');
 });
 
 test('作业列表链接直接定位作业并保留筛选；筛选变化重置当前分页', () => {
@@ -98,6 +179,13 @@ test('作业列表链接直接定位作业并保留筛选；筛选变化重置�
   assert.equal(target.get('task'), 'task-1'); assert.equal(target.get('plan'), 'plan-1'); assert.equal(target.get('taskQ'), '阀');
   nodes(tree).find(row => row.type === 'Input').props.onChange({ target: { value: '新名称' } });
   assert.equal(f.params().get('taskQ'), '新名称'); assert.equal(f.params().has('taskPage'), false);
+});
+
+test('计划内的现场队列进入任务保留计划来路，不冒充跨计划工作台入口', () => {
+  const f = component('src/app/production/execution/ProductionWorkQueue.tsx', 'month=2026-09&plan=plan-1&view=tasks&workbench=tasks');
+  const tree = f.module.ProductionWorkQueue({ plans: [{ ...plan, tasks: [task] }] });
+  const target = new URLSearchParams(nodes(tree).find(row => row.type === 'Link').props.to.slice(1));
+  assert.equal(target.get('plan'), 'plan-1'); assert.equal(target.get('task'), 'task-1'); assert.equal(target.has('workbench'), false);
 });
 
 test('作业详情保留原报工权限：本人可办理，其他现场人员不可代办', () => {

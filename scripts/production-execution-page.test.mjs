@@ -42,6 +42,16 @@ test('协同转派提交原异常、期限、待补资料与验证安排',async(
  for(const [label,value] of [['研发或协同处理人','u1'],['协同期限','2026-09-30'],['待补资料','尺寸复核记录'],['验证安排','现场复测三件'],['操作依据与原因','需研发核对']])change(f,label,value);
  await submit(f);assert.equal(f.writes[0].data.qualityId,'q1');assert.equal(f.writes[0].data.dueDate,'2026-09-30');assert.equal(f.writes[0].data.requiredInfo,'尺寸复核记录');assert.equal(f.writes[0].data.verificationPlan,'现场复测三件');
 });
+test('负责人转交预填现场建议，切换部门清空旧接收人，提交真实部门与优先级',async()=>{
+ const task={id:'t1',fieldIssues:[{qualityId:'q1',requestedCollaboration:{department:'研发部',ownerId:'rd1',ownerName:'研发甲'}}]};
+ const f=fixture({action:'assign-quality',task,quality:{id:'q1',updatedAt:'2026-09-16T01:00:00.000Z'}},{getExecutionOptions:async()=>({nodes:[],devices:[],users:[{id:'rd1',name:'研发甲',department:'研发部',canCollaborate:true},{id:'qa1',name:'质量甲',department:'质量部',canCollaborate:true}]})});await flush();
+ const selection=label=>find(find(f.render(),row=>row.type==='Field'&&row.props.label===label),row=>row.type==='NativeSelect');
+ assert.equal(selection('协同部门').props.value,'研发部');assert.equal(selection('研发或协同处理人').props.value,'rd1');
+ change(f,'协同部门','质量部');assert.equal(selection('研发或协同处理人').props.value,'');
+ assert.equal(find(selection('研发或协同处理人'),row=>row.type==='option'&&row.props.value==='rd1'),undefined);
+ for(const [label,value] of [['研发或协同处理人','qa1'],['协同优先级','high'],['协同期限','2026-09-30'],['待补资料','复核记录'],['验证安排','原批次复验'],['操作依据与原因','初判后转质量']])change(f,label,value);
+ await submit(f);assert.equal(f.writes[0].data.ownerId,'qa1');assert.equal(f.writes[0].data.department,'质量部');assert.equal(f.writes[0].data.priority,'high');assert.equal(f.writes[0].data.qualityId,'q1');
+});
 
 
 test('调整作业预填原日期负责人数量，仅提交可调整字段与原任务ID', async () => {

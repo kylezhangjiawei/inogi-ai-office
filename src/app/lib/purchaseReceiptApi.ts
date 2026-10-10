@@ -1,4 +1,7 @@
 import { authFetch, readErrorMessage } from './authSession';
+import type { PreviewableAttachment } from '../components/AttachmentPreviewDialog';
+export type ReceiptFile = { fileId: string; name: string; mime: string; size: number };
+export type ReceiptWarehouseRecord = { id: string; status: string; warehouse: string; quantity: number; qualifiedQty: number; defectiveQty: number; pendingQty: number; confirmedAt?: string; events: { action: string; actorName: string; at: string; reason: string }[] };
 
 export interface PurchaseReceiptQuantities {
   receivedQty: number;
@@ -23,6 +26,10 @@ export interface PurchaseReceiptInspection {
 }
 
 export interface PurchaseReceipt extends PurchaseReceiptQuantities {
+  receiptNumber?: string;
+  numberSource?: 'system' | 'supplier';
+  files?: ReceiptFile[];
+  warehouseRecord?: ReceiptWarehouseRecord | null;
   id: string;
   deliveryNo: string;
   receivedDate: string;
@@ -76,15 +83,17 @@ export interface PurchaseReceiptLedger {
 }
 
 export interface CreatePurchaseReceiptInput {
+  fileIds?: string[];
   requestId: string;
   expectedSourceUpdatedAt: string;
-  deliveryNo: string;
+  deliveryNo?: string;
   receivedDate: string;
   receivedQty: number;
   note: string;
 }
 
 export interface CreatePurchaseInspectionInput {
+  fileIds?: string[];
   treeNodeId?: string;
   requestId: string;
   expectedVersion: number;
@@ -115,7 +124,18 @@ const version = (value: unknown, min: number) => finite(value) && Number.isSafeI
 const inspection = (value: unknown): boolean => record(value)
   && strings(value, ['id', 'inspectionDate', 'basis', 'note', 'createdByName', 'createdAt'])
   && !!value.id && version(value.version, 1) && quantities(value);
+const receiptDetails = (value: Record<string, unknown>) => {
+  const warehouse = value.warehouseRecord;
+  return (value.receiptNumber === undefined || typeof value.receiptNumber === 'string' && value.receiptNumber.length > 0)
+  && (value.numberSource === undefined || ['system', 'supplier'].includes(String(value.numberSource)))
+  && (value.files === undefined || Array.isArray(value.files) && value.files.every(file => record(file) && strings(file, ['fileId', 'name', 'mime']) && finite(file.size) && file.size >= 0))
+  && (warehouse === undefined || warehouse === null || record(warehouse)
+    && strings(warehouse, ['id', 'status', 'warehouse'])
+    && ['quantity', 'qualifiedQty', 'defectiveQty', 'pendingQty'].every(key => finite(warehouse[key]) && warehouse[key] >= 0)
+    && Array.isArray(warehouse.events) && warehouse.events.every(event => record(event) && strings(event, ['action', 'actorName', 'at', 'reason'])));
+};
 const receipt = (value: unknown): boolean => record(value)
+  && receiptDetails(value)
   && strings(value, ['id', 'deliveryNo', 'receivedDate', 'note', 'createdByName', 'createdAt'])
   && !!value.id && version(value.version, 0) && quantities(value, true)
   && typeof value.sourceChanged === 'boolean' && Array.isArray(value.inspections) && value.inspections.every(inspection)
@@ -197,5 +217,11 @@ export function createPurchaseInspection(lineId: string, receiptId: string, inpu
 export async function getReceiptQualityOptions(lineId: string, signal?: AbortSignal): Promise<Array<{ id: string; productId: string; name: string; parentId: string | null }>> {
   const response = await authFetch(linePath(lineId) + '/quality-options', { signal });
   if (!response.ok) throw new Error(await readErrorMessage(response, '质量归属读取失败'));
+  return response.json();
+}
+
+export async function getPurchaseReceiptAttachment(lineId: string, receiptId: string, fileId: string): Promise<PreviewableAttachment> {
+  const response = await authFetch(`${linePath(lineId)}/${encodeURIComponent(receiptId)}/files/${encodeURIComponent(fileId)}`);
+  if (!response.ok) throw new Error(await readErrorMessage(response, '收货附件读取失败'));
   return response.json();
 }

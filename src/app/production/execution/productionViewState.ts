@@ -22,13 +22,18 @@ export function productionQuery(params: URLSearchParams, changes: Record<string,
   return next;
 }
 
-export function productionTaskState(task: { status: string; quantity: number; reports: { quantity: number }[]; inspections?: { quantity: number; kind?: string; quality?: { status: string } | null }[] }) {
+export function productionPendingInspection(task: { reports: { quantity: number }[]; inspections?: { quantity: number; kind?: string }[] }) {
+  const reported = task.reports.reduce((sum, row) => sum + Math.round(row.quantity * 1000), 0);
+  const inspected = task.inspections?.filter(row => row.kind !== 'process').reduce((sum, row) => sum + Math.round(row.quantity * 1000), 0) ?? 0;
+  return Math.max(0, reported - inspected) / 1000;
+}
+
+export function productionTaskState(task: { status: string; quantity: number; reports: { quantity: number }[]; inspections?: { quantity: number; kind?: string; quality?: { status: string } | null }[]; fieldIssues?: { quality?: { status: string } | null }[] }) {
   if (task.status === 'cancelled') return { key: 'cancelled', label: '已取消', next: '查看留痕' };
   if (task.status === 'draft') return { key: 'draft', label: '待派工', next: '查看派工' };
   const reported = task.reports.reduce((sum, row) => sum + row.quantity, 0);
-  if (task.inspections?.some(row => row.quality && row.quality.status !== 'closed')) return { key: 'quality', label: '质量待处理', next: '查看原异常' };
-  const inspected = task.inspections?.filter(row => row.kind !== 'process').reduce((sum, row) => sum + row.quantity, 0) ?? 0;
-  if (reported > inspected) return { key: 'inspection', label: '待终检', next: '查看检验' };
+  if ([...(task.inspections ?? []), ...(task.fieldIssues ?? [])].some(row => row.quality && row.quality.status !== 'closed')) return { key: 'quality', label: '质量待处理', next: '查看原异常' };
+  if (productionPendingInspection(task) > 0) return { key: 'inspection', label: '待终检', next: '查看检验' };
   if (reported < task.quantity) return { key: 'dispatched', label: '执行中', next: '进入作业' };
   return { key: 'reported', label: '报工已齐', next: '查看记录' };
 }

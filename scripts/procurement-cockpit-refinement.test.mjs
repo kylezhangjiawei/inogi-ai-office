@@ -109,5 +109,7 @@ test("模块详情保留库存查询，任务仅提供只读抽屉", () => {
   assert.match(moduleDetail, /下一步：前往物料库关联 T\+ 存货编码/);
   assert.match(moduleDetail, /scope="col"/);
   assert.match(moduleDetail, /<ProcurementTaskSummaryDrawer task=\{openTask\} materials=\{materials\} readOnly/);
-  assert.doesNotMatch(moduleDetail, /EditTaskModal|NewRequirementModal|taskAction\.remove|StockPlanPanel/);
+  assert.doesNotMatch(moduleDetail, /EditTaskModal|NewRequirementModal|taskAction\.remove/);
+  assert.match(moduleDetail, /日常备货批量物料/);
+  assert.match(moduleDetail, /<StockPlanPanel[^>]+productId=\{node.productId\}[^>]+treeNodeId=\{node.id\}/);
 });

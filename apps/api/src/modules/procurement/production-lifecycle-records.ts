@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { executionQty, executionText } from './production-execution.model';
 import { rdTransferSnapshotsOf } from './rd-transfer-snapshot';
 
-export type ControlledDocument = { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string };
+export type ControlledDocument = { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string; createdAt?: string };
 export type DocumentOption = Omit<ControlledDocument, 'kind'>;
 export type EcnFeedback = { id: string; problem: string; reporterId: string; reporterName: string; at: string; ownerId: string; ownerName: string; dueDate: string; status: 'open' | 'processing' | 'resolved'; history: { actorId: string; actorName: string; at: string; status: EcnFeedback['status']; ownerId: string; ownerName: string; dueDate: string; reason: string }[] };
 export type BatchVersionRange = { id: string; batchId: string; quantity: number; range: string; softwareVersion: string; hardwareVersion: string; serialNumbers: string[]; actorId: string; actorName: string; at: string; evidence: string; supersedesId?: string };
@@ -13,7 +13,7 @@ export async function documentOptions(db: Prisma.TransactionClient, metadata: Pr
   const allowed = rdTransferSnapshotsOf(metadata).flatMap(snapshot => snapshot.attachments.flatMap(file => file.technicalDocumentVersionId && file.documentId ? [{ id: file.technicalDocumentVersionId, documentId: file.documentId, taskId: snapshot.rdTaskId }] : []));
   if (!allowed.length) return [];
   const versions = await db.rdTechnicalDocumentVersion.findMany({ where: { id: { in: [...new Set(allowed.map(row => row.id))] } }, include: { document: true } });
-  return versions.filter(version => allowed.some(ref => ref.id === version.id && ref.documentId === version.documentId && ref.taskId === version.document.taskId) && version.attachmentId && version.version && (version.fileKey || version.fileUrl)).map(version => ({ documentId: version.documentId, versionId: version.id, attachmentId: version.attachmentId, name: version.fileName, version: version.version }));
+  return versions.filter(version => allowed.some(ref => ref.id === version.id && ref.documentId === version.documentId && ref.taskId === version.document.taskId) && version.attachmentId && version.version && (version.fileKey || version.fileUrl)).map(version => ({ documentId: version.documentId, versionId: version.id, attachmentId: version.attachmentId, name: version.fileName, version: version.version, ...(version.createdAt ? { createdAt: version.createdAt.toISOString() } : {}) }));
 }
 
 export async function resolveControlledDocuments(db: Prisma.TransactionClient, metadata: Prisma.JsonValue | undefined, value: unknown, required: boolean): Promise<ControlledDocument[]> {

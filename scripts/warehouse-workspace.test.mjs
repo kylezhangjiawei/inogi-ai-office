@@ -84,6 +84,8 @@ function fixture(name, initial, api = {}, permissions = ['*']) {
   }
   if (name === 'WarehouseReturnWorkspace') {
     for (const key of ['lib/i18n', 'lib/routePaths']) deps[`../../${key}`] = deps[`../${key}`];
+    deps['../../hooks/usePermission'] = { useAnyPermission: (...codes) => permissions.includes('*') || codes.some(code => permissions.includes(code)) };
+    deps['../quality/QualityAnalysisDialog'] = { QualityAnalysisDialog: 'QualityAnalysisDialog' };
     deps['./warehouseViewState'] = model;
     deps['./WarehousePagination'] = { WarehousePagination: 'WarehousePagination' };
   }
@@ -471,5 +473,57 @@ test('退料工作台复用安全操作表单，接收写入库位，待核对�
   assert.equal(view.writes[0].data.receivingLocation, 'A-01');
   actionTree = component.props.actions({ ...record('R1'), review: { open: true } });
   assert.equal(all(actionTree, node => node.type === 'Button' && text(node).includes('核对接收')).length, 0);
+  view.dispose();
+});
+
+test('S11 库存影响逐单读取质量数量，待核对预览不把实点差异或不良计为合格可用', () => {
+  const view = fixture('WarehouseReturnWorkspace', 'record=R1');
+  view.props = { records: [{ ...record('R1'), origin: 'unused', review: { open: true, actualQty: 4, reason: '少一件', actorName: '仓管', at: '2026-09-21' } }], issues: [], actions: () => null };
+  view.render();
+  const impact = view.find(node => node.props['aria-label'] === '本次接收库存影响');
+  assert.match(text(impact), /未接收 · 申请量预览/); assert.match(text(impact), /良品接收\s*3\s*件/);
+  assert.match(text(impact), /不良隔离\s*1\s*件/); assert.match(text(impact), /待判隔离\s*1\s*件/);
+  assert.match(text(impact), /清点差异尚未替代申请量/); assert.match(text(impact), /不增加合格可用库存/);
+  assert.match(text(impact), /ERP 主账库存以已生效凭证和同步结果为准/); assert.match(text(view.tree), /少一件/);
+  view.dispose();
+});
+
+test('S11 已接收只展示真实接收量与ERP核对信息，撤销单接收影响为零', () => {
+  const view = fixture('WarehouseReturnWorkspace', 'record=R1');
+  view.props = { records: [{ ...record('R1'), status: 'confirmed', origin: 'defect', qualifiedQty: 0, defectiveQty: 4, pendingQty: 1, reconciliation: { voucher: 'ERP-01', line: '3', actorName: '核对员', at: '2026-09-22', evidence: '按原凭证核对' } }], issues: [], actions: () => null };
+  view.render(); let impact = view.find(node => node.props['aria-label'] === '本次接收库存影响');
+  assert.match(text(impact), /已确认接收/); assert.match(text(impact), /不良隔离\s*4\s*件/); assert.match(text(impact), /ERP-01/);
+  assert.match(text(impact), /不重复扣减未耗用线边量/); assert.doesNotMatch(text(impact), /申请量预览/);
+  view.props.records[0] = { ...view.props.records[0], status: 'cancelled' }; view.render(); impact = view.find(node => node.props['aria-label'] === '本次接收库存影响');
+  assert.match(text(impact), /已撤销 · 不产生接收/); assert.match(text(impact), /不良隔离\s*0\s*件/); assert.doesNotMatch(text(impact), /ERP-01/);
+  view.dispose();
+});
+
+test('S11 原单按来源ID关联，不以同作业误配；日志可见且质量入口仍按权限', () => {
+  for (const permissions of [['page:warehouse-flow'], ['proc-quality:manage']]) {
+    const view = fixture('WarehouseReturnWorkspace', '', {}, permissions);
+    view.props = { records: [{ ...record('R1'), taskId: 'same-task', qualityId: 'quality-original' }], issues: [{ ...issue('wrong-source'), taskId: 'same-task', title: '不能误配' }, { ...issue('real-source'), taskId: 'same-task', title: '原领料作业', productLine: 'Q7' }], actions: () => null };
+    view.render(); assert.match(text(view.tree), /原领料作业/); assert.doesNotMatch(text(view.tree), /不能误配/);
+    assert.match(text(view.tree), /生产单号/); assert.match(text(view.tree), /来源产线\s*原领料单未提供/);
+    assert.ok(view.find(node => node.type === 'Link' && node.props.to.includes('workbenchTab=issues&issue=real-source')));
+    assert.equal(view.find(node => node.type === 'details'), undefined); assert.match(text(view.tree), /生产提报/);
+    const button = view.find(node => node.type === 'Button' && text(node).trim() === '查看原质量记录');
+    assert.equal(Boolean(button), permissions.includes('proc-quality:manage'));
+    if (button) { button.props.onClick(); view.render(); assert.equal(view.find(node => node.type === 'QualityAnalysisDialog').props.id, 'quality-original'); }
+    view.dispose();
+  }
+});
+
+test('S11 手机卡片同时保留物料生产单数量类型状态，查看详情选中并定位同一原单', () => {
+  const view = fixture('WarehouseReturnWorkspace', '');
+  view.props = { records: [record('R1'), { ...record('R2'), batch: 'B2', review: { open: true, actualQty: 4, reason: '差异核对', actorName: '仓管', at: '2026-09-21' } }], issues: [], actions: () => null };
+  view.render(); const cards = view.find(node => node.props['aria-label'] === '退料单卡片');
+  for (const value of ['物料 R2', '生产单号', 'B2', '退回数量', '5', '件', '良品 / 不良 / 待判', '待核对', '查看详情']) assert.ok(text(cards).includes(value), value);
+  let scrolled = 0, focused = 0;
+  const detail = view.find(node => node.props['aria-label'] === '退料单详情');
+  detail.ref.current = { scrollIntoView: () => { scrolled++; }, focus: () => { focused++; } };
+  view.find(node => node.props['aria-label'] === '查看退料详情：R2').props.onClick(); view.render();
+  assert.equal(view.params().get('record'), 'R2'); assert.match(text(view.find(node => node.props['aria-label'] === '退料单详情')), /物料 R2/);
+  assert.equal(scrolled, 1); assert.equal(focused, 1); assert.equal(detail.props.tabIndex, -1);
   view.dispose();
 });

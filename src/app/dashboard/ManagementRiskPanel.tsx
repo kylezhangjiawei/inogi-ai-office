@@ -12,7 +12,7 @@ import { canReadManagementRisks, managementRiskHref, type ManagementRiskResponse
 import { QualityAnalysisDialog } from '../procurement/quality/QualityAnalysisDialog';
 
 const labels = { quality: '质量异常', ecn: 'ECN 反馈', material: '物料齐套', schedule: '作业逾期', procurement: '采购逾期', 'purchase-order': '订单逾期' };
-export function ManagementRiskPanel({ month }: { month: string }) {
+export function ManagementRiskPanel({ month, presentation = 'default', refreshKey = 0 }: { month: string; presentation?: 'default' | 'production'; refreshKey?: number }) {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const canRead = Boolean(user?.id) && canReadManagementRisks(user?.permissions);
@@ -20,7 +20,7 @@ export function ManagementRiskPanel({ month }: { month: string }) {
   const [pageNo, setPageNo] = useState(1), [stored, setStored] = useState<{ scope: string; value: Data } | null>(null), [error, setError] = useState(''), [reload, setReload] = useState(0);
   const permissionKey = JSON.stringify([user?.id, user?.permissions]);
   const product = params.get('riskProduct') ?? '';
-  const scope = JSON.stringify([month, product, permissionKey, reload]);
+  const scope = JSON.stringify([month, product, permissionKey, reload, refreshKey]);
   const data = stored?.scope === scope ? stored.value : null;
   useEffect(() => {
     if (!canRead) return;
@@ -30,15 +30,31 @@ export function ManagementRiskPanel({ month }: { month: string }) {
       .then(value => { if (!controller.signal.aborted) setStored({ scope, value }); })
       .catch(cause => { if (!controller.signal.aborted) setError(cause.message); });
     return () => controller.abort();
-  }, [month, product, reload, permissionKey, canRead]);
+  }, [month, product, reload, refreshKey, permissionKey, canRead]);
   if (!canRead) return null;
-  const risks = productionPage(data?.risks.filter(row => (kind === 'all' || row.kind === kind) && (period === 'all' || (row.period ?? 'current') === period)) ?? [], pageNo, 8);
-  const batches = productionPage(data?.batches ?? [], pageNo, 8), canReadProduction = data?.scopes?.production === true;
+  const risks = productionPage(data?.risks.filter(row => (kind === 'all' || row.kind === kind) && (period === 'all' || (row.period ?? 'current') === period)) ?? [], pageNo, presentation === 'production' ? 3 : 8);
+  const batches = productionPage(data?.batches ?? [], pageNo, presentation === 'production' ? 3 : 8), canReadProduction = data?.scopes?.production === true;
   const riskView = view === 'risk' || !canReadProduction;
   const href = (planId: string, values: Record<string,string>) => `${routePath('page:production-execution', '/production-execution')}?${new URLSearchParams({ month, plan: planId, ...values })}`;
   const openQuality = (id: string | null) => setParams(previous => { const next = new URLSearchParams(previous); id ? next.set('riskQuality', id) : next.delete('riskQuality'); return next; }, { replace: true });
   const qualityId = params.get('riskQuality');
   const selectedQuality = data?.risks.find(row => row.target?.type === 'quality' && row.target.qualityId === qualityId);
+  if (presentation === 'production') return <section className="cockpit-card cockpit-coordination" aria-label="交付风险与齐套">
+    <div className="cockpit-section-title"><h2><span className="cockpit-risk-mark" aria-hidden="true">!</span>待处理问题与协调</h2><span>{data ? data.risks.length + ' 项待跟进' : '读取中'}</span></div>
+    <div className="cockpit-risk-toolbar"><div role="group" aria-label="交付风险视图"><Button size="sm" variant={riskView ? 'secondary' : 'ghost'} aria-pressed={riskView} onClick={() => { setView('risk'); setPageNo(1); }}>问题协调</Button>{canReadProduction && <Button size="sm" variant={!riskView ? 'secondary' : 'ghost'} aria-pressed={!riskView} onClick={() => { setView('batches'); setPageNo(1); }}>批次齐套</Button>}</div><details><summary>筛选</summary><div className="cockpit-risk-filters"><NativeSelect aria-label="风险产品" value={product} onChange={event => { const value = event.target.value; setParams(previous => { const next = new URLSearchParams(previous); value ? next.set('riskProduct', value) : next.delete('riskProduct'); return next; }, { replace: true }); }}><option value="">全部产品</option>{data?.products.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</NativeSelect><NativeSelect aria-label="风险类型" value={kind} onChange={event => { setKind(event.target.value); setPageNo(1); }}><option value="all">全部风险</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</NativeSelect><NativeSelect aria-label="风险月份范围" value={period} onChange={event => { setPeriod(event.target.value); setPageNo(1); }}><option value="all">本月与跨月</option><option value="current">本月风险</option><option value="carryover">跨月未完</option></NativeSelect></div></details><Button size="sm" variant="ghost" onClick={() => setReload(value => value + 1)}>刷新风险</Button></div>
+    {error ? <div className="production-inline-error" role="alert"><p>{error}</p><Button variant="outline" onClick={() => setReload(value => value + 1)}>重新读取风险</Button></div> : !data ? <p role="status" className="cockpit-loading">正在核对交付风险…</p> : riskView ? <>
+      {!risks.total ? <ProductionEmpty title="当前范围暂无待处理风险" /> : <Table className="cockpit-risk-table"><TableHeader><TableRow>{['待办事项 / 影响生产单', '当前经办', '期限', '下一步'].map(label => <TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{risks.rows.map(row => {
+        const link = managementRiskHref(row, month);
+        return <TableRow key={row.id}><TableCell><div className="cockpit-risk-title"><i data-kind={row.kind} /><strong>{row.title}</strong></div><p>{row.product} · {row.batchCodes.join('、') || labels[row.kind]}{row.period === 'carryover' ? ' · 跨月' : ''}</p></TableCell><TableCell>{row.owner || '待确认'}</TableCell><TableCell><time dateTime={row.dueDate || undefined}>{row.dueDate?.slice(5) || '待确认'}</time></TableCell><TableCell>{row.target?.type === 'quality' ? <Button size="sm" variant="ghost" onClick={() => openQuality(row.target!.type === 'quality' ? row.target!.qualityId : null)}>处理原记录</Button> : link ? <Link className="production-link" to={link}>处理原记录</Link> : <span>关联待确认</span>}</TableCell></TableRow>;
+      })}</TableBody></Table>}<ProductionPagination {...risks} onPageChange={setPageNo} />
+    </> : <>
+      {!batches.total ? <ProductionEmpty title="暂无可核对的生产批次" /> : <Table className="cockpit-risk-table"><TableHeader><TableRow>{['产品 / 生产单', '当前可齐套', '按期可齐套', '依据'].map(label => <TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader><TableBody>{batches.rows.map(row => <TableRow key={row.id}><TableCell><strong>{row.product} · {row.code}</strong><p>需求 {row.date || '待确认'}</p></TableCell><TableCell>{row.current == null ? '待核对' : row.current + ' 套'}</TableCell><TableCell>{row.onTime == null ? '待核对' : row.onTime + ' 套'}</TableCell><TableCell><Link className="production-link" to={href(row.planId, { view: 'readiness', ...(row.batchId ? { readinessBatch: row.batchId } : {}) })}>查看依据</Link></TableCell></TableRow>)}</TableBody></Table>}<ProductionPagination {...batches} onPageChange={setPageNo} />
+    </>}
+    {data && <p className="cockpit-risk-footnote">含跨月未关闭事项 · {new Date(data.calculatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 更新</p>}
+    {qualityId && !selectedQuality && data && <p role="alert" className="p-4 text-sm text-muted-foreground">所选质量异常不在当前授权风险范围。</p>}
+    {qualityId && selectedQuality && <QualityAnalysisDialog id={qualityId} onClose={() => openQuality(null)} onSaved={() => setReload(value => value + 1)} />}
+  </section>;
+
   return <section className="rounded-2xl border border-border bg-card" aria-label="交付风险与齐套">
     <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border p-4">
       <h2 className="text-base font-semibold">交付风险与齐套</h2>

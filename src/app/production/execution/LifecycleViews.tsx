@@ -74,9 +74,9 @@ export function LifecycleTable<T>({ title, description, scope, rows, columns, ro
   </section>;
 }
 
-export function LifecycleDetailHeader({ title, description, status, actions, onBack }: { title: string; description: string; status?: ReactNode; actions?: ReactNode; onBack: () => void }) {
+export function LifecycleDetailHeader({ title, description, status, actions, onBack }: { title: string; description: string; status?: ReactNode; actions?: ReactNode; onBack?: () => void }) {
   return <header className="space-y-3">
-    <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" />返回列表</Button>
+    {onBack && <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="size-4" aria-hidden="true" />返回列表</Button>}
     <div className="production-detail-heading"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="break-words text-xl font-semibold">{title}</h2>{status}</div><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>{actions && <div className="flex flex-wrap gap-2">{actions}</div>}</div>
   </header>;
 }

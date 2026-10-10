@@ -6,6 +6,7 @@ import type { LifecycleFeedback, LifecycleVersionRange } from '../../lib/product
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/button';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { useAuth } from '../../auth';
 import { usePermission } from '../../hooks/usePermission';
@@ -14,11 +15,14 @@ import type { ExecutionPlan } from '../../lib/productionExecutionApi';
 import { OperationalDialog, type OperationEditor, type OperationField } from './OperationalDialog';
 import { ProductionEmpty, ProductionMetrics, ProductionStatus } from './ProductionView';
 import { LifecycleDetailHeader, LifecycleFields, LifecycleLink, LifecycleTable, lifecycleDate, lifecycleRecordParams, type LifecycleRecordType } from './LifecycleViews';
+import './lifecycle-pages.css';
 
 const reason: OperationField = { key: 'reason', label: '结论、文件位置与凭证依据', type: 'textarea' };
 const statusLabels = { draft: '草稿', validated: '已独立验证', published: '已发布' };
 const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({ value, label }));
 const eventLabels: Record<string, string> = { transfer: '建立资料版本', 'validate-transfer': '独立验证资料', 'publish-transfer': '发布资料', ecn: '建立 ECN', 'publish-ecn': '发布 ECN', acknowledge: '确认阅读', release: '质量放行', ship: '实际发货', 'bind-shipment-sns': '补录本次实发 SN', 'reverse-shipment': '发货冲销', 'ecn-feedback': '反馈无法执行', 'handle-ecn-feedback': '处理执行反馈', 'version-range': '登记批次版本范围' };
+const planEventLabels: Record<string, string> = { create: '建立生产计划', targets: '调整计划目标', batch: '建立生产批次', task: '编制作业', dispatch: '确认派工', adjust: '调整作业安排', cancel: '取消作业', report: '登记报工', inspect: '登记检验', 'field-issue': '登记现场不良', disposition: '登记异常处置', 'assign-quality': '分派质量协同', 'reply-quality': '回复质量协同', 'review-basis': '核对历史 BOM 依据' };
+type HistoryEvent = Lifecycle['events'][number] & { source?: '计划与作业' | '转产与批次' };
 type Transfer = Lifecycle['transfers'][number];
 type Change = Lifecycle['changes'][number];
 type Batch = Lifecycle['batches'][number];
@@ -26,18 +30,21 @@ type Shipment = Lifecycle['shipments'][number];
 const rowKey = (row: { id: string }) => row.id;
 const quantity = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 3 });
 
-export function LifecyclePanel({ plan, view, shipmentFirst = false }: { plan: ExecutionPlan; view: 'transfer' | 'shipments' | 'archive'; shipmentFirst?: boolean }) {
+type LifecyclePanelProps = { plan: ExecutionPlan; view: 'transfer' | 'shipments' | 'archive'; section?: 'transfer' | 'ecn'; shipmentFirst?: boolean };
+
+export function LifecyclePanel({ plan, view, section, shipmentFirst = false }: LifecyclePanelProps) {
   const { user } = useAuth();
   // Remount on access changes to cancel old reads and discard the old account's command draft.
-  return <LifecycleWorkspace key={JSON.stringify([plan.id, user?.id, user?.roleId, user?.permissions])} plan={plan} view={view} shipmentFirst={shipmentFirst} />;
+  return <LifecycleWorkspace key={JSON.stringify([plan.id, view, section, user?.id, user?.roleId, user?.permissions])} plan={plan} view={view} section={section} shipmentFirst={shipmentFirst} />;
 }
 
-function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: ExecutionPlan; view: 'transfer' | 'shipments' | 'archive'; shipmentFirst?: boolean }) {
+function LifecycleWorkspace({ plan, view, section, shipmentFirst = false }: LifecyclePanelProps) {
   const { user } = useAuth();
   const canTransfer = usePermission('production:transfer'), canRelease = usePermission('production:release'), canShip = usePermission('production:ship');
   const [params, setParams] = useSearchParams();
   const [data, setData] = useState<Lifecycle | null>(null), [error, setError] = useState(''), [reload, setReload] = useState(0), [editor, setEditor] = useState<OperationEditor | null>(null);
   const [serialShipment, setSerialShipment] = useState<Shipment | null>(null);
+  const [showList, setShowList] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setError(''); setData(null);
@@ -45,8 +52,8 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
     return () => controller.abort();
   }, [plan.id, plan.version, reload]);
 
-  function openRecord(type: LifecycleRecordType, id: string) { setParams(previous => lifecycleRecordParams(previous, { type, id })); }
-  function backToList() { setParams(previous => lifecycleRecordParams(previous)); }
+  function openRecord(type: LifecycleRecordType, id: string) { setShowList(false); setParams(previous => lifecycleRecordParams(previous, { type, id })); }
+  function backToList() { setShowList(true); setParams(previous => lifecycleRecordParams(previous)); }
   function openTask(id: string) {
     setParams(previous => {
       const next = lifecycleRecordParams(previous);
@@ -66,9 +73,9 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
       { key: 'code', label: '资料包版本编号' },
       { key: 'type', label: '样品性质', options: [{ value: 'exploration', label: '研发探索' }, { value: 'validation', label: '转量产验证' }] },
       { key: 'sample', label: '样品任务与轮次', options: data.sampleTasks.map(row => ({ value: JSON.stringify([row.id, row.roundId]), label: row.code + ' · ' + row.title + ' · ' + (row.result ?? '测试中') })) },
-      { key: 'sopVersion', label: 'SOP 受控版本（转量产必填）', options: documents, optional: true },
-      { key: 'sipVersion', label: 'SIP 受控版本（转量产必填）', options: documents, optional: true },
-      { key: 'drawingVersion', label: '图纸 / BOM 受控版本（转量产必填）', options: documents, optional: true }, reason,
+      { key: 'sopVersion', label: 'SOP 受控版本', options: documents, optional: true, optionalHint: '转量产必填' },
+      { key: 'sipVersion', label: 'SIP 受控版本', options: documents, optional: true, optionalHint: '转量产必填' },
+      { key: 'drawingVersion', label: '图纸 / BOM 受控版本', options: documents, optional: true, optionalHint: '转量产必填' }, reason,
     ], submit: (values, requestId) => {
       const [sampleTaskId, roundId] = JSON.parse(String(values.sample));
       const selected = ['sop', 'sip', 'drawing'].map(kind => ({ kind, versionId: values[kind + 'Version'] })).filter(row => row.versionId);
@@ -120,9 +127,10 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
   function shipmentActions(row: Shipment) {
     return !row.reversed && canShip ? <>{(row.serials?.length ?? 0) < row.quantity && <Button onClick={() => setSerialShipment(row)}>补录实发 SN</Button>}<Button variant="outline" onClick={() => edit('reverse-shipment', '凭证冲销原发货', [{ key: 'evidenceChecked', label: '已核对发货取消或实物退回凭证', type: 'checkbox' }], { id: row.id })}>凭证冲销</Button></> : null;
   }
-  function eventsTable(events: Lifecycle['events'], scope = 'lifecycleHistory') {
-    return <LifecycleTable title="操作历史" scope={scope} rows={[...events].reverse()} rowKey={rowKey} searchText={row => `${eventLabels[row.action] ?? row.action} ${row.actorName} ${row.reason} ${row.subjectId}`} searchPlaceholder="搜索操作、经办人或依据" emptyTitle="暂无操作历史" columns={[
-      { label: '操作 / 时间', cell: row => <>{eventLabels[row.action] ?? row.action}<p className="production-meta">{lifecycleDate(row.at)}</p></> },
+  function eventsTable(events: HistoryEvent[], scope = 'lifecycleHistory') {
+    const label = (row: HistoryEvent) => eventLabels[row.action] ?? planEventLabels[row.action] ?? row.action;
+    return <LifecycleTable title="操作历史" scope={scope} rows={[...events].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))} rowKey={row => `${row.source ?? '生命周期'}/${row.id}`} searchText={row => `${label(row)} ${row.source ?? ''} ${row.actorName} ${row.reason} ${row.subjectId}`} searchPlaceholder="搜索操作、经办人或依据" emptyTitle="暂无操作历史" columns={[
+      { label: '操作 / 时间', cell: row => <>{label(row)}<p className="production-meta">{lifecycleDate(row.at)}{row.source ? ` · ${row.source}` : ''}{row.subjectId === plan.id ? ' · 全计划' : ''}</p></> },
       { label: '经办人', cell: row => row.actorName }, { label: '结论与依据', className: 'production-cell-note', cell: row => row.reason },
     ]} />;
   }
@@ -160,43 +168,82 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
     ]} />;
   }
 
+  function batchLinks(rows: Batch[], title = '关联批次档案') {
+    return <section className="production-surface lifecycle-related"><div className="production-section-heading"><h3>{title}</h3></div>
+      {rows.length ? <ul>{rows.map(row => <li key={row.id}><LifecycleLink onClick={() => openRecord('batch', row.id)}>{row.code}</LifecycleLink><p>{quantity(row.quantity)} 台 · 交期 {row.dueDate}</p><dl><div><dt>检验合格</dt><dd>{quantity(row.completedQty)} 台</dd></div><div><dt>有效放行</dt><dd>{quantity(row.releasedQty)} 台</dd></div><div><dt>净发货</dt><dd>{quantity(row.shippedQty)} 台</dd></div></dl>{(row.openQuality > 0 || row.uninspected) && <p className="lifecycle-attention">{row.openQuality > 0 ? `${row.openQuality} 项质量异常未闭环` : '报工待初检'}{row.openQuality > 0 && row.uninspected ? ' · 报工待初检' : ''}</p>}</li>)}</ul> : <p className="lifecycle-muted">尚无关联的生产批次档案。</p>}
+    </section>;
+  }
+  function transferChecks(row: Transfer) {
+    const source = data?.sampleTasks.find(item => item.id === row.sampleTaskId && item.roundId === row.roundId);
+    const result = source?.result ? ({ passed: '测试通过', failed: '测试未通过' }[source.result] ?? source.result) : '未取得本轮测试结论';
+    return <section className="production-surface lifecycle-checks"><div className="production-section-heading"><div><h3>转产发布条件检查</h3><p>固定资料版本、样品结论与独立验证分别核对。</p></div><ProductionStatus tone={row.status === 'published' ? 'success' : 'warning'}>{statusLabels[row.status]}</ProductionStatus></div>
+      <dl>{(['sop', 'sip', 'drawing'] as const).map(kind => { const document = row.documents?.find(item => item.kind === kind); return <div key={kind}><dt>{{ sop: 'SOP 作业指导', sip: 'SIP 检验规范', drawing: '图纸 / BOM' }[kind]}</dt><dd><strong>{document ? `${document.name} · ${document.version}` : '受控文件未关联'}</strong><span>{document ? '已关联固定版本' : '历史文字依据保留，正式发布须补齐'}</span></dd></div>; })}
+        <div><dt>样品测试结果</dt><dd><strong>{result}</strong><span>关联轮次 {row.roundId} · 独立验证时仍须核对样品确认状态</span></dd></div>
+        <div><dt>独立验证</dt><dd><strong>{row.validation ? '已登记独立验证结论' : '尚未登记独立验证结论'}</strong><span>{row.validatorId ? `验证人编号 ${row.validatorId}` : '由编制人以外的授权质量人员办理'}</span></dd></div>
+        <div><dt>资料包发布</dt><dd><strong>{row.publishedAt ? lifecycleDate(row.publishedAt) : row.status === 'published' ? '已发布，历史日期未记录' : '尚未发布'}</strong><span>此日期为资料包发布记录；文件版本登记日期在下方单独显示。</span></dd></div>
+      </dl>{row.type === 'exploration' && <p className="lifecycle-attention lifecycle-inset">探索记录不能作为量产依据。</p>}
+    </section>;
+  }
+
   if (error) return <section className="production-surface p-5" role="alert"><p className="mb-3 text-sm text-destructive">{error}</p><Button variant="outline" onClick={() => setReload(value => value + 1)}>重新加载</Button></section>;
   if (!data) return <p role="status" className="py-8 text-sm text-muted-foreground">正在读取生产业务…</p>;
 
   const recordId = params.get('record'), recordType = params.get('recordType');
-  const transfer = recordType === 'transfer' ? data.transfers.find(row => row.id === recordId) : undefined;
-  const change = recordType === 'ecn' ? data.changes.find(row => row.id === recordId) : undefined;
+  const transfer = recordId ? recordType === 'transfer' ? data.transfers.find(row => row.id === recordId) : undefined : !showList && view === 'transfer' && section !== 'ecn' ? data.transfers.at(-1) : undefined;
+  const change = recordId ? recordType === 'ecn' ? data.changes.find(row => row.id === recordId) : undefined : !showList && view === 'transfer' && section === 'ecn' ? data.changes.at(-1) : undefined;
   const batch = recordType === 'batch' ? data.batches.find(row => row.id === recordId) : undefined;
   const shipment = recordType === 'shipment' ? data.shipments.find(row => row.id === recordId) : undefined;
   const selected = transfer || change || batch || shipment;
   const sample = transfer && data.sampleTasks.find(row => row.id === transfer.sampleTaskId && row.roundId === transfer.roundId);
-  const batchQualityIds = new Set(batch?.tasks.flatMap(task => (task.inspections ?? []).flatMap(row => row.qualityId ? [row.qualityId] : [])) ?? []);
+  const batchQualityIds = new Set(batch?.tasks.flatMap(task => [...(task.inspections ?? []), ...(task.fieldIssues ?? [])].flatMap(row => row.qualityId ? [row.qualityId] : [])) ?? []);
   const batchReleases = batch ? data.releases.filter(row => row.batchId === batch.id) : [];
-  const relatedSubjectIds = new Set(batch ? [batch.id, ...batch.tasks.map(row => row.id), ...batchReleases.map(row => row.id), ...data.shipments.filter(row => row.batchId === batch.id).map(row => row.id), ...data.changes.filter(row => row.batchIds.includes(batch.id)).map(row => row.id)] : []);
+  const relatedSubjectIds = new Set(batch ? [plan.id, batch.id, ...batch.tasks.flatMap(row => [row.id, ...row.reports.map(report => report.id), ...(row.inspections ?? []).map(inspection => inspection.id), ...(row.fieldIssues ?? []).map(issue => issue.id)]), ...batchQualityIds, ...batchReleases.map(row => row.id), ...(data.versionRanges ?? []).filter(row => row.batchId === batch.id).map(row => row.id), ...data.shipments.filter(row => row.batchId === batch.id).map(row => row.id), ...data.changes.filter(row => row.batchIds.includes(batch.id)).map(row => row.id)] : []);
+  const history: HistoryEvent[] = [...(plan.events ?? []).map(row => ({ ...row, source: '计划与作业' as const })), ...data.events.map(row => ({ ...row, source: '转产与批次' as const }))];
   const release = shipment && data.releases.find(row => row.id === shipment.releaseId);
+  const transferBatches = transfer ? data.batches.filter(row => row.tasks.some(task => task.basis?.packageId === transfer.id) || data.changes.some(item => item.packageId === transfer.id && item.batchIds.includes(row.id))) : [];
+  const myAcknowledgment = change?.acknowledgments.find(row => row.actorId === user?.id);
+  const isAffectedOwner = Boolean(change && plan.tasks.some(task => change.batchIds.includes(task.batchId) && task.ownerId === user?.id));
+  const affectedOwners = new Map(change ? plan.tasks.filter(task => change.batchIds.includes(task.batchId)).map(task => [task.ownerId, { actorId: task.ownerId, actorName: task.ownerName, at: '' }]) : []);
+  for (const acknowledgment of change?.acknowledgments ?? []) affectedOwners.set(acknowledgment.actorId, acknowledgment);
+  const recordPicker = <div className="lifecycle-record-picker"><label htmlFor={`lifecycle-record-${plan.id}`}>{section === 'ecn' ? '选择工程变更' : '选择转产资料版本'}</label><NativeSelect id={`lifecycle-record-${plan.id}`} value={change?.id ?? transfer?.id ?? ''} onChange={event => openRecord(section === 'ecn' ? 'ecn' : 'transfer', event.target.value)}><option value="" disabled>{section === 'ecn' ? data.changes.length ? '请选择工程变更' : '暂无工程变更' : data.transfers.length ? '请选择资料版本' : '暂无转产资料'}</option>{(section === 'ecn' ? data.changes : data.transfers).map(row => <option key={row.id} value={row.id}>{row.code} · {statusLabels[row.status]}</option>)}</NativeSelect><span>{section === 'ecn' ? data.changes.length : data.transfers.length} 个版本</span></div>;
 
-  return <section className="space-y-4">
-    {recordId ? !selected ? <ProductionEmpty title="记录不存在或当前无权查看" description="返回列表后选择当前计划中的记录。"><Button variant="outline" onClick={backToList}>返回列表</Button></ProductionEmpty> : <>
+  return <section className={`lifecycle-page lifecycle-page--${change || section === 'ecn' ? 'ecn' : view}`}>
+    {!recordId && view === 'transfer' && !selected && recordPicker}
+    {recordId || selected ? !selected ? <ProductionEmpty title="记录不存在或当前无权查看" description="返回列表后选择当前计划中的记录。"><Button variant="outline" onClick={backToList}>返回列表</Button></ProductionEmpty> : <>
       {transfer && <>
-        <LifecycleDetailHeader title={transfer.code} description={`${transfer.type === 'exploration' ? '研发探索' : '转量产验证'} · ${plan.productName} · ${plan.productLine}`} status={<ProductionStatus tone={transfer.status === 'published' ? 'success' : 'neutral'}>{statusLabels[transfer.status]}</ProductionStatus>} actions={transferActions(transfer)} onBack={backToList} />
-        <LifecycleFields title="样品来源" items={[{ label: '原样品任务', value: sample ? `${sample.code} · ${sample.title}` : transfer.sampleTaskId }, { label: '样品轮次', value: transfer.roundId }, { label: '编制人编号', value: transfer.authorId }, { label: '独立验证人编号', value: transfer.validatorId }]} />
-        <LifecycleControlledDocuments planId={plan.id} documents={transfer.documents} />
-        <LifecycleFields title="资料与版本依据" items={[{ label: 'SOP 编号、版本及文件位置', value: transfer.sop, full: true }, { label: 'SIP 编号、版本及文件位置', value: transfer.sip, full: true }, { label: '图纸 / BOM 版本及文件位置', value: transfer.drawing, full: true }, { label: '编制依据', value: transfer.evidence, full: true }, { label: '独立验证结论', value: transfer.validation, full: true }]} />
-        {transfer.type === 'exploration' && <p className="production-note">探索记录不能作为量产依据。</p>}
-        {eventsTable(data.events.filter(row => row.subjectId === transfer.id), 'transferHistory')}
+        <div className="lifecycle-record-bar"><LifecycleDetailHeader title={transfer.code} description={`${transfer.type === 'exploration' ? '研发探索' : '转量产验证'} · ${plan.productName} · ${plan.productLine}`} status={<ProductionStatus tone={transfer.status === 'published' ? 'success' : 'neutral'}>{statusLabels[transfer.status]}</ProductionStatus>} onBack={recordId ? backToList : undefined} />{!recordId && view === 'transfer' && recordPicker}</div>
+        <nav className="lifecycle-mobile-shortcuts" aria-label="转产内容快捷定位"><a href="#lifecycle-transfer-documents">查看固定资料</a><a href="#lifecycle-transfer-actions">转产办理</a></nav>
+        <div className="lifecycle-columns"><div className="lifecycle-main">
+          {transferChecks(transfer)}
+          <div id="lifecycle-transfer-documents" tabIndex={-1}><LifecycleControlledDocuments planId={plan.id} documents={transfer.documents} title="本次转产固定资料" compact /></div>
+          <details className="lifecycle-secondary"><summary>查看编制依据、文字版本与操作历史</summary><div className="lifecycle-stack"><LifecycleFields title="资料与版本依据" items={[{ label: 'SOP 编号、版本及文件位置', value: transfer.sop, full: true }, { label: 'SIP 编号、版本及文件位置', value: transfer.sip, full: true }, { label: '图纸 / BOM 版本及文件位置', value: transfer.drawing, full: true }, { label: '编制依据', value: transfer.evidence, full: true }, { label: '独立验证结论', value: transfer.validation, full: true }]} />{eventsTable(data.events.filter(row => row.subjectId === transfer.id), 'transferHistory')}</div></details>
+        </div><aside className="lifecycle-aside" aria-label="转产关联档案">
+          <LifecycleFields title="关联样品" items={[{ label: '原样品任务', value: sample ? `${sample.code} · ${sample.title}` : transfer.sampleTaskId, full: true }, { label: '样品轮次', value: transfer.roundId }, { label: '编制人编号', value: transfer.authorId }]} />
+          {batchLinks(transferBatches)}
+          <p className="lifecycle-muted">关联档案来自已派工作业的固定版本或 ECN 适用范围。质量异常与复验记录在原批次中查看。</p>
+        </aside></div>
+        <footer className="lifecycle-action-bar" id="lifecycle-transfer-actions" tabIndex={-1}><p>{transfer.status === 'published' ? '资料已发布。已派工作业保留当时的固定版本。' : transfer.status === 'validated' ? '已登记独立验证，由有转产权限的人员发布资料。' : '发布前需核对样品确认、固定资料和独立验证；阅读确认不代替验证。'}</p><div>{canTransfer && <Button variant="outline" disabled={!data.sampleTasks.length} onClick={createTransfer}>新增资料版本</Button>}{transferActions(transfer)}</div></footer>
       </>}
       {change && <>
-        <LifecycleDetailHeader title={change.code} description={`工程变更 · 生效日期 ${change.effectiveDate}`} status={<ProductionStatus tone={change.status === 'published' ? 'success' : 'neutral'}>{statusLabels[change.status]}</ProductionStatus>} actions={<>{changeActions(change)}{change.status === 'published' && (canTransfer || plan.tasks.some(task => change.batchIds.includes(task.batchId) && task.ownerId === user?.id)) && <Button variant="outline" onClick={() => feedback(change)}>反馈无法执行</Button>}</>} onBack={backToList} />
-        <LifecycleFields title="变更范围与处置" items={[{ label: '替代资料包', value: data.transfers.some(row => row.id === change.packageId) ? <LifecycleLink onClick={() => openRecord('transfer', change.packageId)}>{data.transfers.find(row => row.id === change.packageId)?.code}</LifecycleLink> : change.packageId }, { label: '适用批次', value: <div className="flex flex-wrap gap-2">{change.batchIds.map(id => data.batches.some(row => row.id === id) ? <LifecycleLink key={id} onClick={() => openRecord('batch', id)}>{batchCode(id)}</LifecycleLink> : <span key={id}>{batchCode(id)}</span>)}</div> }, { label: '旧料、库存、在制品及已完成批次处置', value: change.handling, full: true }, { label: '验证与发布依据', value: change.validation, full: true }]} />
-        <div className="grid gap-4 lg:grid-cols-2"><div className="space-y-4">{change.previousPackageIds?.length ? change.previousPackageIds.map(id => <LifecycleControlledDocuments key={id} planId={plan.id} documents={data.transfers.find(row => row.id === id)?.documents} title={'原适用资料 · ' + (data.transfers.find(row => row.id === id)?.code ?? id)} />) : <p className="production-note">原适用文件未记录，保留未知；不根据当前最新版本推定。</p>}</div><LifecycleControlledDocuments planId={plan.id} documents={data.transfers.find(row => row.id === change.packageId)?.documents} title={'替代资料 · ' + (data.transfers.find(row => row.id === change.packageId)?.code ?? change.packageId)} /></div>
+        <div className="lifecycle-record-bar"><LifecycleDetailHeader title={change.code} description={`工程变更 · ${plan.productName} · 生效日期 ${change.effectiveDate}`} status={<ProductionStatus tone={change.status === 'published' ? 'success' : 'neutral'}>{statusLabels[change.status]}</ProductionStatus>} onBack={recordId ? backToList : undefined} />{!recordId && view === 'transfer' && recordPicker}</div>
+        <nav className="lifecycle-mobile-shortcuts" aria-label="ECN 内容快捷定位"><a href="#lifecycle-change-documents">查看变更资料</a><a href="#lifecycle-my-confirmation">本人确认</a></nav>
+        <div className="lifecycle-columns"><div className="lifecycle-main">
+          <div className="lifecycle-document-comparison" id="lifecycle-change-documents" tabIndex={-1}><div className="lifecycle-stack">{change.previousPackageIds?.length ? change.previousPackageIds.map(id => <LifecycleControlledDocuments key={id} planId={plan.id} documents={data.transfers.find(row => row.id === id)?.documents} title={'变更前 · ' + (data.transfers.find(row => row.id === id)?.code ?? id)} />) : <section className="production-surface"><div className="production-section-heading"><h3>变更前固定资料</h3></div><p className="lifecycle-muted">原适用文件未记录，保留未知；不根据当前最新版本推定。</p></section>}</div><LifecycleControlledDocuments planId={plan.id} documents={data.transfers.find(row => row.id === change.packageId)?.documents} title={'变更后 · ' + (data.transfers.find(row => row.id === change.packageId)?.code ?? change.packageId)} /></div>
+          <LifecycleFields title="变更依据与旧版本处置" items={[{ label: '替代资料包', value: data.transfers.some(row => row.id === change.packageId) ? <LifecycleLink onClick={() => openRecord('transfer', change.packageId)}>{data.transfers.find(row => row.id === change.packageId)?.code}</LifecycleLink> : change.packageId }, { label: '生效日期', value: change.effectiveDate }, { label: '旧料、库存、在制品及已完成批次处置', value: change.handling, full: true }, { label: '验证与发布依据', value: change.validation, full: true }]} />
+        </div><aside className="lifecycle-aside" aria-label="本人确认与变更影响">
+          <section className="production-surface lifecycle-my-confirmation" id="lifecycle-my-confirmation" tabIndex={-1}><div className="production-section-heading"><h3>我的阅读确认</h3><ProductionStatus tone={myAcknowledgment ? 'success' : change.status === 'published' && isAffectedOwner ? 'warning' : 'neutral'}>{myAcknowledgment ? '已确认阅读' : change.status !== 'published' ? '待发布' : isAffectedOwner ? '待本人确认' : '不在本人负责范围'}</ProductionStatus></div><div className="lifecycle-inset"><p>{myAcknowledgment ? `本人已于 ${lifecycleDate(myAcknowledgment.at)} 确认阅读。` : change.status !== 'published' ? '草稿尚不能作为现场执行依据。' : isAffectedOwner ? '请查看变更前后资料及适用批次，再记录本人阅读确认。' : '仅适用批次的现场负责人可记录本人阅读确认。'}</p><div className="lifecycle-personal-actions">{changeActions(change)}{change.status === 'published' && (canTransfer || isAffectedOwner) && <Button variant="outline" onClick={() => feedback(change)}>反馈无法执行</Button>}</div><p className="lifecycle-attention">阅读确认仅表示已阅，不代表执行验证通过、质量放行或 ECN 已关闭。</p></div></section>
+          <LifecycleFields title="影响信息" items={[{ label: '适用批次', value: <div className="lifecycle-inline-links">{change.batchIds.map(id => data.batches.some(row => row.id === id) ? <LifecycleLink key={id} onClick={() => openRecord('batch', id)}>{batchCode(id)}</LifecycleLink> : <span key={id}>{batchCode(id)}</span>)}</div>, full: true }, { label: '待处理执行反馈', value: `${change.feedback?.filter(row => row.status !== 'resolved').length ?? 0} 项` }, { label: '已确认阅读', value: `${change.acknowledgments.length} 人` }]} />
+          <p className="lifecycle-muted">已派工作业保留原资料快照。供应商通知与执行验证结果需沿原业务核对，本页不据已阅人数推定完成。</p>
+        </aside></div>
+        <LifecycleTable title="岗位阅读确认" description="按适用批次的现场负责人列示；历史确认记录保留。" scope="ecnAcknowledgments" rows={[...affectedOwners.values()]} rowKey={row => row.actorId} searchText={row => row.actorName} searchPlaceholder="搜索确认人" emptyTitle="暂无适用现场负责人或历史确认" columns={[{ label: '现场负责人', cell: row => row.actorName }, { label: '确认状态', cell: row => <ProductionStatus tone={row.at ? 'success' : 'warning'}>{row.at ? '已确认阅读' : change.status === 'published' ? '待确认阅读' : '待发布后确认'}</ProductionStatus> }, { label: '确认时间', cell: row => row.at ? lifecycleDate(row.at) : '—' }]} />
         <LifecycleTable title="执行问题反馈" scope="ecnFeedback" rows={change.feedback ?? []} rowKey={rowKey} searchText={row => row.problem + ' ' + row.ownerName} emptyTitle="暂无执行问题反馈" columns={[
           { label: '问题 / 原编号', className: 'production-cell-note', cell: row => <><p>{row.problem}</p><p className="production-meta">{change.code} · {row.reporterName} · {lifecycleDate(row.at)}</p></> },
           { label: '当前经办 / 期限', cell: row => <>{row.ownerName}<p className="production-meta">{row.dueDate}</p></> },
           { label: '状态与处理', className: 'production-cell-note', cell: row => <><ProductionStatus tone={row.status === 'resolved' ? 'success' : 'warning'}>{{ open: '待处理', processing: '处理中', resolved: '已处理' }[row.status]}</ProductionStatus><details className="mt-2"><summary className="cursor-pointer text-primary">处理历史</summary>{row.history.map((entry, index) => <div key={index} className="mt-3 border-l border-border pl-3"><p className="text-xs text-muted-foreground">{entry.actorName} · {lifecycleDate(entry.at)} · 经办 {entry.ownerName} · 期限 {entry.dueDate}</p><p className="mt-1 text-sm">{entry.reason}</p></div>)}</details></> },
           { label: '操作', cell: row => (canTransfer || row.ownerId === user?.id) ? <Button variant="outline" size="sm" onClick={() => feedback(change, row)}>处理反馈</Button> : '—' },
         ]} />
-        <LifecycleTable title="阅读确认" scope="ecnAcknowledgments" rows={change.acknowledgments} rowKey={row => row.actorId} searchText={row => row.actorName} searchPlaceholder="搜索确认人" emptyTitle="暂无阅读确认" emptyDescription="适用批次的现场负责人可在此确认阅读。" columns={[{ label: '确认人', cell: row => row.actorName }, { label: '确认时间', cell: row => lifecycleDate(row.at) }]} />
-        {eventsTable(data.events.filter(row => row.subjectId === change.id), 'ecnHistory')}
+        <details className="lifecycle-secondary"><summary>查看 ECN 完整操作历史</summary><div className="lifecycle-stack">{eventsTable(data.events.filter(row => row.subjectId === change.id), 'ecnHistory')}</div></details>
+        {canTransfer && <footer className="lifecycle-action-bar"><p>新变更需选择已发布资料并明确生效批次，历史版本继续保留。</p><Button variant="outline" disabled={!packageOptions.length || !plan.batches.length} onClick={createChange}>新增 ECN</Button></footer>}
       </>}
       {shipment && <>
         <LifecycleDetailHeader title={shipment.voucher} description={`实际发货凭证 · ${shipment.date}`} status={<ProductionStatus tone={shipment.reversed ? 'neutral' : 'success'}>{shipment.reversed ? '已冲销' : '已发货'}</ProductionStatus>} actions={shipmentActions(shipment)} onBack={backToList} />
@@ -206,10 +253,11 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
         {eventsTable(data.events.filter(row => row.subjectId === shipment.id), 'shipmentHistory')}
       </>}
       {batch && <>
-        <LifecycleDetailHeader title={batch.code} description={`${plan.productName} · ${plan.productLine} · 交期 ${batch.dueDate} · 目标 ${quantity(batch.quantity)} 台`} actions={<>{batchActions(batch)}{view === 'archive' && <Button variant="outline" onClick={exportArchive}>导出完整档案</Button>}</>} onBack={backToList} />
-        <ProductionMetrics items={[{ label: '整机检验合格', value: `${quantity(batch.completedQty)} 台` }, { label: '当前有效放行', value: `${quantity(batch.releasedQty)} 台` }, { label: '实际净发货', value: `${quantity(batch.shippedQty)} 台` }]} />
+        <LifecycleDetailHeader title={batch.code} description={`${plan.productName} · ${plan.productLine} · 交期 ${batch.dueDate} · 目标 ${quantity(batch.quantity)} 台`} onBack={backToList} />
+        <ProductionMetrics items={[{ label: '已登记整机检验合格', value: `${quantity(batch.completedQty)} 台` }, { label: '当前有效放行', value: `${quantity(batch.releasedQty)} 台` }, { label: '实际净发货', value: `${quantity(batch.shippedQty)} 台` }]} />
+        <p className="lifecycle-attention">检验合格量来自已登记的终检及历史检验；性能测试与最终闸门完成状态尚未接入此统计，不能据此确认整机完工。</p>
         <p className="production-note"><ProductionStatus tone={batch.openQuality || batch.uninspected ? 'warning' : 'neutral'}>{batch.openQuality} 项未闭环异常</ProductionStatus><span className="ml-2">{batch.uninspected ? '有报工待初检。' : '已报工部分初检齐全。'}新增初检、复验或重开异常后，原放行须重新核对。</span></p>
-        <Tabs key={batch.id} defaultValue={view === 'shipments' ? 'release' : 'versions'} className="gap-4">
+        <div className="lifecycle-columns"><div className="lifecycle-main"><Tabs key={batch.id} defaultValue={view === 'shipments' ? 'release' : 'versions'} className="gap-4">
           <div className="production-tabs"><TabsList aria-label="批次档案内容"><TabsTrigger value="versions">版本与 SN</TabsTrigger><TabsTrigger value="tasks">作业与检验</TabsTrigger><TabsTrigger value="warehouse">领退料</TabsTrigger><TabsTrigger value="quality">质量与复验</TabsTrigger><TabsTrigger value="release">放行与发货</TabsTrigger><TabsTrigger value="changes">适用变更</TabsTrigger><TabsTrigger value="history">操作历史</TabsTrigger></TabsList></div>
           <TabsContent value="versions"><LifecycleVersionRanges rows={(data.versionRanges ?? []).filter(row => row.batchId === batch.id)} batchQuantity={batch.quantity} canEdit={canTransfer} onEdit={row => editVersionRange(batch, row)} /></TabsContent>
           <TabsContent value="tasks"><LifecycleTable title="批次作业" scope="archiveTasks" rows={batch.tasks} rowKey={rowKey} searchText={row => `${row.name} ${row.ownerName} ${row.line} ${row.id}`} emptyTitle="本批次尚未编制作业" columns={[
@@ -227,37 +275,42 @@ function LifecycleWorkspace({ plan, view, shipmentFirst = false }: { plan: Execu
           <TabsContent value="changes"><LifecycleTable title="适用 ECN" scope="batchChanges" rows={data.changes.filter(row => row.batchIds.includes(batch.id))} rowKey={rowKey} searchText={row => `${row.code} ${row.handling}`} emptyTitle="暂无适用 ECN" columns={[
             { label: 'ECN 编号', cell: row => <LifecycleLink onClick={() => openRecord('ecn', row.id)}>{row.code}</LifecycleLink> }, { label: '生效日期', cell: row => row.effectiveDate }, { label: '状态', cell: row => <ProductionStatus tone={row.status === 'published' ? 'success' : 'neutral'}>{statusLabels[row.status]}</ProductionStatus> }, { label: '处置', className: 'production-cell-note', cell: row => row.handling },
           ]} /></TabsContent>
-          <TabsContent value="history">{eventsTable(data.events.filter(row => relatedSubjectIds.has(row.subjectId)), 'batchHistory')}</TabsContent>
-        </Tabs>
+          <TabsContent value="history">{eventsTable(history.filter(row => relatedSubjectIds.has(row.subjectId)), 'batchHistory')}</TabsContent>
+        </Tabs></div><aside className="lifecycle-aside" aria-label="批次关联依据">
+          <LifecycleFields title="批次档案" items={[{ label: '产品 / 型号', value: `${plan.productName} · ${plan.productLine}`, full: true }, { label: '生产批次', value: batch.code }, { label: '目标数量', value: `${quantity(batch.quantity)} 台` }, { label: '交期', value: batch.dueDate }, { label: '派工作业', value: `${batch.tasks.length} 项` }]} />
+          <section className="production-surface"><div className="production-section-heading"><h3>派工固定版本</h3></div>{batch.tasks.some(task => task.basis) ? <div className="lifecycle-snapshots">{batch.tasks.filter(task => task.basis).map(task => <details key={task.id}><summary>{task.name} · {task.basis!.code}</summary><p className="production-meta">固化时间 {lifecycleDate(task.basis!.at)}</p><LifecycleControlledDocuments planId={plan.id} documents={task.basis!.documents} title="作业当时固定资料" /><LifecycleLink onClick={() => openTask(task.id)}>查看原作业与检验</LifecycleLink></details>)}</div> : <p className="lifecycle-muted">尚无已固化的派工资料。不会使用当前最新资料代替历史版本。</p>}</section>
+          <p className="lifecycle-muted">领退料、质量复验、版本范围和发货凭证沿原批次追溯；更正与冲销均保留历史。</p>
+        </aside></div>
+        <footer className="lifecycle-action-bar"><p>生产检验合格、质量放行和实际发货分别记录。复验后请重新核对放行依据。</p><div>{batchActions(batch)}{view === 'archive' && <Button variant="outline" onClick={exportArchive}>导出完整档案</Button>}</div></footer>
       </>}
     </> : <>
-      {view === 'transfer' && <>
-        <LifecycleTable title="转量产资料" description="样品沿原采购任务和轮次关联，已发布资料与已派工版本保持不变。" scope="transfers" rows={data.transfers} rowKey={rowKey} searchText={row => { const task = data.sampleTasks.find(item => item.id === row.sampleTaskId); return `${row.code} ${task?.code ?? ''} ${task?.title ?? ''} ${row.sampleTaskId} ${row.sop} ${row.sip} ${row.drawing}`; }} searchPlaceholder="搜索资料版本、样品或文件编号" status={{ value: row => row.status, options: statusOptions }} actions={canTransfer && <Button disabled={!data.sampleTasks.length} onClick={createTransfer}>新增资料版本</Button>} emptyTitle="暂无转量产资料" emptyDescription="请先在正式采购样品任务中指定测试并登记结果，然后关联资料包。" columns={[
-          { label: '资料包版本', className: 'production-cell-main', cell: row => <LifecycleLink onClick={() => openRecord('transfer', row.id)}>{row.code}</LifecycleLink> },
-          { label: '样品性质', cell: row => row.type === 'exploration' ? '研发探索' : '转量产验证' },
-          { label: '样品来源', className: 'production-cell-note', cell: row => { const task = data.sampleTasks.find(item => item.id === row.sampleTaskId && item.roundId === row.roundId); return <>{task ? `${task.code} · ${task.title}` : row.sampleTaskId}<p className="production-meta">轮次 {row.roundId}</p></>; } },
-          { label: '状态', cell: row => <ProductionStatus tone={row.status === 'published' ? 'success' : 'neutral'}>{statusLabels[row.status]}</ProductionStatus> },
-          { label: '操作', cell: row => <Button size="sm" variant="outline" onClick={() => openRecord('transfer', row.id)}>查看与办理</Button> },
-        ]} />
-        <LifecycleTable title="工程变更 ECN" description="以已发布资料为依据，明确适用批次及阅读确认。" scope="changes" rows={data.changes} rowKey={rowKey} searchText={row => `${row.code} ${row.batchIds.map(batchCode).join(' ')} ${row.handling}`} searchPlaceholder="搜索 ECN、适用批次或处置" status={{ value: row => row.status, options: statusOptions.filter(row => row.value !== 'validated') }} actions={canTransfer && <Button variant="outline" disabled={!packageOptions.length || !plan.batches.length} onClick={createChange}>新增 ECN</Button>} emptyTitle="暂无工程变更" columns={[
-          { label: 'ECN 编号', className: 'production-cell-main', cell: row => <LifecycleLink onClick={() => openRecord('ecn', row.id)}>{row.code}</LifecycleLink> }, { label: '生效日期', cell: row => row.effectiveDate },
-          { label: '适用批次', className: 'production-cell-note', cell: row => row.batchIds.map(batchCode).join('、') }, { label: '已确认阅读', cell: row => `${row.acknowledgments.length} 人` }, { label: '执行反馈', cell: row => { const pending = row.feedback?.filter(item => item.status !== 'resolved').length ?? 0; return <ProductionStatus tone={pending ? 'warning' : 'neutral'}>{pending ? pending + ' 项待处理' : '暂无待处理'}</ProductionStatus>; } },
-          { label: '状态', cell: row => <ProductionStatus tone={row.status === 'published' ? 'success' : 'neutral'}>{statusLabels[row.status]}</ProductionStatus> }, { label: '操作', cell: row => <Button size="sm" variant="outline" onClick={() => openRecord('ecn', row.id)}>查看与办理</Button> },
-        ]} />
-      </>}
       {view === 'shipments' && <>
         <ProductionMetrics items={[{ label: '计划发货目标', value: `${quantity(plan.shipmentTargetQty)} 台` }, { label: '本计划累计净发货', value: `${quantity(data.shipments.filter(row => !row.reversed).reduce((sum, row) => sum + row.quantity, 0))} 台` }, { label: `${plan.month} 实际净发货`, value: `${quantity(data.shipments.filter(row => !row.reversed && row.date.startsWith(plan.month)).reduce((sum, row) => sum + row.quantity, 0))} 台` }]} />
         <p className="production-note">生产完成、质量放行和实际发货分别记录。新增初检、复验或重开异常后，原放行须重新核对。</p>
         {shipmentFirst && shipmentTable(data.shipments)}{batchTable(data.batches)}{!shipmentFirst && shipmentTable(data.shipments)}
       </>}
       {view === 'archive' && <>
-        {batchTable(data.batches, true)}
-        <Tabs defaultValue="warehouse" className="gap-4"><div className="production-tabs"><TabsList aria-label="计划追溯记录"><TabsTrigger value="warehouse">领退料记录</TabsTrigger><TabsTrigger value="quality">质量与复验</TabsTrigger><TabsTrigger value="history">完整操作历史</TabsTrigger></TabsList></div>
-          <TabsContent value="warehouse">{warehouseTable(data.warehouse, 'archiveWarehouse')}</TabsContent><TabsContent value="quality">{qualityTable(data.qualityRecords, 'archiveQuality')}</TabsContent><TabsContent value="history">{eventsTable(data.events)}</TabsContent>
-        </Tabs>
+        <div className="lifecycle-columns"><div className="lifecycle-main">{batchTable(data.batches, true)}</div><aside className="lifecycle-aside" aria-label="档案关联信息"><LifecycleFields title="当前计划档案" items={[{ label: '产品 / 型号', value: `${plan.productName} · ${plan.productLine}`, full: true }, { label: '计划月份', value: plan.month }, { label: '生产批次', value: `${data.batches.length} 个` }, { label: '转产资料版本', value: `${data.transfers.length} 个` }, { label: '工程变更', value: `${data.changes.length} 项` }]} /><section className="production-surface"><div className="production-section-heading"><h3>相关资料</h3></div><div className="lifecycle-related-links">{data.transfers.map(row => <LifecycleLink key={row.id} onClick={() => openRecord('transfer', row.id)}>{row.code} · {statusLabels[row.status]}</LifecycleLink>)}{!data.transfers.length && <p>暂无转产资料版本。</p>}</div></section></aside></div>
+        <details className="lifecycle-secondary"><summary>查看本计划领退料、质量与完整历史</summary><Tabs defaultValue="warehouse" className="gap-4"><div className="production-tabs"><TabsList aria-label="计划追溯记录"><TabsTrigger value="warehouse">领退料记录</TabsTrigger><TabsTrigger value="quality">质量与复验</TabsTrigger><TabsTrigger value="history">完整操作历史</TabsTrigger></TabsList></div>
+          <TabsContent value="warehouse">{warehouseTable(data.warehouse, 'archiveWarehouse')}</TabsContent><TabsContent value="quality">{qualityTable(data.qualityRecords, 'archiveQuality')}</TabsContent><TabsContent value="history">{eventsTable(history)}</TabsContent>
+        </Tabs></details>
       </>}
     </>}
-    {editor && <OperationalDialog editor={editor} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setReload(value => value + 1); }} />}
+    {!recordId && view === 'transfer' && <details className="lifecycle-secondary lifecycle-directory" open={!selected}><summary>查看与筛选全部{section === 'ecn' ? '工程变更' : '资料版本'}{!section ? '及 ECN' : ''}</summary><div className="lifecycle-stack">
+      {section !== 'ecn' && <LifecycleTable title="转量产资料" description="样品沿原采购任务和轮次关联，已发布资料与已派工版本保持不变。" scope="transfers" rows={data.transfers} rowKey={rowKey} searchText={row => { const task = data.sampleTasks.find(item => item.id === row.sampleTaskId); return `${row.code} ${task?.code ?? ''} ${task?.title ?? ''} ${row.sampleTaskId} ${row.sop} ${row.sip} ${row.drawing}`; }} searchPlaceholder="搜索资料版本、样品或文件编号" status={{ value: row => row.status, options: statusOptions }} actions={canTransfer && <Button disabled={!data.sampleTasks.length} onClick={createTransfer}>新增资料版本</Button>} emptyTitle="暂无转量产资料" emptyDescription="请先在正式采购样品任务中指定测试并登记结果，然后关联资料包。" columns={[
+          { label: '资料包版本', className: 'production-cell-main', cell: row => <LifecycleLink onClick={() => openRecord('transfer', row.id)}>{row.code}</LifecycleLink> },
+          { label: '样品性质', cell: row => row.type === 'exploration' ? '研发探索' : '转量产验证' },
+          { label: '样品来源', className: 'production-cell-note', cell: row => { const task = data.sampleTasks.find(item => item.id === row.sampleTaskId && item.roundId === row.roundId); return <>{task ? `${task.code} · ${task.title}` : row.sampleTaskId}<p className="production-meta">轮次 {row.roundId}</p></>; } },
+          { label: '状态', cell: row => <ProductionStatus tone={row.status === 'published' ? 'success' : 'neutral'}>{statusLabels[row.status]}</ProductionStatus> },
+          { label: '操作', cell: row => <Button size="sm" variant="outline" onClick={() => openRecord('transfer', row.id)}>查看与办理</Button> },
+        ]} />}
+      {section !== 'transfer' && <LifecycleTable title="工程变更 ECN" description="以已发布资料为依据，明确适用批次及阅读确认。" scope="changes" rows={data.changes} rowKey={rowKey} searchText={row => `${row.code} ${row.batchIds.map(batchCode).join(' ')} ${row.handling}`} searchPlaceholder="搜索 ECN、适用批次或处置" status={{ value: row => row.status, options: statusOptions.filter(row => row.value !== 'validated') }} actions={canTransfer && <Button variant="outline" disabled={!packageOptions.length || !plan.batches.length} onClick={createChange}>新增 ECN</Button>} emptyTitle="暂无工程变更" columns={[
+          { label: 'ECN 编号', className: 'production-cell-main', cell: row => <LifecycleLink onClick={() => openRecord('ecn', row.id)}>{row.code}</LifecycleLink> }, { label: '生效日期', cell: row => row.effectiveDate },
+          { label: '适用批次', className: 'production-cell-note', cell: row => row.batchIds.map(batchCode).join('、') }, { label: '已确认阅读', cell: row => `${row.acknowledgments.length} 人` }, { label: '执行反馈', cell: row => { const pending = row.feedback?.filter(item => item.status !== 'resolved').length ?? 0; return <ProductionStatus tone={pending ? 'warning' : 'neutral'}>{pending ? pending + ' 项待处理' : '暂无待处理'}</ProductionStatus>; } },
+          { label: '状态', cell: row => <ProductionStatus tone={row.status === 'published' ? 'success' : 'neutral'}>{statusLabels[row.status]}</ProductionStatus> }, { label: '操作', cell: row => <Button size="sm" variant="outline" onClick={() => openRecord('ecn', row.id)}>查看与办理</Button> },
+        ]} />}
+    </div></details>}
+    {editor && <OperationalDialog className="production-ui-theme" editor={editor} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setReload(value => value + 1); }} />}
     {serialShipment && <ShipmentSerialDialog shipment={serialShipment} ranges={data.versionRanges ?? []} shipments={data.shipments} onClose={() => setSerialShipment(null)} onSaved={() => { setSerialShipment(null); setReload(value => value + 1); }} submit={(serialNumbers, reason, requestId) => commandProductionLifecycle(plan.id, 'lifecycle', { action: 'bind-shipment-sns', requestId, version: data.version, data: { id: serialShipment.id, serialNumbers, reason } })} />}
   </section>;
 }

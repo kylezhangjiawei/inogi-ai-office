@@ -21,7 +21,9 @@ function fixture() {
   let tail = Promise.resolve(), failAudit = false;
   const locks: unknown[][] = [];
   const joined = (row: Row) => ({ ...row, inspections: inspections.filter((inspection) => inspection.receiptId === row.id).sort((a, b) => b.version - a.version).map((inspection) => ({ ...inspection })) });
+  const files = [{ id: 'file-own', fileName: '来料照片.png', mimeType: 'image/png', fileSize: 512, status: 'active', uploadedBy: actor.id, businessType: 'assets', objectKey: 'receipt/photo' }];
   const prisma = {
+    fileAsset: { findMany: async ({ where }: Row) => files.filter(row => where.id.in.includes(row.id) && row.status === where.status), findFirst: async ({ where }: Row) => files.find(row => row.id === where.id && row.status === where.status) ?? null },
     runtimeState: {
       findUnique: async ({ where }: Row) => states.get(where.key) ?? null,
       create: async ({ data }: Row) => { states.set(data.key, data); return data; },
@@ -59,7 +61,7 @@ function fixture() {
       try { return await run(prisma); } catch (error) { states = oldStates; qualities = oldQualities; receipts = oldReceipts; inspections = oldInspections; audits = oldAudits; throw error; } finally { release(); }
     },
   };
-  return { line, service: new PurchaseReceiptsService(prisma as never), locks, qualities: () => qualities, states: () => states, receipts: () => receipts, inspections: () => inspections, audits: () => audits, failAudit: () => { failAudit = true; } };
+  return { line, files, prisma, service: new PurchaseReceiptsService(prisma as never, { getReadUrl: () => ({ url: 'https://example.invalid/receipt-photo' }) } as never), locks, qualities: () => qualities, states: () => states, receipts: () => receipts, inspections: () => inspections, audits: () => audits, failAudit: () => { failAudit = true; } };
 }
 
 test('ERP删除或修改待核对时不允许新增收货，解除阻断后才可登记',async()=>{
@@ -303,4 +305,102 @@ test('HA-01：已入库补判同步库存桶、保留核对历史；审计失败
   await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...classify, requestId: 'ha01-warehouse-rollback', expectedVersion: 2, qualifiedQty: 9 }, actor), /audit/);
   assert.equal(f.states().get(recordKey)!.value, saved);
   assert.equal(f.receipts()[0].version, 2); assert.equal(f.inspections().length, 2);
+});
+
+
+test('S10 不填写供应商单号时生成内部收货编号，重试幂等且旧客户端单号保持原样', async () => {
+  const f = fixture(), input = { ...receiptInput, deliveryNo: undefined };
+  assert.equal((await validate(Object.assign(new CreatePurchaseReceiptDto(), input))).length, 0);
+  const first = await f.service.receive('line-1', input, actor);
+  assert.match(first.receipts[0].receiptNumber, /^RCV-[A-F0-9]{20}$/);
+  assert.equal(first.receipts[0].numberSource, 'system');
+  assert.equal(first.receipts[0].deliveryNo, first.receipts[0].receiptNumber);
+  await f.service.receive('line-1', input, actor); assert.equal(f.receipts().length, 1);
+  await assert.rejects(f.service.receive('line-1', { ...input, receivedQty: 9 }, actor), /提交标识/);
+  const second = await f.service.receive('line-1', { ...input, requestId: 's10-second-receipt-0001' }, actor);
+  assert.equal(new Set(second.receipts.map(row => row.receiptNumber)).size, 2);
+  await assert.rejects(f.service.receive('line-1', { ...input, requestId: 's10-third-receipt-00001', receivedQty: 1 }, actor), /不能超过净订购/);
+  const legacy = fixture(), historical = await legacy.service.receive('line-1', receiptInput, actor);
+  assert.equal(historical.receipts[0].deliveryNo, 'DELIVERY-001'); assert.equal(historical.receipts[0].numberSource, 'supplier');
+  legacy.states().delete('procurement:receipt-details:v1:receipt-1');
+  const read = await legacy.service.list('line-1', actor);
+  assert.equal(read.receipts[0].deliveryNo, 'DELIVERY-001'); assert.equal(read.receipts[0].numberSource, 'supplier');
+  assert.deepEqual(read.receipts[0].files, []);
+});
+
+test('S10 台账读取已有仓库交接状态与事件，不将收货量直接写为库存', async () => {
+  const f = fixture(); await f.service.receive('line-1', receiptInput, actor);
+  f.states().set('procurement:warehouse-record:v1:receipt:receipt-1', { value: 'warehouse-1' });
+  f.states().set('procurement:warehouse-record:v1:record:warehouse-1', { value: JSON.stringify({ id: 'warehouse-1', status: 'confirmed', warehouse: '原料仓', quantity: 10, qualifiedQty: 6, defectiveQty: 1, pendingQty: 3, confirmedAt: '2026-09-02T01:00:00Z', events: [{ action: 'receipt', actorName: '仓管甲', at: '2026-09-02T01:00:00Z', reason: '检验后交接', internalOnly: 'not-for-view' }] }) });
+  const result = await f.service.list('line-1', actor), warehouse = result.receipts[0].warehouseRecord;
+  assert.equal(warehouse?.id, 'warehouse-1'); assert.equal(warehouse?.status, 'confirmed'); assert.equal(warehouse?.qualifiedQty, 6);
+  assert.deepEqual(warehouse?.events, [{ action: 'receipt', actorName: '仓管甲', at: '2026-09-02T01:00:00Z', reason: '检验后交接' }]);
+  assert.equal(f.line.receivedQty.toString(), '18');
+});
+
+test('S10 真实附件随收货事务保存，读取须属于当前收货且有详情权限', async () => {
+  const f = fixture(), input = { ...receiptInput, deliveryNo: undefined, fileIds: ['file-own'] };
+  const result = await f.service.receive('line-1', input, actor);
+  assert.equal(result.receipts[0].files[0].name, '来料照片.png');
+  await f.service.receive('line-1', input, actor); assert.equal(f.receipts().length, 1);
+  assert.equal((await f.service.attachment('line-1', 'receipt-1', 'file-own', { ...actor, id: 'other-reader', permissions: ['page:purchase-order-detail'] })).url, 'https://example.invalid/receipt-photo');
+  await assert.rejects(f.service.attachment('line-1', 'receipt-1', 'other-file', actor), /不属于/);
+  await assert.rejects(f.service.attachment('other-line', 'receipt-1', 'file-own', actor), /不存在/);
+  await assert.rejects(f.service.attachment('line-1', 'receipt-1', 'file-own', { ...actor, permissions: [] }), /权限/);
+  assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, PurchaseReceiptsController.prototype.attachment), ['page:purchase-order-detail']);
+  f.files[0].status = 'deleted'; await assert.rejects(f.service.attachment('line-1', 'receipt-1', 'file-own', actor), /已删除/);
+});
+
+test('S10 拒绝伪造、他人、超限或非媒体PDF附件，审计失败不遗留附件关联', async () => {
+  for (const patch of [{ uploadedBy: 'another-user' }, { businessType: 'private' }, { fileSize: 20 * 1024 * 1024 + 1 }, { mimeType: 'application/javascript' }, { mimeType: 'image/svg+xml' }, { mimeType: 'video/x-msdownload' }, { mimeType: 'video/mp4', businessType: 'library/videos', fileSize: 200 * 1024 * 1024 + 1 }]) {
+    const f = fixture(); Object.assign(f.files[0], patch);
+    await assert.rejects(f.service.receive('line-1', { ...receiptInput, deliveryNo: undefined, fileIds: ['file-own'] }, actor));
+    assert.equal(f.receipts().length, 0); assert.equal(f.states().has('procurement:receipt-details:v1:receipt-1'), false);
+  }
+  const f = fixture(); await assert.rejects(f.service.receive('line-1', { ...receiptInput, fileIds: ['fake'] }, actor), /附件/);
+  f.failAudit(); await assert.rejects(f.service.receive('line-1', { ...receiptInput, fileIds: ['file-own'] }, actor), /audit/);
+  assert.equal(f.receipts().length, 0); assert.equal(f.states().has('procurement:receipt-details:v1:receipt-1'), false);
+});
+
+test('S10 平台MP4/MOV/WebM视频可随收货保存并沿原记录预览，校验媒体归属和大小上限', async () => {
+  for (const mimeType of ['video/mp4', 'video/quicktime', 'video/webm']) {
+    const f = fixture(); Object.assign(f.files[0], { fileName: '收货视频', mimeType, businessType: 'library/videos', fileSize: 200 * 1024 * 1024 });
+    const input = { ...receiptInput, deliveryNo: undefined, fileIds: ['file-own'] };
+    const saved = await f.service.receive('line-1', input, actor); assert.equal(saved.receipts[0].files[0].mime, mimeType);
+    const preview = await f.service.attachment('line-1', saved.receipts[0].id, 'file-own', actor); assert.equal(preview.mime, mimeType); assert.match(preview.url, /^https:/);
+    await f.service.receive('line-1', input, actor); assert.equal(f.receipts().length, 1);
+  }
+  for (const patch of [{ uploadedBy: 'another-user' }, { businessType: 'library/images' }, { businessType: 'assets', fileSize: 50 * 1024 * 1024 + 1 }]) {
+    const f = fixture(); Object.assign(f.files[0], { mimeType: 'video/mp4', businessType: 'library/videos', fileSize: 1024 }, patch);
+    await assert.rejects(f.service.receive('line-1', { ...receiptInput, fileIds: ['file-own'] }, actor)); assert.equal(f.receipts().length, 0);
+  }
+});
+
+test('S10 检验附件沿原收货保存，不要求填写异常编号且不良仍自动关联', async () => {
+  const f = fixture(); await f.service.receive('line-1', { ...receiptInput, deliveryNo: undefined }, actor);
+  const input = { ...inspectionInput, fileIds: ['file-own'] };
+  const result = await f.service.inspect('line-1', 'receipt-1', input, actor);
+  assert.equal(result.receipts[0].files.length, 1); assert.equal(f.qualities().length, 1);
+  await f.service.inspect('line-1', 'receipt-1', input, actor);
+  assert.equal(f.qualities().length, 1); assert.equal(f.inspections().length, 1);
+  await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...input, fileIds: [] }, actor), /提交标识/);
+});
+
+test('S10 补检只核验新增附件，旧照逻辑删除后仍保留历史快照且不阻止QC补照', async () => {
+  const f = fixture();
+  const created = await f.service.receive('line-1', { ...receiptInput, fileIds: ['file-own'] }, actor);
+  const original = created.receipts[0].files[0], qc = { ...actor, id: 'qc-2', name: '质检乙' };
+  Object.assign(f.files[0], { status: 'deleted', fileName: 'deleted-name' });
+  f.files.push({ ...f.files[0], id: 'file-new', fileName: '复检照片.png', status: 'active', uploadedBy: qc.id });
+  const reads: string[][] = [], readFiles = f.prisma.fileAsset.findMany;
+  f.prisma.fileAsset.findMany = async query => { reads.push([...query.where.id.in]); return readFiles(query); };
+  const saved = await f.service.inspect('line-1', 'receipt-1', { ...inspectionInput, fileIds: ['file-new', 'file-own'] }, qc);
+  assert.deepEqual(reads, [['file-new']]); assert.deepEqual(saved.receipts[0].files[0], original);
+  assert.deepEqual(saved.receipts[0].files.map(file => file.fileId), ['file-own', 'file-new']);
+  await assert.rejects(f.service.attachment('line-1', 'receipt-1', 'file-own', qc), /已删除/);
+  const repeated = await f.service.inspect('line-1', 'receipt-1', { ...inspectionInput, requestId: 'qa-inspection-request-0002', expectedVersion: 1, fileIds: ['file-new'] }, qc);
+  assert.equal(repeated.receipts[0].files.length, 2); assert.equal(reads.length, 1);
+  const extraIds = Array.from({ length: 19 }, (_, index) => `extra-${index}`);
+  await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...inspectionInput, requestId: 'qa-inspection-request-0003', expectedVersion: 2, fileIds: extraIds }, qc), /最多 20/);
+  assert.equal(f.inspections().length, 2); assert.equal(reads.length, 1);
 });

@@ -1,3 +1,4 @@
+import './production-theme.css';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
@@ -33,7 +34,7 @@ export function ShipmentSerialDialog({ shipment, ranges, shipments, submit, onCl
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : '关联失败，请保留选择并重试'); }
     finally { locked.current = false; if (mounted.current) setBusy(false); }
   }
-  return <Dialog open onOpenChange={open => { if (!open && !locked.current) onClose(); }}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" onInteractOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()}><DialogHeader><DialogTitle>补录本次实发 SN</DialogTitle><DialogDescription>{shipment.voucher} · 实发 {shipment.quantity} 台 · 已关联 {shipment.serials?.length ?? 0} 个 · 待补 {pending} 台。仅选择本次实际发出的号码。</DialogDescription></DialogHeader>
+  return <Dialog open onOpenChange={open => { if (!open && !locked.current) onClose(); }}><DialogContent className="production-ui-theme max-h-[90dvh] overflow-y-auto sm:max-w-2xl" onInteractOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()}><DialogHeader><DialogTitle>补录本次实发 SN</DialogTitle><DialogDescription>{shipment.voucher} · 实发 {shipment.quantity} 台 · 已关联 {shipment.serials?.length ?? 0} 个 · 待补 {pending} 台。仅选择本次实际发出的号码。</DialogDescription></DialogHeader>
     <form onSubmit={save} className="space-y-4"><fieldset disabled={busy} className="space-y-4">
       <div className="space-y-2"><Label htmlFor={`${id}-search`}>搜索批次已有 SN</Label><Input id={`${id}-search`} value={search} onChange={event => setSearch(event.target.value)} placeholder="SN、软件或硬件版本" /></div>
       <p className="production-meta">已选 {selected.length} / 待补 {pending} · 本批次可关联 {available.length} 个</p>

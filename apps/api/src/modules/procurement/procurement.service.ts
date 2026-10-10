@@ -1,3 +1,5 @@
+import { ComponentInventoryService } from './component-inventory.service';
+import { readStockPlanExecution } from './stock-plan-execution';
 import { assertRdTransferRequirements } from './rd-transfer-requirements';
 import { lockOrderDependency } from './purchase-delivery-store';
 import { sampleValidationReferences, confirmSampleValidation } from './sample-validation';
@@ -299,6 +301,7 @@ export class ProcurementService {
     @Optional() private readonly technicalDocuments?: RdTechnicalDocumentsService,
     @Optional() private readonly bomRevisions: BomRevisionsService = new BomRevisionsService(prisma),
     @Optional() private readonly inventoryStock: InventoryStockService = new InventoryStockService(prisma),
+    @Optional() private readonly componentInventory: ComponentInventoryService = new ComponentInventoryService(prisma, inventoryStock),
   ) {}
 
   /**
@@ -462,6 +465,10 @@ export class ProcurementService {
   async getStockPlanView(id: string, client: Prisma.TransactionClient = this.prisma) {
     const row = await this.requireStockPlan(id, client);
     return { ...this.serializeStockPlan(row, await this.unresolvedStockPlanOrders([row], client)), fulfillmentSummary: await recalculateStockPlanFulfillment(client, row) };
+  }
+
+  async getStockPlanExecution(id: string) {
+    return this.prisma.$transaction(tx => readStockPlanExecution(tx, id), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   /** 订单号只能证明可能重叠，不能确定行号或物料；保留历史行并要求用户明确关联。 */
@@ -651,31 +658,34 @@ export class ProcurementService {
       if (purchasedQty === null) throw new BadRequestException('订单履约数量尚未核对，请先处理取消、退货或冲销的 ERP 覆盖后再核算整机计划');
       if (!plan.productLine || !Number.isInteger(num(plan.targetQty)) || num(plan.targetQty) > 1_000_000 || !Number.isInteger(purchasedQty)) throw new BadRequestException('整机计划缺少有效的 BOM 型号或整数目标、采购套数');
       const targetSets = Math.max(0, num(plan.targetQty) - purchasedQty);
-      const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets, ...(plan.bomRevisionId ? { revisionId: plan.bomRevisionId } : {}) }, db);
+      const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets, componentInventory: Boolean(plan.treeNodeId), ...(plan.bomRevisionId ? { revisionId: plan.bomRevisionId } : {}) }, db);
       if (result.productLine !== plan.productLine || result.items.length === 0) throw new BadRequestException('所选型号没有有效 BOM');
       return { ...result, orderIssues, fulfillmentSummary, dataQuality: { ...result.dataQuality, provisional: result.dataQuality.provisional || unresolvedOrders.size > 0 || fulfillmentSummary.hasAdjustments } };
     }
     const material = plan.materialId ? await db.procMaterial.findUnique({ where: { id: plan.materialId } }) : null;
-    if (!material?.tpInventoryCode?.trim()) throw new BadRequestException('请先将备货物料关联到有效的 ERP 存货编码');
+    if (!material || (!material.tpInventoryCode?.trim() && !plan.treeNodeId)) throw new BadRequestException('请先将备货物料关联到有效的 ERP 存货编码');
     if (!material.unit.trim() || (plan.unit.trim() && plan.unit.trim() !== material.unit.trim())) {
       throw new BadRequestException('计划单位与物料计量单位不一致或未维护，请先编辑计划或物料，不能直接扣减库存');
     }
-    const candidates = await db.procInventoryBalance.findMany({ where: { tpInventoryCode: material.tpInventoryCode }, orderBy: { syncedAt: 'desc' } });
-    const snapshot = await this.inventoryStock.read({ codes: [material.tpInventoryCode], scope: { kind: 'production' } }, db);
-    const base = stockForCode(snapshot, material.tpInventoryCode, material.unit);
+    const stockCode = material.tpInventoryCode || material.id;
+    const componentStocks = plan.treeNodeId ? await this.componentInventory.read([material.id], db) : [];
+    const component = componentStocks[0];
+    const candidates = material.tpInventoryCode ? await db.procInventoryBalance.findMany({ where: { tpInventoryCode: material.tpInventoryCode }, orderBy: { syncedAt: 'desc' } }) : [];
+    const snapshot = await this.inventoryStock.read({ codes: material.tpInventoryCode ? [material.tpInventoryCode] : [], scope: { kind: 'production' } }, db);
+    const base = component ? { available: component.available, issues: component.issues } : stockForCode(snapshot, stockCode, material.unit);
     const rows = candidates.filter((row) => isProductionWarehouse(row.warehouse));
     const latest = rows.map((row) => row.syncedAt?.toISOString()).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
     // ERP 已出现同单号的历史手工行不能再加一次；行身份未确认前只认 ERP 库存里的供给。
     const manualInTransit = view.batches.filter((batch) => !batch.purchaseOrderMirrorId)
       .reduce((sum, batch) => sum + batch.inTransitQty, 0);
-    const balances = rows.length > 0 ? [{
-      code: material.tpInventoryCode, stock: rows.reduce((sum, row) => sum + num(row.stockQty), 0),
+    const balances = rows.length > 0 || component ? [{
+      code: stockCode, stock: component?.quantity ?? rows.reduce((sum, row) => sum + num(row.stockQty), 0),
       available: base.available, issues: base.issues,
       inTransit: rows.reduce((sum, row) => sum + num(row.inTransitQty), 0) + manualInTransit,
-      safeStock: num(material.safeStock), syncedAt: latest,
+      safeStock: num(material.safeStock), syncedAt: component?.countedAt ?? latest,
     }] : [];
     const calculation = calculateInventoryReadiness([{
-      id: material.id, category: material.category || '物料', code: material.tpInventoryCode,
+      id: material.id, category: material.category || '物料', code: stockCode,
       name: material.name, spec: material.spec, unit: material.unit, qtyPer: 1,
     }], balances, Math.ceil(num(plan.targetQty)));
     // 单物料允许小数采购量，不把整数“套数”算法的向上取整带进实际采购需求。
@@ -693,7 +703,7 @@ export class ProcurementService {
     calculation.summary.targetSets = num(plan.targetQty);
     calculation.summary.targetGapAfterTransit = calculation.items[0].gapAfterTransit;
     return {
-      source: 'tplus' as const, readOnly: true, productLine: plan.productLine || material.productLine,
+      source: 'tplus' as const, readOnly: true, componentStocks, productLine: plan.productLine || material.productLine,
       models: [{ id: plan.productLine || material.id, label: material.name, bomLines: 1 }],
       warehouse: { keyword: '量产', label: '量产仓库', matchedNames: [...new Set(rows.map((row) => row.warehouse))] },
       syncedAt: latest, stockScope: snapshot.scope, stockReadAt: snapshot.readAt, stockRows: snapshot.rows, ...calculation, orderIssues, fulfillmentSummary,
@@ -727,8 +737,8 @@ export class ProcurementService {
         throw new BadRequestException('BOM 用量、ERP 编码或量产库存映射不完整，请补齐后再生成采购任务');
       }
       const needed = readiness.items.filter((item) => item.gapAfterTransit !== null && item.gapAfterTransit > 0);
-      const materials = await tx.procMaterial.findMany({ where: { tpInventoryCode: { in: needed.map((item) => item.code!).filter(Boolean) } } });
-      const byCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
+      const materials = await tx.procMaterial.findMany({ where: plan.planType !== 'machine' && plan.materialId ? { id: plan.materialId } : { tpInventoryCode: { in: needed.map((item) => item.code!).filter(Boolean) } } });
+      const byCode = new Map(materials.map((material) => [material.tpInventoryCode || material.id, material]));
       if (needed.some((item) => !item.code || !byCode.has(item.code))) throw new BadRequestException('BOM 缺口物料尚未映射到采购物料主数据');
       const buyer = needed.length > 0 ? await this.pickAutomaticBuyer() : null;
       for (const item of needed) {
@@ -744,7 +754,8 @@ export class ProcurementService {
             needDate: plan.targetDate, deadline: plan.targetDate,
             buyer: buyer?.name ?? '', buyerUserId: buyer?.id ?? null,
             requester: actor.name, requesterUserId: actor.id, createdBy: actor.id,
-            metadata: { stockPlanId: plan.id, stockPlanCode: plan.code, productionTaskId: plan.productionTaskId, productLine: plan.productLine, targetQty: num(plan.targetQty), gapAfterTransit: item.gapAfterTransit },
+            metadata: { stockPlanId: plan.id, stockPlanCode: plan.code, productionTaskId: plan.productionTaskId, productLine: plan.productLine, targetQty: num(plan.targetQty), gapAfterTransit: item.gapAfterTransit,
+              inventoryBasis: { available: item.available, inTransit: item.inTransit, countedAt: item.syncedAt, componentStocks: JSON.parse(JSON.stringify(readiness.componentStocks.filter(stock => stock.materialId === material.id))) } },
             logs: { create: { kind: 'system', text: `由备货计划 ${plan.code} 按库存及在途缺口生成${buyer ? `；自动分配给 ${buyer.name}` : ''}`, toStatus: 'pending_confirm', actor: actor.name, actorUserId: actor.id } },
           },
         });
@@ -4752,7 +4763,7 @@ export class ProcurementService {
     // 以当前编码匹配物料库，不能依赖导入时可能缺失或已过时的 materialId。
     const materials = codes.length > 0 ? await db.procMaterial.findMany({
       where: { tpInventoryCode: { in: codes } },
-      select: { tpInventoryCode: true, category: true, unit: true },
+      select: { id: true, tpInventoryCode: true, category: true, unit: true },
     }) : [];
     const materialByCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
     const leaves: InventoryReadinessBomLeaf[] = materialRows.map((row) => {
@@ -4827,6 +4838,13 @@ export class ProcurementService {
       if (syncedAt && (!current.syncedAt || syncedAt > current.syncedAt)) current.syncedAt = syncedAt;
       balanceMap.set(row.tpInventoryCode, current);
     }
+    const componentStocks = query.componentInventory === true ? await this.componentInventory.read(materials.map(material => material.id), db) : [];
+    for (const component of componentStocks) {
+      if (!component.code) continue;
+      const previous = balanceMap.get(component.code);
+      balanceMap.set(component.code, { code: component.code, stock: component.quantity ?? 0, available: component.available, issues: component.issues,
+        inTransit: previous?.inTransit ?? 0, safeStock: previous?.safeStock ?? 0, syncedAt: component.countedAt });
+    }
     const calculation = calculateInventoryReadiness(leaves, [...balanceMap.values()], targetSets);
     const inventoryDiagnostics = buildInventoryMatchDiagnostics(codes, materials, inventoryCandidates);
     const items = calculation.items.map((item) => {
@@ -4845,6 +4863,7 @@ export class ProcurementService {
       source: 'tplus',
       readOnly: true,
       stockScope: snapshot.scope, stockReadAt: snapshot.readAt, stockRows: snapshot.rows,
+      componentStocks,
       bomBasis: revision ? { kind: 'published' as const, revisionId: revision.id, version: revision.version, retiredAt: revision.retiredAt } : { kind: 'draft' as const },
       productLine,
       models,

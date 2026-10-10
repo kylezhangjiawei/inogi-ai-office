@@ -1,6 +1,6 @@
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Settings2,
   ShieldCheck,
   ShoppingCart,
   Sparkles,
@@ -140,7 +141,7 @@ import { ProcSampleTestDialog } from "./procurement/components/ProcSampleTestDia
 type Priority = RdPriority;
 type TaskStatus = RdTaskStatus;
 type WorkspaceRoleTab = "primary" | "collaborator";
-type OperationTab = "detail" | "discussion" | "progress" | "handoff" | "submit";
+type OperationTab = "detail" | "discussion" | "progress" | "handoff" | "submit" | "settings";
 type WorkspaceTask = RdWorkspaceTask;
 type AiSuggestion = RdAiSuggestion;
 type WorkspaceNotification = RdWorkspaceNotification;
@@ -435,6 +436,28 @@ const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const RD_TASK_TREE_MAX_DEPTH = 5;
 type WorkspaceDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
+
+type WorkspaceTaskFilters = {
+  keyword: string;
+  priority: Priority | "all";
+  status: TaskStatus | "all";
+  due: WorkspaceDueFilter;
+  role: WorkspaceRoleTab;
+};
+
+function readWorkspaceTaskFilters(params: URLSearchParams): WorkspaceTaskFilters {
+  const priority = params.get("priority") ?? "all";
+  const status = params.get("status") ?? "all";
+  const due = params.get("due") ?? "all";
+  return {
+    keyword: params.get("keyword") ?? "",
+    priority: ["high", "medium", "low"].includes(priority) ? priority as Priority : "all",
+    status: ["in_progress", "pending_review", "paused_blocked", "paused_leave", "completed"].includes(status) ? status as TaskStatus : "all",
+    due: ["overdue", "today", "3d", "7d", "no_due"].includes(due) ? due as WorkspaceDueFilter : "all",
+    role: params.get("role") === "collaborator" ? "collaborator" : "primary",
+  };
+}
+
 
 function workspaceTaskIdentity(task: Pick<WorkspaceTask, "task_id" | "source_workspace">): string {
   return `${task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd")}:${task.task_id}`;
@@ -939,6 +962,7 @@ function TaskOperationDrawer({
   onSubtaskChanged,
   autoAbandon,
   autoTransfer,
+  onViewDetail,
 }: {
   task: WorkspaceTask;
   initialTab: OperationTab;
@@ -953,6 +977,7 @@ function TaskOperationDrawer({
   onSubtaskChanged: (taskId: string) => void | Promise<void>;
   autoAbandon?: boolean;
   autoTransfer?: boolean;
+  onViewDetail?: () => void;
 }) {
   useI18n(); // 订阅语言切换（抽屉 Tab/流程步骤/表单文案已 t() 化）
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -965,7 +990,7 @@ function TaskOperationDrawer({
     && ["proposal", "result", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
   // 已完成任务只读：仅保留「任务详情」页签，屏蔽进度/移交/提交等会改状态的操作。
   const isTaskCompleted = task.status === "completed";
-  const [tab, setTab] = useState<OperationTab>(isTaskCompleted || directChangePending ? "detail" : initialTab);
+  const [tab, setTab] = useState<OperationTab>(isTaskCompleted || directChangePending ? (directTaskChanges ? "settings" : "detail") : initialTab);
   const [draftProgress, setDraftProgress] = useState(() => clampProgressValue(task.progress));
   const [note, setNote] = useState("");
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
@@ -1783,8 +1808,8 @@ function TaskOperationDrawer({
 
   return (
     <DrawerShell
-      title={task.title}
-      subtitle={isUsCollabWorkspace() ? task.task_id : `${task.task_id} / ${task.category_path}`}
+      title={directTaskChanges ? (tab === "settings" ? t("任务设置") : tabConfig.find((item) => item.key === tab)?.label ?? task.title) : task.title}
+      subtitle={directTaskChanges ? `${task.task_id} · ${task.title}` : isUsCollabWorkspace() ? task.task_id : `${task.task_id} / ${task.category_path}`}
       icon={ClipboardCheck}
       onClose={onClose}
       bodyClassName={tab === "discussion" ? "flex flex-col overflow-hidden" : undefined}
@@ -1797,7 +1822,7 @@ function TaskOperationDrawer({
           </div>
         ) : !directChangePending && (
           <>
-            <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
+            {!directTaskChanges && <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
               {tabConfig.map((item) => (
                 <Button variant="unstyled"
                   key={item.key}
@@ -1822,9 +1847,9 @@ function TaskOperationDrawer({
                   )}
                 </Button>
               ))}
-            </div>
+            </div>}
 
-            {tab !== "discussion" && <FlowSteps steps={flowSteps} />}
+            {tab !== "discussion" && tab !== "settings" && <FlowSteps steps={flowSteps} />}
           </>
         )}
 
@@ -1852,7 +1877,7 @@ function TaskOperationDrawer({
           </div>
         )}
 
-        {tab === "detail" && (
+        {(tab === "detail" || tab === "settings") && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl bg-slate-50 px-4 py-3">
@@ -1887,7 +1912,7 @@ function TaskOperationDrawer({
             </div>
 
             {!isUsCollabWorkspace() && task.source_workspace !== "us-collab" && (
-              <Button type="button" variant="outline" size="sm" className="min-h-10 gap-1.5 text-xs" onClick={() => navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } })}>
+              <Button type="button" variant="outline" size="sm" className="min-h-10 gap-1.5 text-xs" onClick={() => onViewDetail ? onViewDetail() : navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } })}>
                 <FileText className="size-3.5" />{t("技术资料与任务详情")}
               </Button>
             )}
@@ -2126,7 +2151,7 @@ function TaskOperationDrawer({
 
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-900">{t("操作留痕")}</div>
+                <div className="text-sm font-semibold text-slate-900">{t(directTaskChanges ? "进展附件维护" : "操作留痕")}</div>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
                   {taskLogs.length}{taskAttachmentTotal > 0 ? ` · ${t("{n} 个附件", { n: taskAttachmentTotal })}` : ""}
                 </span>
@@ -3600,6 +3625,8 @@ function WorkspaceTaskCard({
   const isOverdue = isTaskOverdue(task);
   const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
   const isForeignWorkspace = Boolean(task.source_workspace && task.source_workspace !== currentWorkspace);
+  const nativeResearchTask = !isForeignWorkspace && !isUsCollabWorkspace() && !isProductionWorkspace();
+  const canRunQuickAction = nativeResearchTask && ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
   // 研发已取消审核的存量申请可打开并主动应用；放弃仍等待审核。
   const isPendingReview = task.status === "pending_review" && !(
     !isForeignWorkspace && !isUsCollabWorkspace() && !isProductionWorkspace()
@@ -3733,6 +3760,12 @@ function WorkspaceTaskCard({
                     <ArrowRight className="h-4 w-4" />
                     {t("查看任务")}
                   </DropdownMenuItem>
+                  {nativeResearchTask && (
+                    <DropdownMenuItem onSelect={() => onOpen(task, "settings")}>
+                      <Settings2 className="h-4 w-4" />
+                      {t("任务设置")}
+                    </DropdownMenuItem>
+                  )}
                   {moveEnabled && !isForeignWorkspace && onMove && (
                     <DropdownMenuItem onSelect={() => onMove(task)}>
                       <FolderInput className="h-4 w-4" />
@@ -3857,6 +3890,24 @@ function WorkspaceTaskCard({
               <span className="max-w-[70px] truncate font-medium text-slate-600">{latestActivity?.actor_name || task.owner}</span>
             </span>
           </div>
+          {nativeResearchTask && !isPendingReview && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              {canRunQuickAction && <>
+                <Button type="button" variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={() => onOpen(task, "progress")}>
+                  <RefreshCw className="size-3.5" />{t("更新进度")}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={() => onOpen(task, "handoff")}>
+                  <GitBranch className="size-3.5" />{t("移交协作")}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={() => onOpen(task, "submit")}>
+                  <CheckCircle2 className="size-3.5" />{t("标记完成")}
+                </Button>
+              </>}
+              <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" onClick={() => onOpen(task, "discussion")}>
+                <MessageSquare className="size-3.5" />{t("讨论")}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -4285,6 +4336,7 @@ function SubsystemFolderCard({
 export function RDMyWorkspacePage() {
   useI18n(); // 订阅语言切换（页头/过滤条/任务卡/通知中心文案已 t() 化）
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -4385,11 +4437,30 @@ export function RDMyWorkspacePage() {
     };
   }, [loadWorkspace]);
 
-  const [taskKeyword, setTaskKeyword] = useState("");
-  const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
-  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
-  const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
-  const [taskRoleTab, setTaskRoleTab] = useState<WorkspaceRoleTab>("primary");
+  // 研发使用 URL 保存筛选，详情返回或浏览器后退时恢复；其他工作区保留本地筛选。
+  const nativeResearchWorkspace = !isUsCollabWorkspace() && !isProductionWorkspace();
+  const [localTaskFilters, setLocalTaskFilters] = useState(() => readWorkspaceTaskFilters(new URLSearchParams()));
+  const taskFilters = nativeResearchWorkspace ? readWorkspaceTaskFilters(searchParams) : localTaskFilters;
+  const { keyword: taskKeyword, priority: taskPriorityFilter, status: taskStatusFilter, due: taskDueFilter, role: taskRoleTab } = taskFilters;
+  const updateTaskFilters = (patch: Partial<WorkspaceTaskFilters>) => {
+    if (!nativeResearchWorkspace) {
+      setLocalTaskFilters((current) => ({ ...current, ...patch }));
+      return;
+    }
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      for (const [key, value] of Object.entries(patch)) {
+        if (!value || value === "all" || (key === "role" && value === "primary")) next.delete(key);
+        else next.set(key, value);
+      }
+      return next;
+    }, { replace: true });
+  };
+  const setTaskKeyword = (keyword: string) => updateTaskFilters({ keyword });
+  const setTaskPriorityFilter = (priority: Priority | "all") => updateTaskFilters({ priority });
+  const setTaskStatusFilter = (status: TaskStatus | "all") => updateTaskFilters({ status });
+  const setTaskDueFilter = (due: WorkspaceDueFilter) => updateTaskFilters({ due });
+  const setTaskRoleTab = (role: WorkspaceRoleTab) => updateTaskFilters({ role });
   const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
   const primaryTaskIds = useMemo(() => new Set(myTasks.map(workspaceTaskIdentity)), [myTasks]);
   const collabTasks = useMemo(
@@ -4570,21 +4641,33 @@ export function RDMyWorkspacePage() {
       navigate(`${detailPath}/${encodeURIComponent(task.task_id)}`, { state: { task } });
       return;
     }
-    setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon, transfer: opts?.transfer });
+    const nativeResearch = !isUsCollabWorkspace() && !isProductionWorkspace();
+    if (nativeResearch && (tab === "detail" || tab === "discussion") && !opts?.abandon && !opts?.transfer) {
+      const returnQuery = new URLSearchParams(searchParams);
+      returnQuery.delete("task");
+      const returnSearch = returnQuery.toString();
+      navigate(`/rd-task/${encodeURIComponent(task.task_id)}${tab === "discussion" ? "?tab=conversation" : ""}`, {
+        state: { task, rdWorkspaceReturn: `${location.pathname}${returnSearch ? `?${returnSearch}` : ""}` },
+        replace: searchParams.has("task"),
+      });
+      return;
+    }
+    setActivePanel({ kind: "task", task, tab: nativeResearch && tab === "detail" ? "settings" : tab, openedAt: Date.now(), abandon: opts?.abandon, transfer: opts?.transfer });
     // 正式留痕与讨论使用不同已读游标；打开任务只清正式留痕，讨论需实际打开对应会话。
     void markRdTaskNotesRead(task.task_id)
       .catch(() => {})
       .finally(() => { void refreshNoteUnread(); });
   };
 
-  // 深链定位：MateChat 参考来源 / 通知等带 ?task=<编号> 进来时，任务数据就绪后自动打开该任务详情并锁定，
-  // 随后清除该参数，避免刷新或返回时重复弹出。找不到（非本工作台任务/尚未加载）则静默忽略。
+  // 深链定位到正式详情；已跳转时不再更新工作台 URL，避免覆盖导航。
   useEffect(() => {
     const taskId = searchParams.get("task");
     if (!taskId) return;
     const target = allTasks.find((t) => t.task_id === taskId);
     if (!target) return;
     openTask(target, "detail");
+    const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
+    if ((!isUsCollabWorkspace() && !isProductionWorkspace()) || (target.source_workspace && target.source_workspace !== currentWorkspace)) return;
     const next = new URLSearchParams(searchParams);
     next.delete("task");
     setSearchParams(next, { replace: true });
@@ -4972,10 +5055,7 @@ export function RDMyWorkspacePage() {
                     <Button variant="unstyled"
                       type="button"
                       onClick={() => {
-                        setTaskKeyword("");
-                        setTaskPriorityFilter("all");
-                        setTaskStatusFilter("all");
-                        setTaskDueFilter("all");
+                        updateTaskFilters({ keyword: "", priority: "all", status: "all", due: "all" });
                       }}
                       className="h-8 shrink-0 rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-[#cbd8f6] hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
@@ -5029,10 +5109,7 @@ export function RDMyWorkspacePage() {
                     type="button"
                     onClick={() => {
                       if (taskFiltersActive) {
-                        setTaskKeyword("");
-                        setTaskPriorityFilter("all");
-                        setTaskStatusFilter("all");
-                        setTaskDueFilter("all");
+                        updateTaskFilters({ keyword: "", priority: "all", status: "all", due: "all" });
                       } else {
                         void loadWorkspace();
                       }
@@ -5272,6 +5349,7 @@ export function RDMyWorkspacePage() {
           key={`panel-task-${activePanel.openedAt}`}
           task={activePanel.task}
           initialTab={activePanel.tab}
+          onViewDetail={() => openTask(activePanel.task, "detail")}
           autoAbandon={activePanel.abandon}
           autoTransfer={activePanel.transfer}
           onClose={() => setActivePanel(null)}
@@ -5381,7 +5459,7 @@ export function RDMyWorkspacePage() {
               },
             })
           }
-          onOpenTask={(task, tab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() })}
+          onOpenTask={openTask}
           onOpenDiscussion={(notification) => {
             const body = parseRdDiscussionMention(notification.raw_body);
             if (!body) return;

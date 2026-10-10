@@ -7,11 +7,11 @@ import { operationDay } from './procurement-operations.service';
 export interface ExecutionBomLine { id: string; code: string; name: string; unit: string; qtyPer: number }
 export interface ExecutionReport { id: string; date: string; quantity: number; goodQty: number; note: string; actorId: string; actorName: string; at: string }
 export type ExecutionInspectionKind = 'process' | 'final' | 'legacy';
-export interface ExecutionDocument { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string }
+export interface ExecutionDocument { kind: 'sop' | 'sip' | 'drawing'; documentId: string; versionId: string; attachmentId: string; fileId?: string; name: string; version: string; createdAt?: string }
 export interface ExecutionInspection { id: string; reportId: string; date: string; quantity: number; goodQty: number; evidence: string; actorId: string; actorName: string; at: string; qualityId: string | null; verifiedGoodQty?: number;
   kind?: ExecutionInspectionKind; process?: string; sip?: { text: string; source: 'dispatch' | 'manual'; packageId?: string; document?: ExecutionDocument } }
 export interface ExecutionTask {
-  fieldIssues?: { id: string; qualityId: string; reportId: string; inspectionId?: string; date: string; defectiveQty: number; issue: string; actorId: string; actorName: string; at: string; materialBatches: { code: string; batchNo: string | null }[] }[];
+  fieldIssues?: { id: string; qualityId: string; reportId: string; inspectionId?: string; date: string; defectiveQty: number; issue: string; actorId: string; actorName: string; at: string; initialCause?: 'unknown' | 'material' | 'software' | 'assembly' | 'other'; requestedCollaboration?: { department: string | null; ownerId: string; ownerName: string }; materialBatches: { code: string; batchNo: string | null }[] }[];
   basis?: { packageId: string; code: string; sop: string; sip: string; drawing: string; sampleTaskId: string; roundId: string; changeIds: string[]; at: string; documents?: ExecutionDocument[] };
   id: string; batchId: string; name: string; treeNodeId: string; output: 'component' | 'whole'; unit: string;
   quantity: number; date: string; line: string; ownerId: string; ownerName: string;

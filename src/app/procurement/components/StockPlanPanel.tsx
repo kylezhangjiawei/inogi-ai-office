@@ -81,6 +81,8 @@ import { cn } from "../../components/ui/utils";
 import { ComboInput } from "./common";
 import { StockPlanSelect, StockPlanDateInput, StockPlanMonthInput } from "./StockPlanControls";
 import { StockPlanOrderDateCheck } from "./StockPlanOrderDateCheck";
+import { ComponentInventoryValue, InventoryTip } from './ComponentInventory';
+import { StockPlanExecution } from './StockPlanExecution';
 
 type StatusFilter = "all" | ProcStockPlanStatus;
 
@@ -286,7 +288,7 @@ function StockPlanFormDialog({
       >
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="px-6 pb-4 pt-6 pr-14">
-            <DialogTitle>{t(plan ? "编辑备货总计划" : "新建备货总计划")}</DialogTitle>
+            <DialogTitle>{t(plan ? "编辑备货任务单" : "新建备货任务单")}</DialogTitle>
             <DialogDescription>{t("整机按 BOM 查看物料齐套，包材和物料按本身数量备货。下单、到货与合格进度分别记录。")}</DialogDescription>
           </DialogHeader>
           <div className="proc-stock-plan-form-fields grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-6 pb-6 sm:grid-cols-2">
@@ -593,7 +595,9 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
       </div>
       {!complete && <p className="mt-2 text-xs text-amber-700">BOM 或库存映射不完整，先完善数据再生成采购任务。</p>}
       {!plan.productId && <p className="mt-2 text-xs text-amber-700">请先编辑计划并选择所属产品，再生成采购任务。</p>}
-      <p className="mt-2 text-[11px] text-slate-500">量产仓库快照估算，未预占库存，不代表可按计划日期交付；多个计划共享库存需排程确认。最近同步：{data.syncedAt ? new Date(data.syncedAt).toLocaleString("zh-CN") : "无记录"}。</p>
+      <div className="mt-2 flex flex-wrap gap-x-4">{data.componentStocks?.map(stock => <div key={stock.materialId} className="text-xs text-slate-600"><span className="mr-2">{stock.materialName}</span><ComponentInventoryValue stock={stock} /></div>)}</div>
+      <InventoryTip label="查看备货核算口径"><p>需求量＝整机台数 × 单机用量；直接按物料立项时采用填写的需求量。</p><p>建议采购量＝需求量－当前组件可用库存－已登记在途，最低为 0。组件库存包含同范围仓库库存，不再重复相减；人工值替代 ERP 同范围值。</p><p>多个计划共享库存尚未自动预占；在途到货日期需另行核对。未登记或尚未同步的供给不自动计入。</p></InventoryTip>
+      <p className="mt-2 text-[11px] text-slate-500">库存快照估算，未预占库存，不代表可按计划日期交付；多个计划共享库存需排程确认。各组件来源及统计时间见库存说明。</p>
     </>}
     {!!plan.tasks?.length && <div className="mt-3 flex flex-wrap gap-2">{plan.tasks.map((task) => <Button type="button" variant="secondary" size="sm" key={task.id} className="h-auto min-w-0 max-w-full justify-start whitespace-normal rounded-md bg-accent px-2 py-1 text-left text-xs text-primary [overflow-wrap:anywhere]" onClick={() => navigate(`/proc-cockpit?line=production&task=${encodeURIComponent(task.id)}`)}>{task.code} · {task.materialName} · {quantity(task.quantity)}</Button>)}</div>}
   </div>;
@@ -645,7 +649,7 @@ function MonthlyPlanOverview({plans, month}: {plans: ProcStockPlan[]; month: str
   </section>;
 }
 
-export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: { materials: Material[]; canCreate: boolean; productId?: string; treeNodeId?: string }) {
+export function StockPlanPanel({ materials, canCreate, productId, treeNodeId, defaultMaterialId }: { materials: Material[]; canCreate: boolean; productId?: string; treeNodeId?: string; defaultMaterialId?: string }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
@@ -653,7 +657,10 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   const canOpenCockpit = usePermission("page:proc-cockpit");
   const [params, setParams] = useSearchParams();
   const view = useMemo(() => parseStockPlanViewState(params), [params]);
-  const { planType, month, keyword, status, supplier, creator, page, pageSize, focusId } = view;
+  const { planType, month, keyword, creator, page, pageSize, focusId } = view;
+  const status = treeNodeId ? 'all' : view.status;
+  const supplier = treeNodeId ? '' : view.supplier;
+  const [moreFilters, setMoreFilters] = useState(false);
   const expanded = useMemo(() => new Set(view.expanded), [view.expanded]);
   const updateView = (update: Partial<StockPlanViewState> | ((current: StockPlanViewState) => StockPlanViewState)) => {
     setParams((current) => {
@@ -680,7 +687,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   const [editingBatch, setEditingBatch] = useState<{ plan: ProcStockPlan; batch?: ProcStockPlanBatch } | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<{ plan: ProcStockPlan; batch: ProcStockPlanBatch } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const sourceMaterial = materials.find((m) => (params.get("materialCode") && (m.tpInventoryCode === params.get("materialCode") || m.erpCode === params.get("materialCode"))) || (params.get("materialId") && m.id === params.get("materialId")));
+  const sourceMaterial = materials.find((m) => (params.get("materialCode") && (m.tpInventoryCode === params.get("materialCode") || m.erpCode === params.get("materialCode"))) || m.id === (params.get("materialId") || defaultMaterialId));
   const defaults: Partial<ProcStockPlanInput> = {productId: productId || params.get("product") || undefined, treeNodeId,
     planType: params.get("planType") === "machine" ? "machine" : params.get("planType") === "packaging" ? "packaging" : "material",
     productLine: params.get("productLine") || undefined, materialId: sourceMaterial?.id,
@@ -840,14 +847,14 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   };
 
   return (
-    <div ref={panelRef} tabIndex={-1} className="proc-stock-plan-panel flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+    <div ref={panelRef} tabIndex={-1} className={cn("proc-stock-plan-panel flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden", treeNodeId && "max-sm:overflow-y-auto!")}>
       <section className="proc-horizon-command proc-horizon-command-cockpit shrink-0">
         <div className="proc-horizon-command-layout">
           <div className="proc-horizon-command-heading">
             <span className="proc-horizon-command-mark"><PackagePlus aria-hidden="true" className="size-5" /></span>
             <div className="proc-horizon-command-copy">
-              <h2>{t("备货计划")}</h2>
-              <p>{t("按整机、包材和物料管理备货目标，衔接采购、到货、检验及生产实绩。")}</p>
+              <h2>{t(treeNodeId ? "日常备货批量物料" : "备货计划")}</h2>
+              <p>{t(treeNodeId ? "备货计划 → 下单 → 在途 → 到货。支持小批量独立建单，签收数量计入到货。" : "按整机、包材和物料管理备货目标，衔接采购、到货、检验及生产实绩。")}</p>
             </div>
           </div>
           <div className="proc-horizon-actions">
@@ -862,12 +869,12 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             </div>
             {canCreate ? (
               <Button type="button" onClick={() => setEditingPlan("new")} className="proc-horizon-primary-action gap-1.5 text-xs">
-                <Plus aria-hidden="true" className="size-4" />{t("新建总计划")}
+                <Plus aria-hidden="true" className="size-4" />{t("新建备货任务单")}
               </Button>
             ) : null}
           </div>
 
-          <div role="group" aria-label={t("计划状态筛选")} className="proc-horizon-kpi-grid proc-stock-plan-kpi-grid">
+          <div hidden={Boolean(treeNodeId)} role="group" aria-label={t("计划状态筛选")} className={treeNodeId ? "hidden" : "proc-horizon-kpi-grid proc-stock-plan-kpi-grid"}>
             {([
               ["all", "全部计划", PackagePlus],
               ["not_started", "未下单", CircleDashed],
@@ -909,12 +916,13 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <div className="proc-stock-plan-filter-fields ml-auto flex min-w-0 flex-wrap items-center gap-3">
-          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+        <Button type="button" variant="ghost" size="sm" className={treeNodeId ? "ml-auto" : "hidden"} aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)}>更多筛选</Button>
+        <div className={cn("proc-stock-plan-filter-fields ml-auto min-w-0 flex-wrap items-center gap-3", treeNodeId && !moreFilters ? "hidden!" : "flex")}>
+          <div className={treeNodeId ? "hidden" : "proc-stock-plan-filter-field flex items-center gap-2"}>
             <Label htmlFor="stock-plan-status" className="shrink-0 text-xs text-slate-500">{t("计划状态")}</Label>
             <StockPlanSelect id="stock-plan-status" label={t("计划状态")} className="w-32 text-xs" value={status} onValueChange={(value) => changeStatus(value as StatusFilter)} options={[{ value: "all", label: t("全部状态") }, ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label: t(label) }))]} />
           </div>
-          <div className="proc-stock-plan-filter-field flex items-center gap-2">
+          <div className={treeNodeId ? "hidden" : "proc-stock-plan-filter-field flex items-center gap-2"}>
             <Label htmlFor="stock-plan-supplier" className="shrink-0 text-xs text-slate-500">{t("供应商")}</Label>
             <StockPlanSelect id="stock-plan-supplier" label={t("供应商")} searchable className="w-44 text-xs" value={supplier} emptyLabel={t("全部供应商")} onValueChange={(value) => updateView({ supplier: value, page: 1, focusId: undefined })}
               options={supplier && !supplierOptions.some((option) => option.value === supplier) ? [{ value: supplier, label: t("已选供应商（当前无记录）") }, ...supplierOptions] : supplierOptions} />
@@ -931,7 +939,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
           <Button size="sm" variant="ghost" disabled={!hasActiveFilters} onClick={clearFilters} className="text-xs">{t("重置筛选")}</Button>
         </div>
       </div>
-      <section className="proc-horizon-task-feed flex min-h-0 flex-1 flex-col">
+      <section className={cn("proc-horizon-task-feed flex min-h-0 flex-1 flex-col", treeNodeId && "max-sm:min-h-[60dvh]! max-sm:shrink-0!")}>
         <div className="proc-horizon-filter-bar">
           <span className="font-semibold text-slate-600">
             {status === "all" ? t("全部备货计划") : t(STATUS_LABELS[status])}
@@ -962,7 +970,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 <p className="text-balance text-sm font-semibold text-slate-700">{t(plans.length ? "没有符合条件的备货计划" : "当前还没有备货计划")}</p>
                 <p className="mt-1 text-pretty text-xs text-slate-500">{t(plans.length ? "可切换状态或修改搜索条件" : "创建总计划后，再逐批登记供应商和采购数量")}</p>
               </div>
-              {canCreate && plans.length === 0 ? <Button type="button" size="sm" onClick={() => setEditingPlan("new")} className="bg-primary text-white hover:bg-primary-hover">{t("新建总计划")}</Button> : null}
+              {canCreate && plans.length === 0 ? <Button type="button" size="sm" onClick={() => setEditingPlan("new")} className="bg-primary text-white hover:bg-primary-hover">{t("新建备货任务单")}</Button> : null}
               {plans.length > 0 ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>{t("清除筛选")}</Button> : null}
             </div>
           ) : (
@@ -1004,7 +1012,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                       <div className="proc-stock-plan-material min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <strong title={plan.materialName} className="min-w-0 break-words text-balance text-sm text-foreground">{plan.materialName}</strong>
-                          {plan.fulfillmentSummary ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">{plan.fulfillmentSummary.orderedQty === null ? t('履约待核对') : plan.fulfillmentSummary.remainingToPurchaseQty === 0 ? t('净订购已覆盖') : t('净订购未覆盖')}</span> : <PlanStatus status={plan.status} />}
+                          {plan.treeNodeId && plan.tasks.length ? <span className="rounded bg-accent px-1.5 py-0.5 text-xs text-primary">已关联 {plan.tasks.length} 条采购任务</span> : plan.fulfillmentSummary ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">{plan.fulfillmentSummary.orderedQty === null ? t('履约待核对') : plan.fulfillmentSummary.remainingToPurchaseQty === 0 ? t('净订购已覆盖') : t('净订购未覆盖')}</span> : <PlanStatus status={plan.status} />}
                           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{PLAN_TYPE_LABELS[plan.planType]}</span>
                         </div>
                         <p title={`${plan.code}${plan.spec ? ` · ${plan.spec}` : ""}`} className="mt-1 break-words text-xs text-slate-500"><span className="font-medium tabular-nums">{plan.code}</span>{plan.spec ? ` · ${plan.spec}` : ""}</p>
@@ -1017,6 +1025,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                       </div>
 
                       <div className="proc-stock-plan-progress min-w-0">
+                        {plan.treeNodeId && plan.tasks.length ? <p className="text-xs text-muted-foreground">按物料跟进采购与签收<br />展开查看执行明细</p> : <>
                         <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t(plan.fulfillmentSummary ? "ERP / 历史采购原值" : "采购进度")}</span>
                         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
                           <span className="font-semibold tabular-nums text-foreground">{quantity(plan.purchasedQty)} / {quantity(plan.targetQty)}</span>
@@ -1038,6 +1047,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                         <p className={cn("mt-1 text-[10px]", plan.readinessStatus === "qualified" ? "text-emerald-700" : "text-amber-700")}>{{not_received: "尚未到货", partial_received: "部分到货", pending_inspection: "到货达标，待检验", qualified: "已登记合格达标"}[plan.readinessStatus]}</p>
                         {plan.qualityDataIssue && <p className="text-[10px] text-rose-600">ERP 到货量变更，请复核合格量</p>}
                         {plan.orderDataIssue && <p className="text-[10px] text-rose-600">采购订单异常，请展开复核</p>}
+                        </>}
                       </div>
 
                       <div className="proc-stock-plan-date min-w-0 break-words text-xs text-slate-600">
@@ -1068,6 +1078,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                     {isExpanded ? (
                       <div id={`proc-stock-plan-batches-${plan.id}`} className="proc-stock-plan-batches min-w-0 border-t border-slate-100 bg-slate-50/70 px-3 py-3">
                         <StockPlanBomBasis plan={plan} canCreate={canCreate} onSaved={() => void load()} />
+                        {plan.treeNodeId && <StockPlanExecution plan={plan} />}
                         <PlanReadiness plan={plan} canCreate={canCreate && (plan.planType !== 'machine' || Boolean(plan.bomRevisionId))} onSaved={replacePlan} />
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs font-semibold text-slate-600">

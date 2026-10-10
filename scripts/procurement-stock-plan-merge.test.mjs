@@ -67,6 +67,8 @@ function fixture(component, props, api = {}) {
     "../../hooks/usePermission": { usePermission: () => true },
     "./StockPlanOrderDateCheck": { StockPlanOrderDateCheck: 'StockPlanOrderDateCheck' },
     "./StockPlanBomBasis": { StockPlanBomBasis: 'StockPlanBomBasis' },
+    "./ComponentInventory": { ComponentInventoryValue: 'ComponentInventoryValue', InventoryTip: 'InventoryTip' },
+    "./StockPlanExecution": { StockPlanExecution: 'StockPlanExecution' },
     "../../lib/i18n": { useI18n: () => ({ t: (value, params = {}) => value.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match) }) },
     "../../components/ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
     "../data": { useProcurementProducts: () => [{ id: "product-q5", name: "Q5" }, { id: "product-q7", name: "Q7" }], refreshProcurement: async () => {} },

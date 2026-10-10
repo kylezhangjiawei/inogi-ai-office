@@ -25,6 +25,15 @@ function fixture(path,name,props,mocks={},query=''){
  return {render,exports,params:()=>params,destroy:()=>cleanup.forEach(fn=>fn())};
 }
 const record={id:'q1',source:'production',batchNo:'B1',treeNodeName:'装配',issue:'划痕',unit:'件',inspectedQty:160,defectiveQty:6,status:'open',disposition:'pending',updatedAt:'2026-09-20T00:00:00Z',analysis:{version:1,state:'pending',category:'unknown',detail:'',evidence:'现场照片',responsibility:{kind:'unknown',name:''},phenomena:[{name:'划痕',count:6},{name:'偏位',count:2}],files:[],references:[{source:'warehouse',reference:'R1',note:'同一批'}],history:[]}};
+
+test('主因筛选同时更新记录、件数及现象统计',()=>{
+ const confirmed={...record,id:'q2',analysis:{...record.analysis,state:'confirmed',category:'process'}};
+ const f=fixture('src/app/procurement/quality/QualityRecordsPanel.tsx','QualityRecordsPanel',{records:[record,confirmed],onSaved(){}});
+ nodes(f.render()).find(row=>row.props['aria-label']==='质量主因').props.onChange({target:{value:'process'}});
+ const result=text(f.render());
+ assert.match(result,/原异常\s*1\s*条/); assert.doesNotMatch(result,/原异常\s*2\s*条/);
+ assert.match(result,/不良\s*6\s*件/);
+});
 test('质量汇总原ID去重，6件8次分离、未知单列且供应商分组不用同名串数据',()=>{
  const f=fixture('src/app/procurement/quality/QualityRecordsPanel.tsx','QualityRecordsPanel',{records:[],onSaved(){}});
  const summary=f.exports.qualityRecordSummary([record,{...record},{...record,id:'q2',source:'procurement',materialId:'m1',materialName:'同名物料',supplierId:'s1',supplierName:'同名供应商'},{...record,id:'q3',source:'procurement',materialId:'m2',materialName:'同名物料',supplierId:'s1',supplierName:'同名供应商'}]);
@@ -40,8 +49,8 @@ test('质量深链仅打开传入授权记录，关闭仅删除quality并保留�
 test('现场不良表单提交真实上传ID、原报工6件与8次现象，实领批号来自已签收',async()=>{
  const writes=[],uploads=[],saved=[];
  const task={id:'t',name:'装配',line:'一线',unit:'件',reports:[{id:'r',date:'2026-09-20',quantity:160,goodQty:154}],inspections:[],fieldIssues:[]};
- const f=fixture('src/app/production/execution/ProductionFieldIssueDialog.tsx','ProductionFieldIssueDialog',{task,plan:{id:'p',version:4},onClose(){},onSaved:()=>saved.push(true)},{
- '../../lib/productionExecutionApi':{commandExecutionPlan:async(id,input)=>writes.push({id,...input})},
+ const f=fixture('src/app/production/execution/ProductionFieldIssueDialog.tsx','ProductionFieldIssueDialog',{task,plan:{id:'p',version:4,month:'2026-09',batches:[]},onClose(){},onSaved:()=>saved.push(true)},{
+  '../../lib/productionExecutionApi':{getExecutionOptions:async()=>({users:[{id:'rd1',name:'研发甲',department:'研发部',canCollaborate:true},{id:'qa1',name:'质量甲',department:'质量部',canCollaborate:true}]}),commandExecutionPlan:async(id,input)=>writes.push({id,...input})},
  '../../lib/warehouseFlowApi':{getWarehouseFlows:async()=>({items:[{taskId:'t',lines:[{code:'M',name:'阀',unit:'件',signedQty:320,signedBatches:[{batchNo:'LOT-A',quantity:320}]}]}]})},
  '../../lib/resourceUpload':{uploadResourceFile:async(file,type,options)=>{uploads.push({file,type,options});return{fileId:'real-upload',fileName:file.name};}}
  });
@@ -50,15 +59,20 @@ test('现场不良表单提交真实上传ID、原报工6件与8次现象，实�
  nodes(label('不良摘要')).find(row=>row.type==='Input').props.onChange({target:{value:'划痕及偏位'}});
  nodes(f.render()).find(row=>row.props['aria-label']==='现场现象 1').props.onChange({target:{value:'划痕'}});
  nodes(f.render()).find(row=>row.props['aria-label']==='现场现象 1 次数').props.onChange({target:{value:'6'}});
- nodes(f.render()).find(row=>row.type==='Button'&&text(row)==='添加现象').props.onClick();
+ nodes(f.render()).find(row=>row.type==='Button'&&text(row)==='添加其他现象').props.onClick();
  nodes(f.render()).find(row=>row.props['aria-label']==='现场现象 2').props.onChange({target:{value:'偏位'}});
  nodes(f.render()).find(row=>row.props['aria-label']==='现场现象 2 次数').props.onChange({target:{value:'2'}});
- nodes(label('现场证据说明')).find(row=>row.type==='Textarea').props.onChange({target:{value:'实物复核'}});
- nodes(f.render()).find(row=>row.type==='Input'&&row.props.type==='file').props.onChange({target:{files:[{name:'现场.png'}],value:'fake'}});await flush();
+ nodes(label('现场说明')).find(row=>row.type==='Textarea').props.onChange({target:{value:'实物复核'}});
+  nodes(label('初步原因')).find(row=>row.type==='NativeSelect').props.onChange({target:{value:'software'}});
+  nodes(label('建议协同部门')).find(row=>row.type==='NativeSelect').props.onChange({target:{value:'研发部'}});
+  assert.doesNotMatch(text(label('建议接收人')),/质量甲/);
+  nodes(label('建议接收人')).find(row=>row.type==='NativeSelect').props.onChange({target:{value:'rd1'}});
+ nodes(f.render()).find(row=>row.type==='Input'&&row.props.type==='file').props.onChange({target:{files:[new File([new Uint8Array([137,80,78,71])],'现场.png',{type:'image/png'})],value:'fake'}});await flush();
  nodes(f.render()).filter(row=>row.type==='NativeSelect').at(-1).props.onChange({target:{value:'LOT-A'}});
- nodes(f.render()).find(row=>row.type==='Button'&&text(row)==='提交原异常').props.onClick();await flush();
+ nodes(f.render()).find(row=>row.type==='Button'&&text(row)==='提交不良').props.onClick();await flush();
  assert.equal(uploads[0].type,'assets');assert.equal(writes[0].data.defectiveQty,6);assert.equal(writes[0].data.phenomena.reduce((sum,row)=>sum+row.count,0),8);
  assert.deepEqual(writes[0].data.fileIds,['real-upload']);assert.equal(writes[0].data.reportId,'r');assert.deepEqual(writes[0].data.materialBatches,[{code:'M',batchNo:'LOT-A'}]);assert.equal(saved.length,1);
+  assert.equal(writes[0].data.initialCause,'software');assert.deepEqual(writes[0].data.requestedCollaboration,{department:'研发部',ownerId:'rd1'});assert.equal(writes[0].action,'field-issue');assert.match(text(f.render()),/待负责人初判、分派/);
 });
 test('原因确认表单使用加载的原异常版本，责任确认独立，失败保留草稿并重试原请求ID',async()=>{
  const writes=[];let attempts=0;

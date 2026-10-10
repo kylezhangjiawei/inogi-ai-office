@@ -5,9 +5,11 @@ export class ProcurementOperationsQueryDto {
   @IsOptional() @IsString() @MaxLength(120) treeNodeId?: string;
   @IsOptional() @IsString() @MaxLength(120) stockPlanId?: string;
   @IsOptional() @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) month?: string;
+  @IsOptional() @IsIn(['month', 'pending']) qualityView?: 'month' | 'pending';
 }
 
 export class SaveProductionReportDto {
+  @IsOptional() @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId?: string;
   @IsString() @MaxLength(120) productId!: string;
   @IsString() @MaxLength(120) treeNodeId!: string;
   @IsOptional() @IsString() @MaxLength(120) stockPlanId?: string | null;

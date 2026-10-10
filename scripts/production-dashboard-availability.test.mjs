@@ -43,6 +43,7 @@ test('生产汇总加载中和失败时，独立的交付风险仍挂载，且�
   assert.ok(result.some(node => node.props?.role === 'alert'));
   assert.ok(result.some(node => node.type === 'Button' && node.props.children === '重新加载'));
   assert.equal(result.filter(node => node.type === 'ProductionMetrics').length, 0, '错误不能制造零值指标');
+  assert.ok(result.some(node => node.type === 'Link' && node.props.to === '/production-dashboard?view=legacy'), '总览不可用不能阻断原协同任务');
 });
 
 test('生产汇总成功时保留指标、现场作业和发货记录，风险区域不重复', async () => {
@@ -51,7 +52,18 @@ test('生产汇总成功时保留指标、现场作业和发货记录，风险�
   await new Promise(resolve => setImmediate(resolve));
   const result = render();
   assert.equal(result.filter(node => node.type === 'ManagementRiskPanel').length, 1);
-  assert.equal(result.filter(node => node.type === 'ProductionMetrics').length, 1);
-  assert.equal(result.filter(node => node.type === 'details').length, 2);
+  assert.equal(result.filter(node => node.type === 'article' && node.props.className === 'cockpit-kpi').length, 4);
+  assert.equal(result.filter(node => node.type === 'ProductionDashboardCharts').length, 1);
+  assert.equal(result.filter(node => node.type === 'details').length, 1, '只有历史发货折叠，现场任务默认可见');
+  assert.ok(result.some(node => node.type === 'section' && node.props['aria-label'] === '现场作业列表'));
+  assert.equal(result.find(node => node.type === 'ManagementRiskPanel').props.presentation, 'production');
   assert.equal(result.find(node => node.type === 'ManagementRiskPanel').props.month, '2026-09');
+});
+
+test('仅获派范围不把隐藏的发货记录误显示为本月零发货', async () => {
+  const render = fixture(async () => ({ ok: true, json: async () => ({ scope: 'assigned', targetQty: null, shipmentTargetQty: null, actualShippedQty: null, tasks: [], shipments: [] }) }));
+  render(); await new Promise(resolve => setImmediate(resolve));
+  const result = render();
+  assert.equal(result.filter(node => node.type === 'details' && node.props.className === 'cockpit-card cockpit-shipment-history').length, 0);
+  assert.equal(result.filter(node => node.type === 'ManagementRiskPanel').length, 1);
 });

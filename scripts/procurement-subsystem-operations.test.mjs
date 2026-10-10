@@ -19,7 +19,7 @@ function deferred() { let resolve; let reject; const promise = new Promise((yes,
 function fixture(name, props, overrides = {}, sourceAst = ast) {
   const slots = []; let cursor = 0; const effects = []; const saved = []; const requests = [];
   const bindings = {
-    React, useId: () => 'verification-form', requestAnimationFrame: (callback) => callback(),
+    React, QualityRecordsPanel: 'QualityRecordsPanel', useId: () => 'verification-form', requestAnimationFrame: (callback) => callback(),
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], (value) => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; },
     useRef(initial) { const index = cursor++; if (!(index in slots)) slots[index] = { current: initial }; return slots[index]; },
     useEffect(callback, deps) { const index = cursor++; const prev = slots[index]; if (!prev || deps.some((dep, i) => dep !== prev.deps[i])) { if (prev?.cleanup) prev.cleanup(); slots[index] = { deps }; effects.push(() => { slots[index].cleanup = callback(); }); } },
@@ -53,6 +53,40 @@ async function readyEditor(extra = {}, overrides = {}) {
   f.render(); await settle(); return f;
 }
 function fillProduction(f) { for (const [label, value] of [['班次', '白班'], ['产线或工序', '装配'], ['计划产量', '10'], ['实际产量', '9'], ['良品数量', '8'], ['投入工时（人时）', '2']]) change(f, label, value); }
+
+test('已有填写的报工关闭时先确认，取消放弃仍保留输入', async () => {
+  const f=await readyEditor(); change(f,'班次','白班');
+  find(f.render(),node=>node.type==='Dialog').props.onOpenChange(false);
+  assert.equal(f.saved.includes('closed'),false);
+  const confirm=find(f.render(),node=>node.type==='AlertDialog'); assert.equal(confirm.props.open,true);
+  confirm.props.onOpenChange(false);
+  assert.equal(find(find(f.render(),node=>node.type==='Field'&&node.props.label==='班次'),node=>node.type==='Input').props.value,'白班');
+});
+
+test('报工请求失败重试沿用提交标识，防止成功响应丢失后的重复登记', async () => {
+  const writes=[];
+  const f=await readyEditor({}, { saveProductionReport: async (...args)=>{writes.push(args);if(writes.length===1)throw Error('响应中断');return{};} });
+  fillProduction(f); await submit(f); await submit(f);
+  assert.match(writes[0][1].requestId,/^[A-Za-z0-9_-]{16,128}$/);
+  assert.equal(writes[0][1].requestId,writes[1][1].requestId);
+});
+
+test('未登记不良带入原报工、单位、计划和差额，保持实际批次待填写', async () => {
+  const sourceReport={id:'report-1',stockPlanId:'plan-1',unit:'件',unregisteredDefectiveQty:2,unregisteredInspectedQty:60};
+  const f=await readyEditor({editor:{kind:'quality',sourceReport}});
+  const value=label=>find(find(f.render(),n=>n.type==='Field'&&n.props.label===label),n=>['Input','NativeSelect'].includes(n.type)).props.value;
+  assert.equal(value('数量单位'),'件');assert.equal(value('不良来源'),'production');assert.equal(value('关联生产报工'),'report-1');
+  assert.equal(value('检验数量'),'60');assert.equal(value('不良数量'),'2');assert.equal(value('批次编号'),'');
+});
+
+test('同范围保存刷新保留质量面板，默认请求跨月待闭环数据', async () => {
+  const waiting=deferred(); const calls=[];
+  const f=fixture('SubsystemOperationsPanel',{productId:'p-1',treeNodeId:'n-1'},{getProcurementOperations:async scope=>{calls.push(scope);return calls.length===1?data:waiting.promise;}});
+  f.render();await settle();find(f.render(),n=>n.type==='Tabs').props.onValueChange('quality');
+  const panel=find(f.render(),n=>n.type==='QualityRecordsPanel');assert.ok(panel);assert.equal(calls[0].qualityView,'pending');
+  panel.props.onSaved();f.render();const refreshing=find(f.render(),n=>n.type==='QualityRecordsPanel');
+  assert.ok(refreshing);assert.equal(refreshing.key,panel.key); waiting.resolve(data);await settle();
+});
 
 test('产品汇总即使有写权限也没有登记入口；具体子系统才可登记', async () => {
   const global = fixture('SubsystemOperationsPanel', { productId: 'p-1' }); global.render(); await settle();
@@ -119,12 +153,12 @@ function renderModuleInventory(warehouses) {
   let stateIndex = 0;
   const bindings = {
     React, useMemo: (compute) => compute(), useCallback: (callback) => callback, useEffect: () => {},
-    useState: (initial) => [stateIndex++ === 0 ? { item: { warehouses, stock: 1000, in: 0 } } : initial, () => {}],
+    useState: (initial) => [stateIndex++ === 1 ? { item: { warehouses, stock: 1000, in: 0 } } : initial, () => {}],
     useI18n: () => ({ t: translate }), usePermission: () => false, useProcTaskAction: () => ({ modal: null }),
     useSearchParams: () => [new URLSearchParams(), () => {}], useLocation: () => ({ state: null }),
     cn: (...values) => values.filter(Boolean).join(' '), formatQuantity: String,
   };
-  for (const name of ['Button', 'ArrowLeft', 'AutoTranslatedText', 'Boxes', 'ClipboardList', 'RefreshCw', 'InventoryStat', 'PackageCheck', 'Truck', 'Warehouse']) bindings[name] = name;
+  for (const name of ['Button', 'ArrowLeft', 'AutoTranslatedText', 'Boxes', 'ClipboardList', 'RefreshCw', 'InventoryStat', 'PackageCheck', 'Truck', 'Warehouse', 'ComponentInventoryValue', 'ComponentInventoryEditor']) bindings[name] = name;
   const component = new Function(...Object.keys(bindings), moduleFunction)(...Object.values(bindings));
   return component({ materials: [{ id: 'm-1', name: '测试物料', unit: '件', tpInventoryCode: 'ERP-1' }], node: { id: 'n-1', materialId: 'm-1', productId: 'p-1', name: '子系统', taskIds: [] }, productName: '测试产品', tasks: [], onBack: () => {} });
 }

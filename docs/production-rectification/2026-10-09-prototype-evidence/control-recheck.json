@@ -1,0 +1,29 @@
+{
+  "errors": [],
+  "checks": [
+    {
+      "name": "shared-select-switches-to-original-draft",
+      "pass": true
+    },
+    {
+      "name": "shared-select-keyboard-open-close",
+      "pass": true
+    },
+    {
+      "name": "P10-mobile-confirmation-jump-visible",
+      "pass": true
+    },
+    {
+      "name": "P02-mobile-main-content",
+      "pass": true
+    },
+    {
+      "name": "P04-mobile-main-content",
+      "pass": true
+    },
+    {
+      "name": "P08-mobile-main-content",
+      "pass": true
+    }
+  ]
+}
