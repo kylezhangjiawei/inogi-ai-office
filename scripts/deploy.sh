@@ -43,6 +43,8 @@ DEPLOY_METRICS_DIR="${DEPLOY_METRICS_DIR:-/var/log/inogi-deploy}"
 # 就绪检查从本机直连 API，重启后必须匹配当前发布版本。
 DEPLOY_HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:${PORT:-3000}/api/health/ready}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-60}"
+# 通过实际 Nginx 站点验收静态文件；必须是最终站点根 URL，不接受跳转。
+DEPLOY_FRONTEND_URL="${DEPLOY_FRONTEND_URL:-https://weoxymedical.com/}"
 
 # 迁移前的保命快照默认不导出接口请求日志的行数据：这一张表占了整库 97.5%
 # （7467MB / 7658MB），让备份要跑 485 秒，而快照的用途只是「迁移出事能回滚业务数据」。
@@ -159,6 +161,7 @@ DEPLOY_STAGE_NAMES=(
   api_readiness
   frontend_activate
   nginx_reload
+  frontend_readiness
 )
 # 已记录阶段的集合。macOS 自带的 bash 3.2 没有关联数组（declare -A 会直接报错，
 # 连带 deploy-baseline 的用例在开发机上全部失败），这里改用空格分隔的字符串：
@@ -843,6 +846,10 @@ if [ ! -s apps/api/dist/src/main.js ]; then
 fi
 if [ "$DEPLOY_PREPARE_ONLY" != 1 ] && [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
   [ -d "$WEB_ROOT" ] || die "前端发布目录不存在：${WEB_ROOT}（请确认 nginx root 或设置 WEB_ROOT）"
+  WEB_ROOT="$(cd "$WEB_ROOT" && pwd -P)" || die "无法解析前端发布目录：${WEB_ROOT}"
+  if [ "$WEB_ROOT" = / ] || [[ "$REPO_DIR/" = "$WEB_ROOT/"* ]]; then
+    die "前端发布目录不能是仓库本身或其上级目录：${WEB_ROOT}"
+  fi
   [ -w "$WEB_ROOT" ] || die "前端发布目录不可写：${WEB_ROOT}"
 fi
 if [ "$DEPLOY_PREPARE_ONLY" != 1 ] && [ "$DEPLOY_PLAN_API" = "1" ]; then
@@ -1225,6 +1232,11 @@ elif [ -d "$WEB_ROOT" ]; then
   else
     cp -a "$REPO_DIR/dist/." "$WEB_ROOT/"
   fi
+  # 构建可能继承私密日志使用的 umask；仅规范公开静态目录，不跟随子符号链接。
+  find -P "$WEB_ROOT" -type d -exec chmod 0755 -- {} + \
+    || die "前端静态目录权限设置失败，未记录部署成功。"
+  find -P "$WEB_ROOT" -type f -exec chmod 0644 -- {} + \
+    || die "前端静态文件权限设置失败，未记录部署成功。"
   finish_stage success || true
 else
   die "前端发布目录不存在：${WEB_ROOT}（请确认 nginx root 或设置 WEB_ROOT）"
@@ -1234,20 +1246,21 @@ fi
 if [ "${DEPLOY_RELOAD_NGINX:-0}" != "1" ]; then
   log "Nginx 配置未由本次发布变更，跳过 reload。"
   skip_stage nginx_reload || true
-elif command -v nginx >/dev/null 2>&1; then
+else
   start_stage nginx_reload || true
   log "重载 nginx ..."
-  if nginx -t >/dev/null 2>&1; then
-    nginx_reload_status=success
-    nginx -s reload || { log "⚠️  nginx reload 失败（请手动检查）"; nginx_reload_status=warning; }
-    finish_stage "$nginx_reload_status" || true
-  else
-    log "⚠️  nginx 配置测试未通过，跳过 reload（运行 nginx -t 查看原因）"
-    finish_stage skipped || true
-  fi
-else
-  skip_stage nginx_reload || true
+  command -v nginx >/dev/null 2>&1 || die "要求重载 Nginx，但未找到 nginx。"
+  nginx -t || die "Nginx 配置检查失败，未记录部署成功。"
+  nginx -s reload || die "Nginx 重载失败，未记录部署成功。"
+  finish_stage success || true
 fi
+
+# --------------------- 11. 从用户访问入口验收前端 ---------------------
+start_stage frontend_readiness || true
+log "检查 Nginx 首页、版本文件与页面引用的静态资源 ..."
+node scripts/deploy-frontend-readiness.mjs "$DEPLOY_FRONTEND_URL" "$WEB_ROOT" \
+  || die "前端访问验收失败，未记录部署成功；请检查 Nginx、静态目录权限及发布内容。"
+finish_stage success || true
 
 commit_change_plan
 DEPLOY_COMPLETED=1

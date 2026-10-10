@@ -53,6 +53,18 @@ EOF
 
 发布计划确定后会提前检查静态发布目录、PM2 与 curl，避免等待全部构建测试后才发现环境缺项。缺少前后端入口产物时强制重建；构建返回成功但入口产物为空时，也会在迁移和重启前中止。
 
+正常发布结束前，`frontend_readiness` 会通过真实 Nginx 站点请求首页、`version.json` 及首页引用的本地 JS、CSS、modulepreload 资源。必须全部返回 HTTP 200，类型正确且内容与 `WEB_ROOT` 文件一致，才保存成功快照并打印“部署完成”；重定向、403、资源丢失、旧版本或返回 HTML 的假资源都会中止发布。整个前端验收最多等待 30 秒，外部字体/CDN 和登录后业务操作不在该检查范围内。
+
+默认检查 `https://weoxymedical.com/`。其他环境设置 `DEPLOY_FRONTEND_URL` 为最终 HTTP(S) 站点根地址（必须为 `/`，不含账号、查询参数或片段，不经重定向）。检查在增量发布跳过前端构建时仍执行，版本以实际发布的前端目录为准，不要求纯 API 发布时前后端提交号相同；`DEPLOY_PREPARE_ONLY=1` 不请求线上站点。显式设置 `DEPLOY_RELOAD_NGINX=1` 时，缺少 nginx、配置检查或重载失败均会中止。
+
+前端验收失败会记录失败阶段，不自动回滚已执行的数据库迁移或直接覆盖发布的文件。当前仍采用原有静态目录同步方式，并非分版本目录原子切换。
+
+仅核验当前站点（不构建、不迁移、不重启）可执行：
+
+```bash
+node scripts/deploy-frontend-readiness.mjs https://weoxymedical.com/ /usr/share/nginx/html/weoxy-test
+```
+
 发布脚本会把成功版本的输入指纹保存到 `.deploy-cache/deploy-inputs.json`。下一次发布按内容变化选择阶段：
 
 - 纯前端改动：前端类型检查、业务脚本测试、前后端契约测试、前端构建与静态文件同步；后端 TS 与数据库检查可按有效记录复用；
@@ -134,6 +146,27 @@ printf '%s %s refs/heads/main\n' "$SHA" "$SHA" | /opt/git/inogi-ai-office.git/ho
   ```
 
 ## 故障排查
+
+### 发布完成但首页 403，API 正常
+
+先查看 Nginx 错误日志及静态目录权限。构建继承 `umask 077` 时，目录可能为 `700`、文件为 `600`，`rsync -a` / `cp -a` 会保留这些权限，导致 Nginx worker 无法读取。
+
+当前发布脚本在同步后仅将公开静态目录规范为 `755`、文件为 `644`，不跟随子符号链接；设置失败会中止发布。旧版发布发生此问题时，确认 `office.conf` 的 root 是以下目录后恢复：
+
+```bash
+sudo bash <<'EOF'
+set -eu
+web=/usr/share/nginx/html/weoxy-test
+[ "$(readlink -f "$web")" = "$web" ] || exit 1
+[ -f "$web/index.html" ] || exit 1
+stat -c '%a %U:%G %n' "$web" "$web/index.html"
+find -P "$web" -xdev -type d -exec chmod 755 -- {} +
+find -P "$web" -xdev -type f -exec chmod 644 -- {} +
+curl -sS -o /dev/null -w '首页 HTTP %{http_code}\n' https://weoxymedical.com/
+EOF
+```
+
+私密日志需要 `umask 077` 时，保存原 umask，并在打开日志后立即恢复，再启动构建；不要递归修改仓库、`.env` 或备份权限。若仍返回 403，根据 Nginx 错误日志继续检查父目录权限及 SELinux，不以回滚数据库处理静态文件访问问题。
 
 ### 全站 502 / 后端反复重启（`pm2 ls` 的 ↺ 猛涨）
 看日志：`pm2 logs inogi-api --lines 50 --nostream`
